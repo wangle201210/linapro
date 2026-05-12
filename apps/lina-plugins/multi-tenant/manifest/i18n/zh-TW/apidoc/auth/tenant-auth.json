@@ -16,10 +16,12 @@
   "plugins.multi_tenant.api.auth.v1.SelectTenantReq.fields.preToken.dc": "短期預登入權杖",
   "plugins.multi_tenant.api.auth.v1.SelectTenantReq.fields.tenantId.dc": "目標租戶 ID",
   "plugins.multi_tenant.api.auth.v1.SelectTenantRes.fields.accessToken.dc": "租戶綁定權杖",
+  "plugins.multi_tenant.api.auth.v1.SelectTenantRes.fields.refreshToken.dc": "租戶綁定刷新權杖",
   "plugins.multi_tenant.api.auth.v1.SwitchTenantReq.meta.tags": "租戶認證",
   "plugins.multi_tenant.api.auth.v1.SwitchTenantReq.meta.summary": "切換租戶",
   "plugins.multi_tenant.api.auth.v1.SwitchTenantReq.meta.dc": "從目前租戶切換到另一個租戶並請求新的租戶綁定權杖。",
   "plugins.multi_tenant.api.auth.v1.SwitchTenantReq.schema.dc": "從目前租戶切換到另一個租戶並請求新的租戶綁定權杖。",
   "plugins.multi_tenant.api.auth.v1.SwitchTenantReq.fields.tenantId.dc": "目標租戶 ID",
-  "plugins.multi_tenant.api.auth.v1.SwitchTenantRes.fields.accessToken.dc": "租戶綁定權杖"
+  "plugins.multi_tenant.api.auth.v1.SwitchTenantRes.fields.accessToken.dc": "租戶綁定權杖",
+  "plugins.multi_tenant.api.auth.v1.SwitchTenantRes.fields.refreshToken.dc": "租戶綁定刷新權杖"
 }
