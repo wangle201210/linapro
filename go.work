@@ -3,6 +3,7 @@ go 1.26.2
 use (
 	./apps/lina-core
 	./apps/lina-plugins
+	./apps/lina-plugins/cms
 	./apps/lina-plugins/content-notice
 	./apps/lina-plugins/demo-control
 	./apps/lina-plugins/monitor-loginlog

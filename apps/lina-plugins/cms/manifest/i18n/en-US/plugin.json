@@ -1,0 +1,138 @@
+{
+  "plugin": {
+    "cms": {
+      "actions": {
+        "approve": "Approve",
+        "newArticle": "New Article",
+        "newCategory": "New Category",
+        "query": "Query",
+        "refresh": "Refresh",
+        "reject": "Reject",
+        "reset": "Reset",
+        "review": "Review",
+        "save": "Save"
+      },
+      "description": "Official source CMS plugin for site settings, categories, articles, messages, and public content APIs.",
+      "dialogs": {
+        "createArticle": "Create Article",
+        "createCategory": "Create Category",
+        "editArticle": "Edit Article",
+        "editCategory": "Edit Category",
+        "reviewMessage": "Review Message"
+      },
+      "empty": {
+        "articles": "No articles",
+        "categories": "No categories",
+        "messages": "No messages"
+      },
+      "editor": {
+        "actions": {
+          "applySource": "Apply HTML"
+        },
+        "messages": {
+          "imageUploadFailed": "Image upload failed"
+        },
+        "modes": {
+          "source": "HTML Source",
+          "visual": "Visual"
+        },
+        "placeholder": "Please enter content...",
+        "source": {
+          "placeholder": "Paste or edit raw HTML here. The preview on the right renders the same content."
+        }
+      },
+      "contentModels": {
+        "list": "News Content",
+        "single": "Topic Content"
+      },
+      "fields": {
+        "address": "Address",
+        "articleTitle": "Article Title",
+        "author": "Author",
+        "categoryCode": "Category Code",
+        "categoryName": "Category",
+        "categoryType": "Category Type",
+        "contentTemplate": "Content Template",
+        "contact": "Contact",
+        "content": "Content",
+        "cover": "Cover",
+        "description": "Description",
+        "domain": "Domain",
+        "icp": "ICP",
+        "keywords": "Keywords",
+        "listTemplate": "List Template",
+        "logo": "Logo",
+        "messageContent": "Message",
+        "outlink": "External Link",
+        "parentCategory": "Parent Category",
+        "path": "Path",
+        "phone": "Phone",
+        "recommend": "Recommended",
+        "reply": "Reply",
+        "siteName": "Site Name",
+        "slogan": "Slogan",
+        "slug": "Slug",
+        "source": "Source",
+        "subtitle": "Subtitle",
+        "summary": "Summary",
+        "tags": "Tags",
+        "top": "Pinned",
+        "views": "Views",
+        "weixin": "WeChat QR Code",
+        "visitorName": "Visitor"
+      },
+      "metrics": {
+        "articleGlyph": "A",
+        "articleSummary": "{published} published, {draft} drafts",
+        "articles": "Articles",
+        "categories": "Categories",
+        "categoryGlyph": "C",
+        "categorySummary": "{enabled} enabled of {total} categories",
+        "draftArticles": "{count} drafts",
+        "enabledCategories": "{count} enabled categories",
+        "messageGlyph": "M",
+        "messageSummary": "{pending} pending of {total} messages",
+        "pendingMessages": "Pending Messages",
+        "published": "Published",
+        "publishedGlyph": "P"
+      },
+      "messages": {
+        "moderateConfirm": "Update the moderation status for this message?"
+      },
+      "name": "Content - CMS",
+      "overview": {
+        "kicker": "Content operations"
+      },
+      "placeholders": {
+        "articleTitle": "Search article title",
+        "category": "Select category",
+        "messageKeyword": "Search visitor or message",
+        "rootCategory": "Root Category",
+        "status": "Select status"
+      },
+      "sections": {
+        "categoryTree": "Category Structure",
+        "contact": "Contact & Compliance",
+        "contactSubtitle": "Maintain footer, contact entry, and compliance display fields.",
+        "contentLibrary": "Content Library",
+        "contentModules": "Article Content",
+        "contentModulesSubtitle": "Switch by content model or category group.",
+        "messageInbox": "Message Moderation",
+        "siteProfile": "Site Profile",
+        "siteProfileSubtitle": "Maintain public API site details and SEO metadata."
+      },
+      "tabs": {
+        "articles": "Articles",
+        "categories": "Categories",
+        "messages": "Messages",
+        "site": "Site"
+      },
+      "templates": {
+        "detail": "Article Detail (detail.html)",
+        "list": "Standard List (list.html)",
+        "listCard": "Card List (list-card.html)",
+        "single": "Single Page (single.html)"
+      }
+    }
+  }
+}

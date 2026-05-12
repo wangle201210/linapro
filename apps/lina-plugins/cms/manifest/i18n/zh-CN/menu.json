@@ -1,0 +1,40 @@
+{
+  "menu": {
+    "plugin:cms:article:add": {
+      "title": "内容新增"
+    },
+    "plugin:cms:article:edit": {
+      "title": "内容修改"
+    },
+    "plugin:cms:article:query": {
+      "title": "内容查询"
+    },
+    "plugin:cms:article:remove": {
+      "title": "内容删除"
+    },
+    "plugin:cms:category:add": {
+      "title": "栏目新增"
+    },
+    "plugin:cms:category:edit": {
+      "title": "栏目修改"
+    },
+    "plugin:cms:category:query": {
+      "title": "栏目查询"
+    },
+    "plugin:cms:category:remove": {
+      "title": "栏目删除"
+    },
+    "plugin:cms:message:edit": {
+      "title": "留言审核"
+    },
+    "plugin:cms:message:query": {
+      "title": "留言查询"
+    },
+    "plugin:cms:site:edit": {
+      "title": "站点配置维护"
+    },
+    "plugin:cms:workspace": {
+      "title": "CMS 内容站点"
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{{define "head"}}
+<!doctype html>
+<html lang="zh-CN" data-cms-template="html-css">
+<head>
+  <meta charset="utf-8">
+  <title>{cms:pagetitle}</title>
+  <meta name="keywords" content="{cms:pagekeywords}">
+  <meta name="description" content="{cms:pagedescription}">
+  <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,shrink-to-fit=no">
+  <link rel="stylesheet" href="{cms:sitetplpath}/css/yx.css">
+  <link rel="shortcut icon" href="{cms:sitepath}/favicon.ico" type="image/x-icon">
+  <script src="{cms:sitetplpath}/js/jquery-1.12.4.min.js"></script>
+</head>
+<body>
+<div class="top-bar">
+  <div class="container">
+    <a href="{cms:sitepath}/">返回研究院网站</a>
+  </div>
+</div>
+<header class="header">
+  <div class="container">
+    <a href="{cms:sitepath}/" class="brand-link">
+      <img src="{cms:sitelogo}" alt="{cms:companyname}" class="logo-img">
+    </a>
+    <div class="search-box">
+      <form action="{cms:scaction}" method="get">
+        <input type="text" name="keyword" placeholder="输入关键字搜索..." value="{cms:keyword}">
+        <button type="submit">搜索</button>
+      </form>
+    </div>
+  </div>
+</header>
+<nav class="main-nav" data-testid="cms-public-nav">
+  <button class="nav-toggle" id="navToggle">☰ 导航</button>
+  <ul class="container" id="navMenu">
+    <li><a href="{cms:sitepath}/" class="{cms:if(0=='{sort:scode}')}active{/cms:if}">首页</a></li>
+    {cms:nav num=15 parent=0}
+    <li data-testid="cms-public-nav-item">
+      <a href="[nav:link]" class="{cms:if('[nav:scode]'=='{sort:tcode}')}active{/cms:if}" data-testid="cms-public-category-link">[nav:name]</a>
+      {cms:if([nav:soncount]>0)}
+      <ul class="sub-menu" data-testid="cms-public-category-submenu">
+        {cms:2nav parent=[nav:scode]}
+        <li data-testid="cms-public-nav-item">
+          <a href="[2nav:link]" class="{cms:2if('[2nav:scode]'=='{sort:scode}')}active{/cms:2if}" data-testid="cms-public-category-link">[2nav:name]</a>
+          {cms:2if([2nav:soncount]>0)}
+          <ul class="sub-menu" data-testid="cms-public-category-submenu">
+            {cms:3nav parent=[2nav:scode]}
+            <li data-testid="cms-public-nav-item"><a href="[3nav:link]" class="{cms:3if('[3nav:scode]'=='{sort:scode}')}active{/cms:3if}" data-testid="cms-public-category-link">[3nav:name]</a></li>
+            {/cms:3nav}
+          </ul>
+          {/cms:2if}
+        </li>
+        {/cms:2nav}
+      </ul>
+      {/cms:if}
+    </li>
+    {/cms:nav}
+  </ul>
+  <script>
+  $(function(){
+    $('#navMenu li').each(function(){
+      var sub = $(this).children('.sub-menu');
+      if(sub.length && sub.children('li').length){
+        $(this).addClass('has-child');
+      }
+    });
+    $('#navToggle').click(function(){ $('#navMenu').toggleClass('open'); });
+    if($(window).width()<=768){
+      $('#navMenu li.has-child').children('a').on('click', function(e){
+        e.preventDefault();
+        $(this).parent().toggleClass('open').siblings('li.open').removeClass('open');
+      });
+    }
+  });
+  </script>
+</nav>
+{{end}}
+
+{{define "sidebar"}}
+<aside class="sidebar">
+  {cms:sort scode={sort:tcode}}
+  <div class="sidebar-title">[sort:name]</div>
+  {/cms:sort}
+  <div class="sidebar-menu">
+    {cms:nav num=20 parent={sort:tcode}}
+    <a href="[nav:link]" class="{cms:if('[nav:scode]'=='{sort:scode}')}active{/cms:if}" data-testid="cms-public-category-link">[nav:name]</a>
+    {cms:if([nav:soncount]>0)}
+    <div class="sidebar-sub">
+      {cms:2nav parent=[nav:scode]}
+      <a href="[2nav:link]" class="{cms:2if('[2nav:scode]'=='{sort:scode}')}active{/cms:2if}" data-testid="cms-public-category-link">[2nav:name]</a>
+      {/cms:2nav}
+    </div>
+    {/cms:if}
+    {/cms:nav}
+  </div>
+</aside>
+{{end}}
+
+{{define "foot"}}
+<aside class="floating-sidebar" aria-label="微信公众号">
+  <div class="float-box">
+    <img src="{cms:companyweixin}" alt="微信公众号">
+    <p>微信公众号</p>
+  </div>
+</aside>
+<footer>
+  <div class="footer-links">
+    <div class="container">
+      <div class="link-title-row">
+        <span class="link-title">友情链接</span>
+        <span class="link-subtitle">Link Exchange</span>
+      </div>
+      <div class="link-select-row">
+        <div class="link-group">
+          <div class="link-group-title">政府机构</div>
+          <div class="link-group-items">
+            {cms:link num=10 gid=1}
+            <a href="[link:link]" target="_blank">[link:name]</a>
+            {/cms:link}
+          </div>
+        </div>
+        <div class="link-group">
+          <div class="link-group-title">新闻媒体</div>
+          <div class="link-group-items">
+            {cms:link num=10 gid=2}
+            <a href="[link:link]" target="_blank">[link:name]</a>
+            {/cms:link}
+          </div>
+        </div>
+        <div class="link-group">
+          <div class="link-group-title">合作高校与科研平台</div>
+          <div class="link-group-items">
+            {cms:link num=10 gid=3}
+            <a href="[link:link]" target="_blank">[link:name]</a>
+            {/cms:link}
+          </div>
+        </div>
+        <div class="link-group">
+          <div class="link-group-title">科技行业网站</div>
+          <div class="link-group-items">
+            {cms:link num=10 gid=4}
+            <a href="[link:link]" target="_blank">[link:name]</a>
+            {/cms:link}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="container">
+      <div class="footer-info">
+        <p><span class="info-item">地址：{cms:companyaddress}</span><span class="sep">|</span><span class="info-item">联系电话：{cms:companyphone}</span></p>
+        <p>版权所有 &copy; {cms:companyname}</p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script src="{cms:sitetplpath}/js/yx.js"></script>
+</body>
+</html>
+{{end}}
