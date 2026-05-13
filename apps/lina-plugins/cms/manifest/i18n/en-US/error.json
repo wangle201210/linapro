@@ -11,6 +11,9 @@
         },
         "not": {
           "found": "CMS category does not exist"
+        },
+        "parent": {
+          "invalid": "CMS category parent cannot be itself or its descendant"
         }
       },
       "link": {

@@ -1,18 +1,18 @@
 {include file=comm/head.html}
-<link rel="stylesheet" href="{cms:sitetplpath}/css/yx-page.css">
+<link rel="stylesheet" href="{site:assets}/css/yx-page.css">
 <div class="container" data-testid="cms-public-site" data-template="single">
   <div class="breadcrumb">
-    {cms:position separator='<span class="sep">&gt;</span>'}
+    {page:breadcrumb separator='<span class="sep">&gt;</span>'}
   </div>
   <div class="page-content">
-    {include file=comm/sortnav.html}
+    {include file=comm/categorynav.html}
     <div class="content-area">
       <div class="article-detail" data-testid="cms-public-article-detail">
         <div class="article-detail-header">
-          <h1>{content:title}</h1>
+          <h1>{article:title}</h1>
         </div>
         <div class="article-body">
-          {content:content}
+          {article:content}
         </div>
       </div>
     </div>

@@ -161,23 +161,23 @@ const (
 	PublicArticleOrderID PublicArticleOrder = "id"
 	// PublicArticleOrderDate orders published content by publication time.
 	PublicArticleOrderDate PublicArticleOrder = "date"
-	// PublicArticleOrderSorting orders content by the CMS display sort field.
-	PublicArticleOrderSorting PublicArticleOrder = "sorting"
-	// PublicArticleOrderVisits orders content by view count.
-	PublicArticleOrderVisits PublicArticleOrder = "visits"
+	// PublicArticleOrderManual orders content by the CMS manual display order.
+	PublicArticleOrderManual PublicArticleOrder = "manual"
+	// PublicArticleOrderViews orders content by view count.
+	PublicArticleOrderViews PublicArticleOrder = "views"
 )
 
 // NormalizePublicArticleOrder returns a supported public article order value.
 func NormalizePublicArticleOrder(value string) PublicArticleOrder {
-	switch PublicArticleOrder(strings.ToLower(strings.TrimSpace(value))) {
-	case PublicArticleOrderID:
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(PublicArticleOrderID):
 		return PublicArticleOrderID
-	case PublicArticleOrderDate:
+	case string(PublicArticleOrderDate):
 		return PublicArticleOrderDate
-	case PublicArticleOrderSorting:
-		return PublicArticleOrderSorting
-	case PublicArticleOrderVisits:
-		return PublicArticleOrderVisits
+	case string(PublicArticleOrderManual):
+		return PublicArticleOrderManual
+	case string(PublicArticleOrderViews):
+		return PublicArticleOrderViews
 	default:
 		return PublicArticleOrderDefault
 	}
@@ -429,6 +429,9 @@ func (s *serviceImpl) CreateCategory(ctx context.Context, in CategorySaveInput) 
 	if err := s.ensureCategoryCodeAvailable(ctx, in.Code, 0); err != nil {
 		return 0, err
 	}
+	if err := s.ensureCategoryParentAvailable(ctx, 0, in.ParentId); err != nil {
+		return 0, err
+	}
 	userID := s.currentUserID(ctx)
 	return dao.CmsCategory.Ctx(ctx).Data(do.CmsCategory{
 		ParentId:        in.ParentId,
@@ -457,6 +460,9 @@ func (s *serviceImpl) UpdateCategory(ctx context.Context, in CategorySaveInput) 
 		return err
 	}
 	if err := s.ensureCategoryCodeAvailable(ctx, in.Code, in.Id); err != nil {
+		return err
+	}
+	if err := s.ensureCategoryParentAvailable(ctx, in.Id, in.ParentId); err != nil {
 		return err
 	}
 	_, err := dao.CmsCategory.Ctx(ctx).
@@ -1008,12 +1014,18 @@ func (s *serviceImpl) categoryIDsForArticleFilter(
 	}
 	ids := []int64{categoryID}
 	queue := []int64{categoryID}
+	visited := map[int64]struct{}{categoryID: {}}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		children := childrenByParent[current]
-		ids = append(ids, children...)
-		queue = append(queue, children...)
+		for _, childID := range childrenByParent[current] {
+			if _, ok := visited[childID]; ok {
+				continue
+			}
+			visited[childID] = struct{}{}
+			ids = append(ids, childID)
+			queue = append(queue, childID)
+		}
 	}
 	return ids, nil
 }
@@ -1055,14 +1067,14 @@ func (s *serviceImpl) applyPublicArticleOrder(model *gdb.Model, order PublicArti
 			OrderDesc(columns.IsRecommend).
 			OrderAsc(columns.Sort).
 			OrderDesc(columns.Id)
-	case PublicArticleOrderSorting:
+	case PublicArticleOrderManual:
 		return model.
 			OrderAsc(columns.Sort).
 			OrderDesc(columns.IsTop).
 			OrderDesc(columns.IsRecommend).
 			OrderDesc(columns.PublishedAt).
 			OrderDesc(columns.Id)
-	case PublicArticleOrderVisits:
+	case PublicArticleOrderViews:
 		return model.
 			OrderDesc(columns.Views).
 			OrderDesc(columns.IsTop).
@@ -1196,6 +1208,53 @@ func (s *serviceImpl) ensureCategoryCodeAvailable(ctx context.Context, code stri
 	}
 	if count > 0 {
 		return bizerr.NewCode(CodeCategoryCodeExists)
+	}
+	return nil
+}
+
+// ensureCategoryParentAvailable verifies a category parent exists and cannot
+// point to itself or any existing descendant.
+func (s *serviceImpl) ensureCategoryParentAvailable(ctx context.Context, categoryID int64, parentID int64) error {
+	if parentID <= 0 {
+		return nil
+	}
+	if categoryID > 0 && parentID == categoryID {
+		return bizerr.NewCode(CodeCategoryParentInvalid)
+	}
+	if err := s.ensureCategoryExists(ctx, parentID); err != nil {
+		return err
+	}
+	if categoryID <= 0 {
+		return nil
+	}
+
+	columns := dao.CmsCategory.Columns()
+	categories := make([]*entitymodel.CmsCategory, 0)
+	if err := dao.CmsCategory.Ctx(ctx).
+		Fields(columns.Id, columns.ParentId).
+		Scan(&categories); err != nil {
+		return err
+	}
+	parentByID := make(map[int64]int64, len(categories))
+	for _, category := range categories {
+		if category == nil {
+			continue
+		}
+		parentByID[category.Id] = category.ParentId
+	}
+
+	visited := make(map[int64]struct{}, len(categories))
+	for currentID := parentID; currentID > 0; currentID = parentByID[currentID] {
+		if currentID == categoryID {
+			return bizerr.NewCode(CodeCategoryParentInvalid)
+		}
+		if _, ok := visited[currentID]; ok {
+			return bizerr.NewCode(CodeCategoryParentInvalid)
+		}
+		visited[currentID] = struct{}{}
+		if _, ok := parentByID[currentID]; !ok {
+			return nil
+		}
 	}
 	return nil
 }

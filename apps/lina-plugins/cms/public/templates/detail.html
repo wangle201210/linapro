@@ -1,30 +1,30 @@
 {include file=comm/head.html}
-<link rel="stylesheet" href="{cms:sitetplpath}/css/yx-page.css">
+<link rel="stylesheet" href="{site:assets}/css/yx-page.css">
 <div class="container" data-testid="cms-public-site" data-template="detail">
   <div class="breadcrumb">
-    {cms:position separator='<span class="sep">&gt;</span>'}
+    {page:breadcrumb separator='<span class="sep">&gt;</span>'}
   </div>
   <div class="page-content">
-    {include file=comm/sortnav.html}
+    {include file=comm/categorynav.html}
     <div class="content-area">
       <div class="article-detail" data-testid="cms-public-article-detail">
         <div class="article-detail-header">
-          <h1>{content:title}</h1>
+          <h1>{article:title}</h1>
           <div class="article-meta">
-            <span>发布时间：{content:date style=Y-m-d}</span>
-            <span>来源：{cms:companyname}</span>
-            <span>浏览：{content:visits}次</span>
+            <span>发布时间：{article:date style=Y-m-d}</span>
+            <span>来源：{site:name}</span>
+            <span>浏览：{article:views}次</span>
           </div>
         </div>
         <div class="article-body">
-          {content:content}
+          {article:content}
         </div>
         <div class="article-nav">
-          <div>上一篇：{content:precontent}</div>
-          <div>下一篇：{content:nextcontent}</div>
+          <div>上一篇：{article:previous}</div>
+          <div>下一篇：{article:next}</div>
         </div>
       </div>
-      <a href="{sort:link}" class="back-to-list">返回列表</a>
+      <a href="{category:link}" class="back-to-list">返回列表</a>
     </div>
   </div>
 </div>

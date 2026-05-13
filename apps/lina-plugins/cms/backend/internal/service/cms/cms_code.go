@@ -39,6 +39,12 @@ var (
 		"CMS category code already exists",
 		gcode.CodeInvalidParameter,
 	)
+	// CodeCategoryParentInvalid reports that a CMS category parent would create a cycle.
+	CodeCategoryParentInvalid = bizerr.MustDefine(
+		"CMS_CATEGORY_PARENT_INVALID",
+		"CMS category parent cannot be itself or its descendant",
+		gcode.CodeInvalidParameter,
+	)
 	// CodeArticleNotFound reports that a CMS article does not exist or is not publicly visible.
 	CodeArticleNotFound = bizerr.MustDefine(
 		"CMS_ARTICLE_NOT_FOUND",

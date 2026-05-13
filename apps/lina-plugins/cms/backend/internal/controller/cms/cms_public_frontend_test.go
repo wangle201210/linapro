@@ -13,10 +13,10 @@ import (
 	cmssvc "lina-plugin-cms/backend/internal/service/cms"
 )
 
-// TestPublicFrontendListNumLimitsRenderedItems verifies cms:list num limits
+// TestPublicFrontendListLimitLimitsRenderedItems verifies cms:list limit controls
 // rendered article items instead of falling back to the default page size.
-func TestPublicFrontendListNumLimitsRenderedItems(t *testing.T) {
-	const source = `{cms:list num=5 order=date}<span data-testid="item">[list:title]</span>{/cms:list}`
+func TestPublicFrontendListLimitLimitsRenderedItems(t *testing.T) {
+	const source = `{cms:list limit=5 order=date}<span data-testid="item">[list:title]</span>{/cms:list}`
 
 	compiled := compilePublicFrontendTemplate(source, publicFrontendRootScope)
 	tpl, err := template.New("case").Funcs(template.FuncMap{
@@ -41,14 +41,14 @@ func TestPublicFrontendListNumLimitsRenderedItems(t *testing.T) {
 		t.Fatalf("expected 5 rendered articles, got %d in %s", count, html)
 	}
 	if strings.Contains(html, "Article 6") {
-		t.Fatalf("expected article beyond num limit to be hidden, got %s", html)
+		t.Fatalf("expected article beyond limit to be hidden, got %s", html)
 	}
 }
 
 // TestPublicFrontendSearchLoopCompiles verifies cms:search renders the public
 // search result article tags with the same article projection as list loops.
 func TestPublicFrontendSearchLoopCompiles(t *testing.T) {
-	const source = `{cms:search num=2 order=date}<a href="[search:link]" data-testid="item">[search:title]<em>[search:preview]</em></a>{/cms:search}`
+	const source = `{cms:search limit=2 order=date}<a href="[search:link]" data-testid="item">[search:title]<em>[search:preview]</em></a>{/cms:search}`
 
 	compiled := compilePublicFrontendTemplate(source, publicFrontendRootScope)
 	tpl, err := template.New("case").Funcs(template.FuncMap{
@@ -73,17 +73,59 @@ func TestPublicFrontendSearchLoopCompiles(t *testing.T) {
 		t.Fatalf("expected 2 rendered search results, got %d in %s", count, html)
 	}
 	if strings.Contains(html, "Third") {
-		t.Fatalf("expected search result beyond num limit to be hidden, got %s", html)
+		t.Fatalf("expected search result beyond limit to be hidden, got %s", html)
 	}
 	if !strings.Contains(html, `<mark>关键词</mark>`) {
 		t.Fatalf("expected search preview markup to render, got %s", html)
 	}
 }
 
+// TestPublicFrontendCategoryTagsCompile verifies category semantics use
+// category-named tags throughout current-category rendering.
+func TestPublicFrontendCategoryTagsCompile(t *testing.T) {
+	const source = `{cms:category code={category:topcode}}<strong>[category:name]</strong>{/cms:category}<a href="{category:link}">{category:name}</a>{cms:search limit=1}<span>[search:category]</span>{/cms:search}`
+
+	compiled := compilePublicFrontendTemplate(source, publicFrontendRootScope)
+	tpl, err := template.New("case").Funcs(template.FuncMap{
+		"cmsCategoryByCode":   publicFrontendCategoryByCode,
+		"cmsLimit":            publicFrontendLimit,
+		"cmsOrderArticles":    publicFrontendOrderArticles,
+		"cmsRootCategory":     publicFrontendRootCategory,
+		"cmsCategoryArticles": publicFrontendCategoryArticles,
+	}).Parse(compiled)
+	if err != nil {
+		t.Fatalf("parse compiled public frontend category template: %v", err)
+	}
+
+	root := &publicFrontendCategory{Code: "root", Href: "/cms-site?category=root", Name: "根栏目"}
+	child := &publicFrontendCategory{Code: "child", Href: "/cms-site?category=child", Name: "子栏目", Parent: root}
+	root.Children = []*publicFrontendCategory{child}
+	view := &publicFrontendView{
+		Categories:      []*publicFrontendCategory{root, child},
+		CurrentCategory: child,
+		Articles:        []*publicFrontendArticle{{CategoryName: "新闻动态"}},
+	}
+
+	var buffer bytes.Buffer
+	if err = tpl.Execute(&buffer, view); err != nil {
+		t.Fatalf("execute compiled public frontend category template: %v", err)
+	}
+	html := buffer.String()
+	if !strings.Contains(html, "<strong>根栏目</strong>") {
+		t.Fatalf("expected category loop to render root category name, got %s", html)
+	}
+	if !strings.Contains(html, `<a href="/cms-site?category=child">子栏目</a>`) {
+		t.Fatalf("expected current category tag output, got %s", html)
+	}
+	if !strings.Contains(html, "<span>新闻动态</span>") {
+		t.Fatalf("expected article category name output, got %s", html)
+	}
+}
+
 // TestPublicFrontendSearchActionTargetsSearchPage verifies public templates
 // submit keyword searches to the dedicated search result page.
 func TestPublicFrontendSearchActionTargetsSearchPage(t *testing.T) {
-	compiled := compilePublicFrontendTemplate(`<form action="{cms:scaction}"></form>`, publicFrontendRootScope)
+	compiled := compilePublicFrontendTemplate(`<form action="{search:action}"></form>`, publicFrontendRootScope)
 	if !strings.Contains(compiled, `action="/cms-site/search"`) {
 		t.Fatalf("expected search action to target /cms-site/search, got %s", compiled)
 	}

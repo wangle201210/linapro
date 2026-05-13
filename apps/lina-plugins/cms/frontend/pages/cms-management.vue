@@ -63,6 +63,12 @@ import {
   cmsSlideUpdate,
 } from "./cms-client";
 
+type SelectNumberOption = {
+  disabled?: boolean;
+  label: string;
+  value: number;
+};
+
 const dictStore = useDictStore();
 const activeTab = ref("site");
 const dashboardLoading = ref(false);
@@ -211,7 +217,13 @@ const CategoryTypeList = 1;
 const CategoryTypeSingle = 2;
 const CategoryTypeExternal = 3;
 
-const categoryOptions = computed(() => flattenCategories(categoryRows.value));
+const categoryOptions = computed(() =>
+  flattenCategories(
+    categoryRows.value,
+    "",
+    categoryModalMode.value === "update" ? categoryForm.id : undefined,
+  ),
+);
 const articleCategoryOptions = computed(() =>
   flattenCategories(
     categoryRows.value.filter(
@@ -573,17 +585,26 @@ function countCategoriesByType(categories: Category[], type: number) {
   return countCategories(categories, (category) => category.type === type);
 }
 
-function flattenCategories(categories: Category[], prefix = "") {
-  const items: { label: string; value: number }[] = [
+function flattenCategories(
+  categories: Category[],
+  prefix = "",
+  disabledRootId?: number,
+) {
+  const items: SelectNumberOption[] = [
     { label: $t("plugin.cms.placeholders.rootCategory"), value: 0 },
   ];
 
-  function visit(nodes: Category[], parentPath: string) {
+  function visit(
+    nodes: Category[],
+    parentPath: string,
+    disabledAncestor = false,
+  ) {
     for (const node of nodes) {
       const label = parentPath ? `${parentPath} / ${node.name}` : node.name;
-      items.push({ label, value: node.id });
+      const disabled = disabledAncestor || node.id === disabledRootId;
+      items.push({ disabled, label, value: node.id });
       if (node.children?.length) {
-        visit(node.children, label);
+        visit(node.children, label, disabled);
       }
     }
   }

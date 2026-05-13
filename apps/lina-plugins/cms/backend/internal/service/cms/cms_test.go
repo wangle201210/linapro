@@ -199,13 +199,85 @@ func TestListArticlesIncludesChildCategories(t *testing.T) {
 	}
 }
 
-// TestListPublicArticlesOrderSorting verifies public templates can request
-// sorting order before pagination is applied.
-func TestListPublicArticlesOrderSorting(t *testing.T) {
+// TestUpdateCategoryRejectsParentCycle verifies category updates cannot assign
+// a descendant as the parent category.
+func TestUpdateCategoryRejectsParentCycle(t *testing.T) {
 	ctx := context.Background()
 	setupSQLiteCMSDB(t, ctx)
 
-	categoryID := insertCMSCategory(t, ctx, "sorting", StatusEnabled)
+	parentID := insertCMSCategoryWithOptions(t, ctx, cmsCategoryOptions{
+		code:   "cycle-parent",
+		status: StatusEnabled,
+		typeID: CategoryTypeList,
+	})
+	childID := insertCMSCategoryWithOptions(t, ctx, cmsCategoryOptions{
+		code:     "cycle-child",
+		parentID: parentID,
+		status:   StatusEnabled,
+		typeID:   CategoryTypeList,
+	})
+
+	err := New().UpdateCategory(ctx, CategorySaveInput{
+		Id:       parentID,
+		ParentId: childID,
+		Code:     "cycle-parent",
+		Name:     "cycle-parent",
+		Type:     CategoryTypeList,
+		Status:   StatusEnabled,
+	})
+	if !bizerr.Is(err, CodeCategoryParentInvalid) {
+		t.Fatalf("expected category parent invalid error, got %v", err)
+	}
+}
+
+// TestListArticlesIncludeChildrenSkipsCategoryCycles verifies article filters
+// still terminate if existing category data is already corrupted.
+func TestListArticlesIncludeChildrenSkipsCategoryCycles(t *testing.T) {
+	ctx := context.Background()
+	setupSQLiteCMSDB(t, ctx)
+
+	parentID := insertCMSCategoryWithOptions(t, ctx, cmsCategoryOptions{
+		code:   "corrupt-parent",
+		status: StatusEnabled,
+		typeID: CategoryTypeList,
+	})
+	childID := insertCMSCategoryWithOptions(t, ctx, cmsCategoryOptions{
+		code:     "corrupt-child",
+		parentID: parentID,
+		status:   StatusEnabled,
+		typeID:   CategoryTypeList,
+	})
+	insertCMSArticle(t, ctx, childID, "corrupt-child-news", ArticleStatusPublished)
+
+	columns := dao.CmsCategory.Columns()
+	if _, err := dao.CmsCategory.Ctx(ctx).
+		Where(columns.Id, parentID).
+		Data(do.CmsCategory{ParentId: childID}).
+		Update(); err != nil {
+		t.Fatalf("create corrupt CMS category cycle: %v", err)
+	}
+
+	out, err := New().ListArticles(ctx, ArticleListInput{
+		CategoryId:      parentID,
+		IncludeChildren: true,
+		PageNum:         1,
+		PageSize:        20,
+	})
+	if err != nil {
+		t.Fatalf("list CMS category group articles with corrupt cycle: %v", err)
+	}
+	if out.Total != 1 || out.List[0].Slug != "corrupt-child-news" {
+		t.Fatalf("expected child category content from cyclic parent filter, got total=%d list=%v", out.Total, out.List)
+	}
+}
+
+// TestListPublicArticlesOrderManual verifies public templates can request
+// manual order before pagination is applied.
+func TestListPublicArticlesOrderManual(t *testing.T) {
+	ctx := context.Background()
+	setupSQLiteCMSDB(t, ctx)
+
+	categoryID := insertCMSCategory(t, ctx, "manual", StatusEnabled)
 	insertCMSArticleWithOptions(t, ctx, cmsArticleOptions{
 		categoryID:  categoryID,
 		slug:        "late",
@@ -232,16 +304,27 @@ func TestListPublicArticlesOrderSorting(t *testing.T) {
 		PageNum:    1,
 		PageSize:   2,
 		CategoryId: categoryID,
-		Order:      PublicArticleOrderSorting,
+		Order:      PublicArticleOrderManual,
 	})
 	if err != nil {
-		t.Fatalf("list public CMS articles by sorting: %v", err)
+		t.Fatalf("list public CMS articles by manual order: %v", err)
 	}
 	if out.Total != 3 || len(out.List) != 2 {
 		t.Fatalf("expected first page of three public articles, got total=%d len=%d", out.Total, len(out.List))
 	}
 	if out.List[0].Slug != "first" || out.List[1].Slug != "second" {
-		t.Fatalf("expected sorting order before pagination, got %q then %q", out.List[0].Slug, out.List[1].Slug)
+		t.Fatalf("expected manual order before pagination, got %q then %q", out.List[0].Slug, out.List[1].Slug)
+	}
+}
+
+// TestNormalizePublicArticleOrderAcceptsTemplateValues verifies documented
+// template order values map directly to service order values.
+func TestNormalizePublicArticleOrderAcceptsTemplateValues(t *testing.T) {
+	if got := NormalizePublicArticleOrder("manual"); got != PublicArticleOrderManual {
+		t.Fatalf("expected manual order value, got %q", got)
+	}
+	if got := NormalizePublicArticleOrder("views"); got != PublicArticleOrderViews {
+		t.Fatalf("expected views order value, got %q", got)
 	}
 }
 

@@ -10,7 +10,7 @@ type PublicArticleListReq struct {
 	PageNum    int    `json:"pageNum" d:"1" v:"min:1" dc:"Page number" eg:"1"`
 	PageSize   int    `json:"pageSize" d:"10" v:"min:1|max:100" dc:"Number of items per page" eg:"10"`
 	CategoryId int64  `json:"categoryId" dc:"Filter by category ID" eg:"1"`
-	Keyword    string `json:"keyword" dc:"Filter by title, summary, or tags" eg:"LinaPro"`
+	Keyword    string `json:"keyword" dc:"Filter by title, subtitle, summary, body, tags, SEO keywords, or SEO description" eg:"LinaPro"`
 }
 
 // PublicArticleListRes defines the public response for reading published articles.

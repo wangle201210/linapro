@@ -39,7 +39,6 @@ const (
 	publicFrontendDetailName   = "detail.html"
 	publicFrontendMessageName  = "message.html"
 	publicFrontendPageSize     = 12
-	publicFrontendHomeSections = 6
 	publicFrontendMaxLoopSize  = 100
 	publicFrontendPreviewRunes = 96
 	publicFrontendPreviewLead  = 36
@@ -48,8 +47,8 @@ const (
 
 var (
 	publicFrontendIncludePattern    = regexp.MustCompile(`\{include\s+file=([^}]+)\}`)
-	publicFrontendLoopStartPattern  = regexp.MustCompile(`\{cms:([0-9]*)(nav|list|search|slide|link|sort|homeSection)((?:[^{}]|\{(?:sort|content|nav|2nav|3nav|list|search):[^}]+\})*)\}`)
-	publicFrontendIfStartPattern    = regexp.MustCompile(`\{cms:([0-9]*)if\(([^)]*)\)\}`)
+	publicFrontendLoopStartPattern  = regexp.MustCompile(`\{cms:(nav|children|grandchildren|list|search|slide|link|category)((?:[^{}]|\{(?:category|article|nav|child|grandchild|list|search):[^}]+\})*)\}`)
+	publicFrontendIfStartPattern    = regexp.MustCompile(`\{cms:if\(([^)]*)\)\}`)
 	publicFrontendScriptPattern     = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
 	publicFrontendStylePattern      = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 	publicFrontendHTMLTagPattern    = regexp.MustCompile(`(?s)<[^>]+>`)
@@ -76,33 +75,31 @@ var publicFrontendTemplateCache = struct {
 type publicFrontendTemplateScope string
 
 const (
-	publicFrontendRootScope        publicFrontendTemplateScope = "root"
-	publicFrontendNavScope         publicFrontendTemplateScope = "nav"
-	publicFrontendSecondNavScope   publicFrontendTemplateScope = "2nav"
-	publicFrontendThirdNavScope    publicFrontendTemplateScope = "3nav"
-	publicFrontendListScope        publicFrontendTemplateScope = "list"
-	publicFrontendSearchScope      publicFrontendTemplateScope = "search"
-	publicFrontendSlideScope       publicFrontendTemplateScope = "slide"
-	publicFrontendLinkScope        publicFrontendTemplateScope = "link"
-	publicFrontendSortScope        publicFrontendTemplateScope = "sort"
-	publicFrontendHomeSectionScope publicFrontendTemplateScope = "homeSection"
+	publicFrontendRootScope       publicFrontendTemplateScope = "root"
+	publicFrontendNavScope        publicFrontendTemplateScope = "nav"
+	publicFrontendChildNavScope   publicFrontendTemplateScope = "child"
+	publicFrontendGrandchildScope publicFrontendTemplateScope = "grandchild"
+	publicFrontendListScope       publicFrontendTemplateScope = "list"
+	publicFrontendSearchScope     publicFrontendTemplateScope = "search"
+	publicFrontendSlideScope      publicFrontendTemplateScope = "slide"
+	publicFrontendLinkScope       publicFrontendTemplateScope = "link"
+	publicFrontendCategoryScope   publicFrontendTemplateScope = "category"
 )
 
 // publicFrontendLoopAttrs contains parsed CMS loop tag attributes.
 type publicFrontendLoopAttrs struct {
-	Num      int                       // Num limits the number of items rendered by one loop.
-	Scode    string                    // Scode filters a content loop by category code.
+	Limit    int                       // Limit controls the number of items rendered by one loop.
+	Code     string                    // Code filters a content loop by category code.
 	Parent   string                    // Parent filters a navigation loop by parent category code.
-	Gid      string                    // Gid filters grouped slides and friendly links.
+	Group    string                    // Group filters grouped slides and friendly links.
 	Order    cmssvc.PublicArticleOrder // Order captures the template-requested order strategy.
 	ParentID int64                     // ParentID is the numeric form of Parent when present.
 }
 
 // publicFrontendTextAttrs contains parsed text tag modifiers.
 type publicFrontendTextAttrs struct {
-	Len   int    // Len truncates by rune count.
-	LenCn int    // LenCn truncates by Chinese display-width units.
-	More  string // More is the suffix appended after truncated text.
+	Length int    // Length truncates by Chinese display-width units.
+	More   string // More is the suffix appended after truncated text.
 }
 
 // publicFrontendView is the data model rendered into the public HTML template.
@@ -111,7 +108,6 @@ type publicFrontendView struct {
 	Categories        []*publicFrontendCategory
 	NavCategories     []*publicFrontendCategory
 	Articles          []*publicFrontendArticle
-	HomeSections      []*publicFrontendSection
 	CurrentCategory   *publicFrontendCategory
 	CurrentArticle    *publicFrontendArticle
 	PrimarySlide      *publicFrontendSlide
@@ -205,12 +201,6 @@ type publicFrontendLink struct {
 	Url   string
 	Logo  string
 	Group string
-}
-
-// publicFrontendSection is one homepage category block.
-type publicFrontendSection struct {
-	Category *publicFrontendCategory
-	Articles []*publicFrontendArticle
 }
 
 // PublicFrontendPage renders the CMS public site as a standalone HTML page.
@@ -425,8 +415,8 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 	listAttrs := publicFrontendTemplateArticleAttrs(templateName, listScope)
 	listPageSize := publicFrontendLoopLimit(listScope, listAttrs)
 	searchCategoryResolved := true
-	if isSearchPage && listAttrs.Scode != "" {
-		category := findPublicFrontendCategoryByCode(view.Categories, listAttrs.Scode)
+	if isSearchPage && listAttrs.Code != "" {
+		category := findPublicFrontendCategoryByCode(view.Categories, listAttrs.Code)
 		searchCategoryResolved = category != nil
 		if category != nil {
 			categoryID = category.Id
@@ -514,11 +504,6 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 			}
 			return view, nil
 		}
-		homeSections, err := c.buildPublicFrontendHomeSections(ctx, view.NavCategories)
-		if err != nil {
-			return nil, err
-		}
-		view.HomeSections = homeSections
 		return view, nil
 	}
 
@@ -621,35 +606,6 @@ func (c *ControllerV1) buildPublicFrontendBaseView(
 	}, nil
 }
 
-// buildPublicFrontendHomeSections returns CMS-style homepage category blocks.
-func (c *ControllerV1) buildPublicFrontendHomeSections(
-	ctx context.Context,
-	categories []*publicFrontendCategory,
-) ([]*publicFrontendSection, error) {
-	sections := make([]*publicFrontendSection, 0, publicFrontendHomeSections)
-	for _, category := range categories {
-		if category == nil || category.External || category.Depth > 0 {
-			continue
-		}
-		page, err := c.cmsSvc.ListPublicArticles(ctx, cmssvc.PublicArticleListInput{
-			PageNum:    1,
-			PageSize:   publicFrontendMaxLoopSize,
-			CategoryId: category.Id,
-		})
-		if err != nil {
-			return nil, err
-		}
-		sections = append(sections, &publicFrontendSection{
-			Category: category,
-			Articles: mapPublicFrontendArticles(page.List, false),
-		})
-		if len(sections) >= publicFrontendMaxLoopSize {
-			break
-		}
-	}
-	return sections, nil
-}
-
 // publicFrontendSearchPageTitle returns the page title for public search
 // results.
 func publicFrontendSearchPageTitle(keyword string) string {
@@ -677,8 +633,7 @@ func publicFrontendTemplate() (*template.Template, error) {
 			"cmsLimit":            publicFrontendLimit,
 			"cmsOrderArticles":    publicFrontendOrderArticles,
 			"cmsRootCategory":     publicFrontendRootCategory,
-			"cmsTextLen":          publicFrontendTextLen,
-			"cmsTextLenCn":        publicFrontendTextLenCn,
+			"cmsTextLength":       publicFrontendTextLength,
 			"safeHTML":            func(value template.HTML) template.HTML { return value },
 		})
 		for _, match := range matches {
@@ -715,17 +670,16 @@ func replacePublicFrontendLoops(content string) string {
 		if loc == nil {
 			return content
 		}
-		level := content[loc[2]:loc[3]]
-		name := content[loc[4]:loc[5]]
-		attrs := publicFrontendParseLoopAttrs(content[loc[6]:loc[7]])
-		closeTag := "{/cms:" + level + name + "}"
+		name := content[loc[2]:loc[3]]
+		attrs := publicFrontendParseLoopAttrs(content[loc[4]:loc[5]])
+		closeTag := "{/cms:" + name + "}"
 		closeIndex := strings.Index(content[loc[1]:], closeTag)
 		if closeIndex < 0 {
 			return content
 		}
 		bodyStart := loc[1]
 		bodyEnd := loc[1] + closeIndex
-		loopScope := publicFrontendLoopScope(level, name)
+		loopScope := publicFrontendLoopScope(name)
 		body := compilePublicFrontendTemplate(content[bodyStart:bodyEnd], loopScope)
 		compiled := publicFrontendLoopTemplate(loopScope, attrs, body)
 		content = content[:loc[0]] + compiled + content[bodyEnd+len(closeTag):]
@@ -735,13 +689,13 @@ func replacePublicFrontendLoops(content string) string {
 // replacePublicFrontendIfs compiles conditional block tags from inside out.
 func replacePublicFrontendIfs(content string, scope publicFrontendTemplateScope) string {
 	for {
-		loc := publicFrontendIfStartPattern.FindStringSubmatchIndex(content)
-		if loc == nil {
+		matches := publicFrontendIfStartPattern.FindAllStringSubmatchIndex(content, -1)
+		if len(matches) == 0 {
 			return content
 		}
-		level := content[loc[2]:loc[3]]
-		expression := content[loc[4]:loc[5]]
-		closeTag := "{/cms:" + level + "if}"
+		loc := matches[len(matches)-1]
+		expression := content[loc[2]:loc[3]]
+		closeTag := "{/cms:if}"
 		closeIndex := strings.Index(content[loc[1]:], closeTag)
 		if closeIndex < 0 {
 			return content
@@ -771,7 +725,7 @@ func replacePublicFrontendIncludes(content string) string {
 			return `{{template "head" .}}`
 		case "foot.html":
 			return `{{template "foot" .}}`
-		case "sidebar.html", "sortnav.html":
+		case "sidebar.html", "categorynav.html":
 			return `{{template "sidebar" .}}`
 		default:
 			name := strings.TrimSuffix(path.Base(fileName), path.Ext(fileName))
@@ -784,17 +738,14 @@ func replacePublicFrontendIncludes(content string) string {
 }
 
 // publicFrontendLoopScope returns the item scope used inside a CMS loop.
-func publicFrontendLoopScope(level string, name string) publicFrontendTemplateScope {
+func publicFrontendLoopScope(name string) publicFrontendTemplateScope {
 	switch name {
 	case "nav":
-		switch level {
-		case "2":
-			return publicFrontendSecondNavScope
-		case "3":
-			return publicFrontendThirdNavScope
-		default:
-			return publicFrontendNavScope
-		}
+		return publicFrontendNavScope
+	case "children":
+		return publicFrontendChildNavScope
+	case "grandchildren":
+		return publicFrontendGrandchildScope
 	case "list":
 		return publicFrontendListScope
 	case "search":
@@ -803,16 +754,14 @@ func publicFrontendLoopScope(level string, name string) publicFrontendTemplateSc
 		return publicFrontendSlideScope
 	case "link":
 		return publicFrontendLinkScope
-	case "sort":
-		return publicFrontendSortScope
-	case "homeSection":
-		return publicFrontendHomeSectionScope
+	case "category":
+		return publicFrontendCategoryScope
 	default:
 		return publicFrontendRootScope
 	}
 }
 
-// publicFrontendParseLoopAttrs parses CMS loop attributes such as num=5.
+// publicFrontendParseLoopAttrs parses CMS loop attributes such as limit=5.
 func publicFrontendParseLoopAttrs(raw string) publicFrontendLoopAttrs {
 	attrs := publicFrontendLoopAttrs{}
 	for _, field := range strings.Fields(strings.TrimSpace(raw)) {
@@ -823,20 +772,20 @@ func publicFrontendParseLoopAttrs(raw string) publicFrontendLoopAttrs {
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
 		switch key {
-		case "num":
-			num, err := strconv.Atoi(value)
-			if err == nil && num > 0 {
-				attrs.Num = publicFrontendClampLoopLimit(num)
+		case "limit":
+			limit, err := strconv.Atoi(value)
+			if err == nil && limit > 0 {
+				attrs.Limit = publicFrontendClampLoopLimit(limit)
 			}
-		case "scode":
-			attrs.Scode = strings.TrimSpace(value)
+		case "code":
+			attrs.Code = strings.TrimSpace(value)
 		case "parent":
 			attrs.Parent = strings.TrimSpace(value)
 			if parentID, err := strconv.ParseInt(attrs.Parent, 10, 64); err == nil && parentID > 0 {
 				attrs.ParentID = parentID
 			}
-		case "gid":
-			attrs.Gid = strings.TrimSpace(value)
+		case "group":
+			attrs.Group = strings.TrimSpace(value)
 		case "order":
 			attrs.Order = cmssvc.NormalizePublicArticleOrder(value)
 		default:
@@ -846,7 +795,7 @@ func publicFrontendParseLoopAttrs(raw string) publicFrontendLoopAttrs {
 	return attrs
 }
 
-// publicFrontendParseTextAttrs parses CMS text modifiers such as lencn=18.
+// publicFrontendParseTextAttrs parses CMS text modifiers such as length=18.
 func publicFrontendParseTextAttrs(raw string) publicFrontendTextAttrs {
 	attrs := publicFrontendTextAttrs{More: publicFrontendTextMore}
 	for _, field := range strings.Fields(strings.TrimSpace(raw)) {
@@ -857,15 +806,10 @@ func publicFrontendParseTextAttrs(raw string) publicFrontendTextAttrs {
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
 		switch key {
-		case "len":
+		case "length":
 			length, err := strconv.Atoi(value)
 			if err == nil && length > 0 {
-				attrs.Len = length
-			}
-		case "lencn":
-			length, err := strconv.Atoi(value)
-			if err == nil && length > 0 {
-				attrs.LenCn = length
+				attrs.Length = length
 			}
 		case "more":
 			attrs.More = value
@@ -889,14 +833,12 @@ func publicFrontendClampLoopLimit(value int) int {
 
 // publicFrontendLoopLimit returns the effective loop item limit.
 func publicFrontendLoopLimit(scope publicFrontendTemplateScope, attrs publicFrontendLoopAttrs) int {
-	if attrs.Num > 0 {
-		return attrs.Num
+	if attrs.Limit > 0 {
+		return attrs.Limit
 	}
 	switch scope {
 	case publicFrontendListScope, publicFrontendSearchScope:
 		return publicFrontendPageSize
-	case publicFrontendHomeSectionScope:
-		return publicFrontendHomeSections
 	default:
 		return 0
 	}
@@ -910,16 +852,16 @@ func publicFrontendTemplateArticleAttrs(
 ) publicFrontendLoopAttrs {
 	content, err := cmsplugin.EmbeddedFiles.ReadFile(path.Join("public/templates", templateFileName))
 	if err != nil {
-		return publicFrontendLoopAttrs{Num: publicFrontendPageSize}
+		return publicFrontendLoopAttrs{Limit: publicFrontendPageSize}
 	}
 	matches := publicFrontendLoopStartPattern.FindAllStringSubmatch(string(content), -1)
 	for _, match := range matches {
-		if len(match) < 4 || publicFrontendLoopScope(match[1], match[2]) != scope {
+		if len(match) < 3 || publicFrontendLoopScope(match[1]) != scope {
 			continue
 		}
-		return publicFrontendParseLoopAttrs(match[3])
+		return publicFrontendParseLoopAttrs(match[2])
 	}
-	return publicFrontendLoopAttrs{Num: publicFrontendPageSize}
+	return publicFrontendLoopAttrs{Limit: publicFrontendPageSize}
 }
 
 // publicFrontendTemplateListAttrs returns the attrs declared by the first list
@@ -934,42 +876,40 @@ func publicFrontendLoopTemplate(scope publicFrontendTemplateScope, attrs publicF
 	switch scope {
 	case publicFrontendNavScope:
 		if attrs.Parent != "" && attrs.Parent != "0" {
-			if attrs.Parent == "{sort:tcode}" {
+			if attrs.Parent == "{category:topcode}" {
 				return "{{range cmsCategoryChildren $ (cmsRootCategory $.CurrentCategory) " + limit + "}}" + body + "{{end}}"
 			}
 			return "{{range cmsCategoryChildren $ " + publicFrontendCategoryArg(attrs.Parent) + " " + limit + "}}" + body + "{{end}}"
 		}
 		return "{{range cmsLimit .NavCategories " + limit + "}}" + body + "{{end}}"
-	case publicFrontendSecondNavScope, publicFrontendThirdNavScope:
+	case publicFrontendChildNavScope, publicFrontendGrandchildScope:
 		return "{{range cmsLimit .Children " + limit + "}}" + body + "{{end}}"
 	case publicFrontendListScope, publicFrontendSearchScope:
-		if attrs.Scode != "" {
-			return "{{range cmsCategoryArticles $ " + publicFrontendStringLiteral(attrs.Scode) + " " + limit + " " + publicFrontendStringLiteral(string(attrs.Order)) + "}}" + body + "{{end}}"
+		if attrs.Code != "" {
+			return "{{range cmsCategoryArticles $ " + publicFrontendStringLiteral(attrs.Code) + " " + limit + " " + publicFrontendStringLiteral(string(attrs.Order)) + "}}" + body + "{{end}}"
 		}
 		return "{{range cmsLimit (cmsOrderArticles .Articles " + publicFrontendStringLiteral(string(attrs.Order)) + ") " + limit + "}}" + body + "{{end}}"
 	case publicFrontendSlideScope:
-		if attrs.Gid != "" {
-			return "{{range cmsGroupedSlides $.Slides " + publicFrontendStringLiteral(attrs.Gid) + " " + limit + "}}" + body + "{{end}}"
+		if attrs.Group != "" {
+			return "{{range cmsGroupedSlides $.Slides " + publicFrontendStringLiteral(attrs.Group) + " " + limit + "}}" + body + "{{end}}"
 		}
 		return "{{range cmsLimit .Slides " + limit + "}}" + body + "{{end}}"
 	case publicFrontendLinkScope:
-		if attrs.Gid != "" {
-			return "{{range cmsGroupedLinks $.Links " + publicFrontendStringLiteral(attrs.Gid) + " " + limit + "}}" + body + "{{end}}"
+		if attrs.Group != "" {
+			return "{{range cmsGroupedLinks $.Links " + publicFrontendStringLiteral(attrs.Group) + " " + limit + "}}" + body + "{{end}}"
 		}
 		return "{{range cmsLimit .Links " + limit + "}}" + body + "{{end}}"
-	case publicFrontendSortScope:
-		if attrs.Scode != "" {
-			if attrs.Scode == "{sort:tcode}" {
+	case publicFrontendCategoryScope:
+		if attrs.Code != "" {
+			if attrs.Code == "{category:topcode}" {
 				return "{{with cmsRootCategory $.CurrentCategory}}" + body + "{{end}}"
 			}
-			if attrs.Scode == "{sort:scode}" {
+			if attrs.Code == "{category:code}" {
 				return "{{with $.CurrentCategory}}" + body + "{{end}}"
 			}
-			return "{{with cmsCategoryByCode $ " + publicFrontendStringLiteral(attrs.Scode) + "}}" + body + "{{end}}"
+			return "{{with cmsCategoryByCode $ " + publicFrontendStringLiteral(attrs.Code) + "}}" + body + "{{end}}"
 		}
 		return "{{with .CurrentCategory}}" + body + "{{end}}"
-	case publicFrontendHomeSectionScope:
-		return "{{range cmsLimit .HomeSections " + limit + "}}" + body + "{{end}}"
 	default:
 		return body
 	}
@@ -983,9 +923,9 @@ func publicFrontendStringLiteral(value string) string {
 // publicFrontendCategoryArg maps one category attribute value to a template expression.
 func publicFrontendCategoryArg(value string) string {
 	switch strings.TrimSpace(value) {
-	case "[nav:scode]", "[2nav:scode]", "[3nav:scode]":
+	case "[nav:code]", "[child:code]", "[grandchild:code]":
 		return "."
-	case "{sort:scode}":
+	case "{category:code}":
 		return "$.CurrentCategory"
 	default:
 		return publicFrontendStringLiteral(value)
@@ -1013,45 +953,45 @@ func publicFrontendLimit(items any, limit int) any {
 func publicFrontendIfCondition(expression string, scope publicFrontendTemplateScope) string {
 	expr := strings.TrimSpace(expression)
 	switch {
-	case strings.Contains(expr, "0=='{sort:scode}'"),
-		strings.Contains(expr, "'0'=='{sort:scode}'"):
+	case strings.Contains(expr, "0=='{category:code}'"),
+		strings.Contains(expr, "'0'=='{category:code}'"):
 		return "not .CurrentCategory"
-	case expr == "{cms:submitted}":
+	case expr == "{message:submitted}":
 		return ".Submitted"
-	case expr == "{cms:invalidmessage}":
+	case expr == "{message:invalid}":
 		return ".InvalidMessage"
-	case expr == "{cms:messageerror}":
+	case expr == "{message:error}":
 		return ".MessageError"
-	case expr == "{cms:primaryslideimage}":
+	case expr == "{slide:firstimage}":
 		return ".PrimarySlide.Image"
-	case expr == "{cms:sitelogo}":
+	case expr == "{site:logo}":
 		return ".Site.Logo"
-	case strings.Contains(expr, "page:rows"):
+	case strings.Contains(expr, "page:total"):
 		return "and .Pagination (gt .Pagination.Rows 0)"
-	case expr == "{content:ico}":
+	case expr == "{article:image}":
 		return "and .CurrentArticle .CurrentArticle.Cover"
-	case strings.Contains(expr, "soncount"):
+	case strings.Contains(expr, "childcount"):
 		return ".Children"
-	case strings.Contains(expr, "[slide:i]"):
+	case strings.Contains(expr, "[slide:index]"):
 		return "eq .Index 1"
-	case expr == "[list:ico]":
+	case expr == "[list:image]":
 		return ".Cover"
-	case expr == "[search:ico]":
+	case expr == "[search:image]":
 		return ".Cover"
-	case strings.Contains(expr, "[nav:scode]") && strings.Contains(expr, "{sort:tcode}"):
+	case strings.Contains(expr, "[nav:code]") && strings.Contains(expr, "{category:topcode}"):
 		return ".Active"
-	case strings.Contains(expr, "[nav:scode]") && strings.Contains(expr, "{sort:scode}"):
+	case strings.Contains(expr, "[nav:code]") && strings.Contains(expr, "{category:code}"):
 		return ".Active"
-	case strings.Contains(expr, "[2nav:scode]") && strings.Contains(expr, "{sort:scode}"):
+	case strings.Contains(expr, "[child:code]") && strings.Contains(expr, "{category:code}"):
 		return ".Active"
-	case strings.Contains(expr, "[3nav:scode]") && strings.Contains(expr, "{sort:scode}"):
+	case strings.Contains(expr, "[grandchild:code]") && strings.Contains(expr, "{category:code}"):
 		return ".Active"
 	case strings.Contains(expr, "nav:active"),
-		strings.Contains(expr, "2nav:active"),
-		strings.Contains(expr, "3nav:active"),
-		strings.Contains(expr, "sort:active"):
+		strings.Contains(expr, "child:active"),
+		strings.Contains(expr, "grandchild:active"),
+		strings.Contains(expr, "category:active"):
 		return ".Active"
-	case strings.Contains(expr, "content:ico"):
+	case strings.Contains(expr, "article:image"):
 		return "and .CurrentArticle .CurrentArticle.Cover"
 	default:
 		return "false"
@@ -1061,58 +1001,58 @@ func publicFrontendIfCondition(expression string, scope publicFrontendTemplateSc
 // replacePublicFrontendRootTags maps global site and page tags.
 func replacePublicFrontendRootTags(content string) string {
 	replacements := []string{
-		"{cms:sitepath}", "/cms-site",
-		"{cms:sitetplpath}", "/cms-site/assets",
-		"{cms:scaction}", "/cms-site/search",
-		"{cms:msgaction}", "/cms-site/messages",
-		"{cms:msgpage}", "/cms-site/message",
-		"{cms:sitetitle}", "{{.Site.Name}}",
-		"{cms:companyname}", "{{.Site.Name}}",
-		"{cms:sitesubtitle}", "{{.Site.Slogan}}",
-		"{cms:siteslogan}", "{{.Site.Slogan}}",
-		"{cms:sitelogo}", "{{.Site.Logo}}",
-		"{cms:sitekeywords}", "{{.Site.Keywords}}",
-		"{cms:sitedescription}", "{{.Site.Description}}",
-		"{cms:companyaddress}", "{{.Site.Address}}",
-		"{cms:companyphone}", "{{.Site.Phone}}",
-		"{cms:companyemail}", "{{.Site.Email}}",
-		"{cms:companycontact}", "{{.Site.Contact}}",
-		"{cms:siteicp}", "{{.Site.Icp}}",
-		"{cms:companyweixin}", "{{.CompanyWeixin}}",
-		"{cms:keyword}", "{{.Keyword}}",
-		"{cms:year}", "{{.Year}}",
-		"{cms:firstsortlink}", "{{.FirstCategoryHref}}",
-		"{cms:primaryslide}", "{{.PrimarySlide.Image}}",
-		"{cms:primaryslidetitle}", "{{.PrimarySlide.Title}}",
-		"{cms:pagetitle}", "{{if .PageTitle}}{{.PageTitle}}-{{end}}{{.Site.Name}}",
-		"{cms:pagekeywords}", "{{if .CurrentArticle}}{{.CurrentArticle.Keywords}}{{else if .CurrentCategory}}{{.CurrentCategory.Keywords}}{{else}}{{.Site.Keywords}}{{end}}",
-		"{cms:pagedescription}", "{{if .CurrentArticle}}{{.CurrentArticle.Description}}{{else if .CurrentCategory}}{{.CurrentCategory.Description}}{{else}}{{.Site.Description}}{{end}}",
-		"{sort:name}", "{{if .CurrentCategory}}{{.CurrentCategory.Name}}{{end}}",
-		"{sort:link}", "{{if .CurrentCategory}}{{.CurrentCategory.Href}}{{end}}",
-		"{sort:scode}", "{{if .CurrentCategory}}{{.CurrentCategory.Code}}{{end}}",
-		"{sort:tcode}", "{{with cmsRootCategory .CurrentCategory}}{{.Code}}{{end}}",
-		"{sort:description}", "{{if .CurrentCategory}}{{.CurrentCategory.Description}}{{end}}",
-		"{content:title}", "{{if .CurrentArticle}}{{.CurrentArticle.Title}}{{end}}",
-		"{content:subtitle}", "{{if .CurrentArticle}}{{.CurrentArticle.Subtitle}}{{end}}",
-		"{content:description}", "{{if .CurrentArticle}}{{.CurrentArticle.Summary}}{{end}}",
-		"{content:ico}", "{{if .CurrentArticle}}{{.CurrentArticle.Cover}}{{end}}",
-		"{content:author}", "{{if .CurrentArticle}}{{.CurrentArticle.Author}}{{end}}",
-		"{content:source}", "{{if .CurrentArticle}}{{.CurrentArticle.Source}}{{end}}",
-		"{content:date}", "{{if .CurrentArticle}}{{.CurrentArticle.PublishedAt}}{{end}}",
-		"{content:visits}", "{{if .CurrentArticle}}{{.CurrentArticle.Views}}{{end}}",
-		"{content:content}", "{{if .CurrentArticle}}{{.CurrentArticle.ContentHTML}}{{end}}",
-		"{content:precontent}", "{{if .PreviousArticle}}<a href=\"{{.PreviousArticle.Href}}\">{{.PreviousArticle.Title}}</a>{{else}}无{{end}}",
-		"{content:nextcontent}", "{{if .NextArticle}}<a href=\"{{.NextArticle.Href}}\">{{.NextArticle.Title}}</a>{{else}}无{{end}}",
-		"{page:rows}", "{{if .Pagination}}{{.Pagination.Rows}}{{else}}0{{end}}",
-		"{page:index}", "{{if .Pagination}}{{.Pagination.IndexHref}}{{end}}",
-		"{page:pre}", "{{if .Pagination}}{{.Pagination.PreHref}}{{end}}",
+		"{site:path}", "/cms-site",
+		"{site:assets}", "/cms-site/assets",
+		"{search:action}", "/cms-site/search",
+		"{message:action}", "/cms-site/messages",
+		"{message:page}", "/cms-site/message",
+		"{site:title}", "{{.Site.Name}}",
+		"{site:name}", "{{.Site.Name}}",
+		"{site:subtitle}", "{{.Site.Slogan}}",
+		"{site:slogan}", "{{.Site.Slogan}}",
+		"{site:logo}", "{{.Site.Logo}}",
+		"{site:keywords}", "{{.Site.Keywords}}",
+		"{site:description}", "{{.Site.Description}}",
+		"{site:address}", "{{.Site.Address}}",
+		"{site:phone}", "{{.Site.Phone}}",
+		"{site:email}", "{{.Site.Email}}",
+		"{site:contact}", "{{.Site.Contact}}",
+		"{site:icp}", "{{.Site.Icp}}",
+		"{site:wechat}", "{{.CompanyWeixin}}",
+		"{search:keyword}", "{{.Keyword}}",
+		"{site:year}", "{{.Year}}",
+		"{category:firstlink}", "{{.FirstCategoryHref}}",
+		"{slide:firstimage}", "{{.PrimarySlide.Image}}",
+		"{slide:firsttitle}", "{{.PrimarySlide.Title}}",
+		"{page:title}", "{{if .PageTitle}}{{.PageTitle}}-{{end}}{{.Site.Name}}",
+		"{page:keywords}", "{{if .CurrentArticle}}{{.CurrentArticle.Keywords}}{{else if .CurrentCategory}}{{.CurrentCategory.Keywords}}{{else}}{{.Site.Keywords}}{{end}}",
+		"{page:description}", "{{if .CurrentArticle}}{{.CurrentArticle.Description}}{{else if .CurrentCategory}}{{.CurrentCategory.Description}}{{else}}{{.Site.Description}}{{end}}",
+		"{category:name}", "{{if .CurrentCategory}}{{.CurrentCategory.Name}}{{end}}",
+		"{category:link}", "{{if .CurrentCategory}}{{.CurrentCategory.Href}}{{end}}",
+		"{category:code}", "{{if .CurrentCategory}}{{.CurrentCategory.Code}}{{end}}",
+		"{category:topcode}", "{{with cmsRootCategory .CurrentCategory}}{{.Code}}{{end}}",
+		"{category:description}", "{{if .CurrentCategory}}{{.CurrentCategory.Description}}{{end}}",
+		"{article:title}", "{{if .CurrentArticle}}{{.CurrentArticle.Title}}{{end}}",
+		"{article:subtitle}", "{{if .CurrentArticle}}{{.CurrentArticle.Subtitle}}{{end}}",
+		"{article:summary}", "{{if .CurrentArticle}}{{.CurrentArticle.Summary}}{{end}}",
+		"{article:image}", "{{if .CurrentArticle}}{{.CurrentArticle.Cover}}{{end}}",
+		"{article:author}", "{{if .CurrentArticle}}{{.CurrentArticle.Author}}{{end}}",
+		"{article:source}", "{{if .CurrentArticle}}{{.CurrentArticle.Source}}{{end}}",
+		"{article:date}", "{{if .CurrentArticle}}{{.CurrentArticle.PublishedAt}}{{end}}",
+		"{article:views}", "{{if .CurrentArticle}}{{.CurrentArticle.Views}}{{end}}",
+		"{article:content}", "{{if .CurrentArticle}}{{.CurrentArticle.ContentHTML}}{{end}}",
+		"{article:previous}", "{{if .PreviousArticle}}<a href=\"{{.PreviousArticle.Href}}\">{{.PreviousArticle.Title}}</a>{{else}}无{{end}}",
+		"{article:next}", "{{if .NextArticle}}<a href=\"{{.NextArticle.Href}}\">{{.NextArticle.Title}}</a>{{else}}无{{end}}",
+		"{page:total}", "{{if .Pagination}}{{.Pagination.Rows}}{{else}}0{{end}}",
+		"{page:first}", "{{if .Pagination}}{{.Pagination.IndexHref}}{{end}}",
+		"{page:previous}", "{{if .Pagination}}{{.Pagination.PreHref}}{{end}}",
 		"{page:next}", "{{if .Pagination}}{{.Pagination.NextHref}}{{end}}",
 		"{page:last}", "{{if .Pagination}}{{.Pagination.LastHref}}{{end}}",
-		"{page:numbar}", "{{if .Pagination}}{{.Pagination.NumBar}}{{end}}",
+		"{page:numbers}", "{{if .Pagination}}{{.Pagination.NumBar}}{{end}}",
 	}
 	replaced := strings.NewReplacer(replacements...).Replace(content)
-	replaced = regexp.MustCompile(`\{content:date\s+style=[^}]+\}`).ReplaceAllString(replaced, "{{if .CurrentArticle}}{{.CurrentArticle.PublishedAt}}{{end}}")
-	replaced = regexp.MustCompile(`\{cms:position[^}]*\}`).ReplaceAllString(replaced, `<a href="/cms-site">首页</a>{{if .CurrentCategory}}<span class="sep">&gt;</span>{{with cmsRootCategory .CurrentCategory}}<a href="{{.Href}}">{{.Name}}</a>{{end}}{{if ne .CurrentCategory.Id (cmsRootCategory .CurrentCategory).Id}}<span class="sep">&gt;</span><span>{{.CurrentCategory.Name}}</span>{{end}}{{end}}`)
+	replaced = regexp.MustCompile(`\{article:date\s+style=[^}]+\}`).ReplaceAllString(replaced, "{{if .CurrentArticle}}{{.CurrentArticle.PublishedAt}}{{end}}")
+	replaced = regexp.MustCompile(`\{page:breadcrumb[^}]*\}`).ReplaceAllString(replaced, `<a href="/cms-site">首页</a>{{if .CurrentCategory}}<span class="sep">&gt;</span>{{with cmsRootCategory .CurrentCategory}}<a href="{{.Href}}">{{.Name}}</a>{{end}}{{if ne .CurrentCategory.Id (cmsRootCategory .CurrentCategory).Id}}<span class="sep">&gt;</span><span>{{.CurrentCategory.Name}}</span>{{end}}{{end}}`)
 	return replaced
 }
 
@@ -1121,10 +1061,10 @@ func replacePublicFrontendScopedTags(content string, scope publicFrontendTemplat
 	switch scope {
 	case publicFrontendNavScope:
 		return replacePublicFrontendCategoryTags(content, "nav")
-	case publicFrontendSecondNavScope:
-		return replacePublicFrontendCategoryTags(content, "2nav")
-	case publicFrontendThirdNavScope:
-		return replacePublicFrontendCategoryTags(content, "3nav")
+	case publicFrontendChildNavScope:
+		return replacePublicFrontendCategoryTags(content, "child")
+	case publicFrontendGrandchildScope:
+		return replacePublicFrontendCategoryTags(content, "grandchild")
 	case publicFrontendListScope:
 		return replacePublicFrontendArticleTags(content, "list")
 	case publicFrontendSearchScope:
@@ -1133,10 +1073,8 @@ func replacePublicFrontendScopedTags(content string, scope publicFrontendTemplat
 		return replacePublicFrontendSlideTags(content)
 	case publicFrontendLinkScope:
 		return replacePublicFrontendLinkTags(content)
-	case publicFrontendSortScope:
-		return replacePublicFrontendCategoryTags(content, "sort")
-	case publicFrontendHomeSectionScope:
-		return replacePublicFrontendHomeSectionTags(compilePublicFrontendTemplate(content, publicFrontendListScope))
+	case publicFrontendCategoryScope:
+		return replacePublicFrontendCategoryTags(content, "category")
 	default:
 		return content
 	}
@@ -1146,12 +1084,12 @@ func replacePublicFrontendScopedTags(content string, scope publicFrontendTemplat
 func replacePublicFrontendCategoryTags(content string, prefix string) string {
 	replaced := strings.NewReplacer(
 		"["+prefix+":link]", "{{.Href}}",
-		"["+prefix+":scode]", "{{.Code}}",
+		"["+prefix+":code]", "{{.Code}}",
 		"["+prefix+":name]", "{{.Name}}",
 		"["+prefix+":title]", "{{.Title}}",
 		"["+prefix+":keywords]", "{{.Keywords}}",
 		"["+prefix+":description]", "{{.Description}}",
-		"["+prefix+":soncount]", "{{len .Children}}",
+		"["+prefix+":childcount]", "{{len .Children}}",
 		"["+prefix+":active]", "{{.Active}}",
 	).Replace(content)
 	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "name", ".Name")
@@ -1164,24 +1102,24 @@ func replacePublicFrontendCategoryTags(content string, prefix string) string {
 func replacePublicFrontendArticleTags(content string, prefix string) string {
 	replaced := strings.NewReplacer(
 		"["+prefix+":id]", "{{.Id}}",
-		"["+prefix+":i]", "{{.Index}}",
+		"["+prefix+":index]", "{{.Index}}",
 		"["+prefix+":link]", "{{.Href}}",
 		"["+prefix+":title]", "{{.Title}}",
 		"["+prefix+":subtitle]", "{{.Subtitle}}",
-		"["+prefix+":description]", "{{.Summary}}",
+		"["+prefix+":summary]", "{{.Summary}}",
 		"["+prefix+":content]", "{{.Summary}}",
 		"["+prefix+":preview]", "{{.SearchPreview}}",
-		"["+prefix+":ico]", "{{.Cover}}",
+		"["+prefix+":image]", "{{.Cover}}",
 		"["+prefix+":date]", "{{.PublishedAt}}",
-		"["+prefix+":visits]", "{{.Views}}",
-		"["+prefix+":sortname]", "{{.CategoryName}}",
+		"["+prefix+":views]", "{{.Views}}",
+		"["+prefix+":category]", "{{.CategoryName}}",
 	).Replace(content)
 	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "title", ".Title")
 	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "subtitle", ".Subtitle")
-	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "description", ".Summary")
+	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "summary", ".Summary")
 	replaced = replacePublicFrontendTextParamTags(replaced, prefix, "content", ".Summary")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:title\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Title}}")
-	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:description\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Summary}}")
+	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:summary\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Summary}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:content\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Summary}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:preview\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.SearchPreview}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:date\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.PublishedAt}}")
@@ -1191,10 +1129,9 @@ func replacePublicFrontendArticleTags(content string, prefix string) string {
 // replacePublicFrontendSlideTags maps slide loop tags.
 func replacePublicFrontendSlideTags(content string) string {
 	replaced := strings.NewReplacer(
-		"[slide:i]", "{{.Index}}",
-		"[slide:link]", "{{.Link}}",
-		"[slide:src]", "{{.Image}}",
-		"[slide:ico]", "{{.Image}}",
+		"[slide:index]", "{{.Index}}",
+		"[slide:url]", "{{.Link}}",
+		"[slide:image]", "{{.Image}}",
 	).Replace(content)
 	replaced = replacePublicFrontendTextParamTags(replaced, "slide", "title", ".Title")
 	replaced = replacePublicFrontendTextParamTags(replaced, "slide", "subtitle", ".Subtitle")
@@ -1208,23 +1145,14 @@ func replacePublicFrontendSlideTags(content string) string {
 // replacePublicFrontendLinkTags maps friendly link loop tags.
 func replacePublicFrontendLinkTags(content string) string {
 	return strings.NewReplacer(
-		"[link:link]", "{{.Url}}",
+		"[link:url]", "{{.Url}}",
 		"[link:name]", "{{.Name}}",
 		"[link:logo]", "{{.Logo}}",
 	).Replace(content)
 }
 
-// replacePublicFrontendHomeSectionTags maps homepage category-block tags.
-func replacePublicFrontendHomeSectionTags(content string) string {
-	return strings.NewReplacer(
-		"[sort:link]", "{{.Category.Href}}",
-		"[sort:name]", "{{.Category.Name}}",
-		"[sort:scode]", "{{.Category.Code}}",
-	).Replace(content)
-}
-
-// replacePublicFrontendTextParamTags maps text tags with len/lencn/more
-// modifiers to template helper calls.
+// replacePublicFrontendTextParamTags maps text tags with length/more modifiers
+// to template helper calls.
 func replacePublicFrontendTextParamTags(content string, prefix string, name string, expression string) string {
 	pattern := regexp.MustCompile(`\[` + regexp.QuoteMeta(prefix) + `:` + regexp.QuoteMeta(name) + `\s+([^\]]+)\]`)
 	return pattern.ReplaceAllStringFunc(content, func(match string) string {
@@ -1233,11 +1161,8 @@ func replacePublicFrontendTextParamTags(content string, prefix string, name stri
 			return match
 		}
 		attrs := publicFrontendParseTextAttrs(parts[1])
-		if attrs.LenCn > 0 {
-			return "{{cmsTextLenCn " + expression + " " + strconv.Itoa(attrs.LenCn) + " " + publicFrontendStringLiteral(attrs.More) + "}}"
-		}
-		if attrs.Len > 0 {
-			return "{{cmsTextLen " + expression + " " + strconv.Itoa(attrs.Len) + " " + publicFrontendStringLiteral(attrs.More) + "}}"
+		if attrs.Length > 0 {
+			return "{{cmsTextLength " + expression + " " + strconv.Itoa(attrs.Length) + " " + publicFrontendStringLiteral(attrs.More) + "}}"
 		}
 		return "{{" + expression + "}}"
 	})
@@ -1498,14 +1423,14 @@ func publicFrontendOrderArticles(items []*publicFrontendArticle, order string) [
 		sort.SliceStable(ordered, func(i int, j int) bool {
 			return publicFrontendArticleDateLess(ordered[i], ordered[j])
 		})
-	case cmssvc.PublicArticleOrderSorting:
+	case cmssvc.PublicArticleOrderManual:
 		sort.SliceStable(ordered, func(i int, j int) bool {
 			if ordered[i].Sort != ordered[j].Sort {
 				return ordered[i].Sort < ordered[j].Sort
 			}
 			return publicFrontendArticleDefaultLess(ordered[i], ordered[j])
 		})
-	case cmssvc.PublicArticleOrderVisits:
+	case cmssvc.PublicArticleOrderViews:
 		sort.SliceStable(ordered, func(i int, j int) bool {
 			if ordered[i].Views != ordered[j].Views {
 				return ordered[i].Views > ordered[j].Views
@@ -1561,7 +1486,7 @@ func publicFrontendArticleDateLess(left *publicFrontendArticle, right *publicFro
 	return left.Id > right.Id
 }
 
-// publicFrontendReindexArticles refreshes rendered loop indexes after sorting.
+// publicFrontendReindexArticles refreshes rendered loop indexes after ordering.
 func publicFrontendReindexArticles(items []*publicFrontendArticle) []*publicFrontendArticle {
 	for index, item := range items {
 		if item == nil {
@@ -2170,20 +2095,8 @@ func publicFrontendTimestamp(value *gtime.Time) int64 {
 	return value.Timestamp()
 }
 
-// publicFrontendTextLen truncates text by rune count and appends a suffix.
-func publicFrontendTextLen(value string, length int, more string) string {
-	if length <= 0 {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= length {
-		return value
-	}
-	return string(runes[:length]) + more
-}
-
-// publicFrontendTextLenCn truncates text using Chinese-width display units.
-func publicFrontendTextLenCn(value string, length int, more string) string {
+// publicFrontendTextLength truncates text using Chinese-width display units.
+func publicFrontendTextLength(value string, length int, more string) string {
 	if length <= 0 {
 		return value
 	}

@@ -1,16 +1,16 @@
 {include file=comm/head.html}
-<link rel="stylesheet" href="{cms:sitetplpath}/css/yx-page.css">
+<link rel="stylesheet" href="{site:assets}/css/yx-page.css">
 <div class="container" data-testid="cms-public-site" data-template="list">
   <div class="breadcrumb">
-    {cms:position separator='<span class="sep">&gt;</span>'}
+    {page:breadcrumb separator='<span class="sep">&gt;</span>'}
   </div>
   <div class="page-content">
-    {include file=comm/sortnav.html}
+    {include file=comm/categorynav.html}
     <div class="content-area">
       <div class="article-list">
-        <div class="article-list-header">{sort:name}</div>
+        <div class="article-list-header">{category:name}</div>
         <div class="article-list-body" data-testid="cms-public-article-list">
-          {cms:list num=10 order=date}
+          {cms:list limit=10 order=date}
           <a href="[list:link]" class="article-item" data-testid="cms-public-article-card">
             <span class="article-item-title">[list:title]</span>
             <span class="article-item-date">[list:date style=Y-m-d]</span>
@@ -18,11 +18,11 @@
           {/cms:list}
         </div>
       </div>
-      {cms:if({page:rows}>0)}
+      {cms:if({page:total}>0)}
       <div class="pagination" data-testid="cms-public-pagination">
-        <a href="{page:index}" class="page-item">首页</a>
-        <a href="{page:pre}" class="page-item">上一页</a>
-        {page:numbar}
+        <a href="{page:first}" class="page-item">首页</a>
+        <a href="{page:previous}" class="page-item">上一页</a>
+        {page:numbers}
         <a href="{page:next}" class="page-item">下一页</a>
         <a href="{page:last}" class="page-item">尾页</a>
       </div>
