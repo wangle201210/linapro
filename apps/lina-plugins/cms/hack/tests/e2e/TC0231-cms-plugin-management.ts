@@ -196,6 +196,33 @@ test.describe("TC-231 CMS 插件管理", () => {
     await cmsPage.expectArticleEditorVisible();
     await cmsPage.expectContentModulesVisible();
     await cmsPage.expectArticleListLayoutStable();
+    const slide = await expectSuccess<{ id: number }>(
+      await adminApi.post("cms/slides", {
+        data: {
+          groupCode: "e2e",
+          image: "https://example.com/e2e-slide.png",
+          sort: 1,
+          status: 1,
+          subtitle: `E2E 轮播副标题 ${suffix}`,
+          title: `E2E 轮播 ${suffix}`,
+        },
+      }),
+    );
+    const link = await expectSuccess<{ id: number }>(
+      await adminApi.post("cms/links", {
+        data: {
+          groupCode: "e2e",
+          name: `E2E 友情链接 ${suffix}`,
+          sort: 1,
+          status: 1,
+          url: "https://example.com",
+        },
+      }),
+    );
+    await cmsPage.expectSlideAndLinkManagersVisible({
+      linkName: `E2E 友情链接 ${suffix}`,
+      slideTitle: `E2E 轮播 ${suffix}`,
+    });
     await cmsPage.createCategory(category);
     await cmsPage.createArticle(article);
     await cmsPage.searchArticle(article.title);
@@ -305,6 +332,10 @@ test.describe("TC-231 CMS 插件管理", () => {
     );
     await expectSuccess<unknown>(
       await adminApi.delete(`cms/categories/${createdParent.id}`),
+    );
+    await expectSuccess<unknown>(await adminApi.delete(`cms/links/${link.id}`));
+    await expectSuccess<unknown>(
+      await adminApi.delete(`cms/slides/${slide.id}`),
     );
     await expectSuccess<unknown>(
       await adminApi.put("cms/site", { data: originalSite }),

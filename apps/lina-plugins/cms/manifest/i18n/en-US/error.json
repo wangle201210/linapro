@@ -13,6 +13,11 @@
           "found": "CMS category does not exist"
         }
       },
+      "link": {
+        "not": {
+          "found": "CMS friendly link does not exist"
+        }
+      },
       "article": {
         "not": {
           "found": "CMS article does not exist"
@@ -36,6 +41,11 @@
       "site": {
         "not": {
           "found": "CMS site settings do not exist"
+        }
+      },
+      "slide": {
+        "not": {
+          "found": "CMS slide does not exist"
         }
       }
     }

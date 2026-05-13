@@ -5,6 +5,7 @@ package cms
 import (
 	"bytes"
 	"context"
+	"html"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -33,25 +34,33 @@ const (
 	publicFrontendStaticPath   = "/static/"
 	publicFrontendIndexName    = "index.html"
 	publicFrontendListName     = "list.html"
+	publicFrontendSearchName   = "search.html"
 	publicFrontendSingleName   = "single.html"
 	publicFrontendDetailName   = "detail.html"
 	publicFrontendMessageName  = "message.html"
 	publicFrontendPageSize     = 12
 	publicFrontendHomeSections = 6
 	publicFrontendMaxLoopSize  = 100
+	publicFrontendPreviewRunes = 96
+	publicFrontendPreviewLead  = 36
 	publicFrontendTextMore     = "···"
 )
 
 var (
-	publicFrontendIncludePattern   = regexp.MustCompile(`\{include\s+file=([^}]+)\}`)
-	publicFrontendLoopStartPattern = regexp.MustCompile(`\{cms:([0-9]*)(nav|list|slide|link|sort|homeSection)((?:[^{}]|\{(?:sort|content|nav|2nav|3nav|list):[^}]+\})*)\}`)
-	publicFrontendIfStartPattern   = regexp.MustCompile(`\{cms:([0-9]*)if\(([^)]*)\)\}`)
+	publicFrontendIncludePattern    = regexp.MustCompile(`\{include\s+file=([^}]+)\}`)
+	publicFrontendLoopStartPattern  = regexp.MustCompile(`\{cms:([0-9]*)(nav|list|search|slide|link|sort|homeSection)((?:[^{}]|\{(?:sort|content|nav|2nav|3nav|list|search):[^}]+\})*)\}`)
+	publicFrontendIfStartPattern    = regexp.MustCompile(`\{cms:([0-9]*)if\(([^)]*)\)\}`)
+	publicFrontendScriptPattern     = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	publicFrontendStylePattern      = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	publicFrontendHTMLTagPattern    = regexp.MustCompile(`(?s)<[^>]+>`)
+	publicFrontendWhitespacePattern = regexp.MustCompile(`\s+`)
 )
 
 var publicFrontendPageTemplates = map[string]struct{}{
 	publicFrontendIndexName:   {},
 	publicFrontendListName:    {},
 	"list-card.html":          {},
+	publicFrontendSearchName:  {},
 	publicFrontendSingleName:  {},
 	publicFrontendDetailName:  {},
 	publicFrontendMessageName: {},
@@ -72,6 +81,7 @@ const (
 	publicFrontendSecondNavScope   publicFrontendTemplateScope = "2nav"
 	publicFrontendThirdNavScope    publicFrontendTemplateScope = "3nav"
 	publicFrontendListScope        publicFrontendTemplateScope = "list"
+	publicFrontendSearchScope      publicFrontendTemplateScope = "search"
 	publicFrontendSlideScope       publicFrontendTemplateScope = "slide"
 	publicFrontendLinkScope        publicFrontendTemplateScope = "link"
 	publicFrontendSortScope        publicFrontendTemplateScope = "sort"
@@ -162,6 +172,7 @@ type publicFrontendArticle struct {
 	Sort            int
 	IsTop           int
 	IsRecommend     int
+	SearchPreview   template.HTML
 	ContentHTML     template.HTML
 }
 
@@ -352,11 +363,17 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 		pageNum = queryInt(r, "pageNum")
 	}
 	pageNum = normalizePublicFrontendPage(pageNum)
+	keyword := strings.TrimSpace(r.GetQuery("keyword").String())
+	isSearchPage := routePath == "search"
 	templateName := publicFrontendIndexName
 	activeCategoryID := categoryID
 	var currentArticle *cmssvc.ArticleItem
 	if categoryID > 0 {
 		templateName = publicFrontendListName
+	}
+	if isSearchPage {
+		templateName = publicFrontendSearchName
+		activeCategoryID = 0
 	}
 	if slug != "" {
 		templateName = publicFrontendDetailName
@@ -376,7 +393,7 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 		markPublicFrontendActiveCategory(view.Categories, activeCategoryID)
 		view.CurrentCategory = findPublicFrontendCategory(view.Categories, activeCategoryID)
 	}
-	if categoryID <= 0 && categoryCode == "" && slug == "" && routePath != "" {
+	if categoryID <= 0 && categoryCode == "" && slug == "" && routePath != "" && !isSearchPage {
 		if category := findPublicFrontendCategoryByPath(view.Categories, routePath); category != nil {
 			categoryID = category.Id
 			activeCategoryID = category.Id
@@ -401,19 +418,34 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 	if view.CurrentCategory != nil && slug == "" {
 		templateName = publicFrontendCategoryListTemplate(view.CurrentCategory)
 	}
-	keyword := strings.TrimSpace(r.GetQuery("keyword").String())
-	listAttrs := publicFrontendTemplateListAttrs(templateName)
-	listPageSize := publicFrontendLoopLimit(publicFrontendListScope, listAttrs)
-	articlePage, err := c.cmsSvc.ListPublicArticles(ctx, cmssvc.PublicArticleListInput{
-		PageNum:                 pageNum,
-		PageSize:                listPageSize,
-		CategoryId:              categoryID,
-		Keyword:                 keyword,
-		Order:                   listAttrs.Order,
-		IncludeHiddenCategories: view.CurrentCategory != nil,
-	})
-	if err != nil {
-		return nil, err
+	listScope := publicFrontendListScope
+	if isSearchPage {
+		listScope = publicFrontendSearchScope
+	}
+	listAttrs := publicFrontendTemplateArticleAttrs(templateName, listScope)
+	listPageSize := publicFrontendLoopLimit(listScope, listAttrs)
+	searchCategoryResolved := true
+	if isSearchPage && listAttrs.Scode != "" {
+		category := findPublicFrontendCategoryByCode(view.Categories, listAttrs.Scode)
+		searchCategoryResolved = category != nil
+		if category != nil {
+			categoryID = category.Id
+		}
+	}
+	articlePage := &cmssvc.ArticleListOutput{}
+	if (!isSearchPage || keyword != "") && searchCategoryResolved {
+		var err error
+		articlePage, err = c.cmsSvc.ListPublicArticles(ctx, cmssvc.PublicArticleListInput{
+			PageNum:                 pageNum,
+			PageSize:                listPageSize,
+			CategoryId:              categoryID,
+			Keyword:                 keyword,
+			Order:                   listAttrs.Order,
+			IncludeHiddenCategories: view.CurrentCategory != nil || isSearchPage,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	if categoryID > 0 {
 		clampedPage := publicFrontendClampedPage(pageNum, articlePage.Total, listPageSize)
@@ -447,12 +479,20 @@ func (c *ControllerV1) buildPublicFrontendView(ctx context.Context, r *ghttp.Req
 	if categoryID > 0 {
 		view.Articles = mapPublicFrontendArticles(articlePage.List, false)
 		view.Pagination = buildPublicFrontendPagination(r, articlePage.Total, listPageSize, pageNum)
+	} else if isSearchPage {
+		view.Articles = mapPublicFrontendSearchArticles(articlePage.List, keyword)
+		view.Pagination = buildPublicFrontendPagination(r, articlePage.Total, listPageSize, pageNum)
 	} else {
 		view.Articles = mapPublicFrontendArticles(allArticlePage.List, false)
 	}
 	view.PrimarySlide = firstPublicFrontendSlide(slides)
 	view.Slides = mapPublicFrontendSlides(slides)
 	if slug == "" {
+		if isSearchPage {
+			view.TemplateName = strings.TrimSuffix(publicFrontendSearchName, ".html")
+			view.PageTitle = publicFrontendSearchPageTitle(keyword)
+			return view, nil
+		}
 		if view.CurrentCategory != nil {
 			view.TemplateName = strings.TrimSuffix(templateName, ".html")
 			view.PageTitle = view.CurrentCategory.Name
@@ -610,6 +650,15 @@ func (c *ControllerV1) buildPublicFrontendHomeSections(
 	return sections, nil
 }
 
+// publicFrontendSearchPageTitle returns the page title for public search
+// results.
+func publicFrontendSearchPageTitle(keyword string) string {
+	if strings.TrimSpace(keyword) == "" {
+		return "搜索结果"
+	}
+	return strings.TrimSpace(keyword) + "-搜索结果"
+}
+
 // publicFrontendTemplate parses and returns the embedded public HTML template.
 func publicFrontendTemplate() (*template.Template, error) {
 	publicFrontendTemplateCache.once.Do(func() {
@@ -748,6 +797,8 @@ func publicFrontendLoopScope(level string, name string) publicFrontendTemplateSc
 		}
 	case "list":
 		return publicFrontendListScope
+	case "search":
+		return publicFrontendSearchScope
 	case "slide":
 		return publicFrontendSlideScope
 	case "link":
@@ -842,7 +893,7 @@ func publicFrontendLoopLimit(scope publicFrontendTemplateScope, attrs publicFron
 		return attrs.Num
 	}
 	switch scope {
-	case publicFrontendListScope:
+	case publicFrontendListScope, publicFrontendSearchScope:
 		return publicFrontendPageSize
 	case publicFrontendHomeSectionScope:
 		return publicFrontendHomeSections
@@ -851,21 +902,30 @@ func publicFrontendLoopLimit(scope publicFrontendTemplateScope, attrs publicFron
 	}
 }
 
-// publicFrontendTemplateListAttrs returns the attrs declared by the first list
-// loop in one template file, matching common CMS list-template behavior.
-func publicFrontendTemplateListAttrs(templateFileName string) publicFrontendLoopAttrs {
+// publicFrontendTemplateArticleAttrs returns the attrs declared by the first
+// article loop in one template file, matching common CMS list-template behavior.
+func publicFrontendTemplateArticleAttrs(
+	templateFileName string,
+	scope publicFrontendTemplateScope,
+) publicFrontendLoopAttrs {
 	content, err := cmsplugin.EmbeddedFiles.ReadFile(path.Join("public/templates", templateFileName))
 	if err != nil {
 		return publicFrontendLoopAttrs{Num: publicFrontendPageSize}
 	}
 	matches := publicFrontendLoopStartPattern.FindAllStringSubmatch(string(content), -1)
 	for _, match := range matches {
-		if len(match) < 4 || match[2] != "list" {
+		if len(match) < 4 || publicFrontendLoopScope(match[1], match[2]) != scope {
 			continue
 		}
 		return publicFrontendParseLoopAttrs(match[3])
 	}
 	return publicFrontendLoopAttrs{Num: publicFrontendPageSize}
+}
+
+// publicFrontendTemplateListAttrs returns the attrs declared by the first list
+// loop in one template file, matching common CMS list-template behavior.
+func publicFrontendTemplateListAttrs(templateFileName string) publicFrontendLoopAttrs {
+	return publicFrontendTemplateArticleAttrs(templateFileName, publicFrontendListScope)
 }
 
 // publicFrontendLoopTemplate wraps a compiled CMS loop body.
@@ -882,7 +942,7 @@ func publicFrontendLoopTemplate(scope publicFrontendTemplateScope, attrs publicF
 		return "{{range cmsLimit .NavCategories " + limit + "}}" + body + "{{end}}"
 	case publicFrontendSecondNavScope, publicFrontendThirdNavScope:
 		return "{{range cmsLimit .Children " + limit + "}}" + body + "{{end}}"
-	case publicFrontendListScope:
+	case publicFrontendListScope, publicFrontendSearchScope:
 		if attrs.Scode != "" {
 			return "{{range cmsCategoryArticles $ " + publicFrontendStringLiteral(attrs.Scode) + " " + limit + " " + publicFrontendStringLiteral(string(attrs.Order)) + "}}" + body + "{{end}}"
 		}
@@ -976,6 +1036,8 @@ func publicFrontendIfCondition(expression string, scope publicFrontendTemplateSc
 		return "eq .Index 1"
 	case expr == "[list:ico]":
 		return ".Cover"
+	case expr == "[search:ico]":
+		return ".Cover"
 	case strings.Contains(expr, "[nav:scode]") && strings.Contains(expr, "{sort:tcode}"):
 		return ".Active"
 	case strings.Contains(expr, "[nav:scode]") && strings.Contains(expr, "{sort:scode}"):
@@ -1001,7 +1063,7 @@ func replacePublicFrontendRootTags(content string) string {
 	replacements := []string{
 		"{cms:sitepath}", "/cms-site",
 		"{cms:sitetplpath}", "/cms-site/assets",
-		"{cms:scaction}", "/cms-site",
+		"{cms:scaction}", "/cms-site/search",
 		"{cms:msgaction}", "/cms-site/messages",
 		"{cms:msgpage}", "/cms-site/message",
 		"{cms:sitetitle}", "{{.Site.Name}}",
@@ -1065,6 +1127,8 @@ func replacePublicFrontendScopedTags(content string, scope publicFrontendTemplat
 		return replacePublicFrontendCategoryTags(content, "3nav")
 	case publicFrontendListScope:
 		return replacePublicFrontendArticleTags(content, "list")
+	case publicFrontendSearchScope:
+		return replacePublicFrontendArticleTags(content, "search")
 	case publicFrontendSlideScope:
 		return replacePublicFrontendSlideTags(content)
 	case publicFrontendLinkScope:
@@ -1106,6 +1170,7 @@ func replacePublicFrontendArticleTags(content string, prefix string) string {
 		"["+prefix+":subtitle]", "{{.Subtitle}}",
 		"["+prefix+":description]", "{{.Summary}}",
 		"["+prefix+":content]", "{{.Summary}}",
+		"["+prefix+":preview]", "{{.SearchPreview}}",
 		"["+prefix+":ico]", "{{.Cover}}",
 		"["+prefix+":date]", "{{.PublishedAt}}",
 		"["+prefix+":visits]", "{{.Views}}",
@@ -1118,6 +1183,7 @@ func replacePublicFrontendArticleTags(content string, prefix string) string {
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:title\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Title}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:description\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Summary}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:content\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.Summary}}")
+	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:preview\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.SearchPreview}}")
 	replaced = regexp.MustCompile(`\[`+regexp.QuoteMeta(prefix)+`:date\s+[^\]]+\]`).ReplaceAllString(replaced, "{{.PublishedAt}}")
 	return replaced
 }
@@ -1590,6 +1656,22 @@ func mapPublicFrontendArticles(items []*cmssvc.ArticleItem, includeContent bool)
 	return articles
 }
 
+// mapPublicFrontendSearchArticles maps service articles and prepares search
+// preview fragments for the public search result template.
+func mapPublicFrontendSearchArticles(items []*cmssvc.ArticleItem, keyword string) []*publicFrontendArticle {
+	articles := make([]*publicFrontendArticle, 0, len(items))
+	for index, item := range items {
+		if item == nil || item.CmsArticle == nil {
+			continue
+		}
+		article := mapPublicFrontendArticle(item, false)
+		article.Index = index + 1
+		article.SearchPreview = publicFrontendSearchPreview(item, keyword)
+		articles = append(articles, article)
+	}
+	return articles
+}
+
 // mapPublicFrontendArticle maps one service article for template rendering.
 func mapPublicFrontendArticle(item *cmssvc.ArticleItem, includeContent bool) *publicFrontendArticle {
 	if item == nil || item.CmsArticle == nil {
@@ -1621,6 +1703,126 @@ func mapPublicFrontendArticle(item *cmssvc.ArticleItem, includeContent bool) *pu
 		article.ContentHTML = template.HTML(publicFrontendNormalizeContentHTML(item.Content))
 	}
 	return article
+}
+
+// publicFrontendSearchPreview returns a safe highlighted excerpt for one
+// public search result.
+func publicFrontendSearchPreview(item *cmssvc.ArticleItem, keyword string) template.HTML {
+	if item == nil || item.CmsArticle == nil {
+		return ""
+	}
+	keyword = strings.TrimSpace(keyword)
+	candidates := []string{
+		item.Summary,
+		item.Description,
+		item.Subtitle,
+		item.Content,
+		item.Tags,
+		item.Keywords,
+		item.Title,
+	}
+	var fallback string
+	for _, candidate := range candidates {
+		text := publicFrontendPlainText(candidate)
+		if fallback == "" && text != "" {
+			fallback = text
+		}
+		if keyword == "" || !strings.Contains(strings.ToLower(text), strings.ToLower(keyword)) {
+			continue
+		}
+		return publicFrontendHighlightPreview(text, keyword)
+	}
+	return publicFrontendHighlightPreview(fallback, keyword)
+}
+
+// publicFrontendPlainText converts CMS HTML-ish text into compact plain text.
+func publicFrontendPlainText(value string) string {
+	text := html.UnescapeString(strings.TrimSpace(value))
+	text = publicFrontendScriptPattern.ReplaceAllString(text, " ")
+	text = publicFrontendStylePattern.ReplaceAllString(text, " ")
+	text = publicFrontendHTMLTagPattern.ReplaceAllString(text, " ")
+	text = publicFrontendWhitespacePattern.ReplaceAllString(text, " ")
+	return strings.TrimSpace(text)
+}
+
+// publicFrontendHighlightPreview clips text around a keyword and highlights the
+// first hit using safe HTML.
+func publicFrontendHighlightPreview(text string, keyword string) template.HTML {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return template.HTML(template.HTMLEscapeString(publicFrontendClipRunes(text, publicFrontendPreviewRunes)))
+	}
+	hitStart, hitEnd := publicFrontendFindKeywordRunes(text, keyword)
+	if hitStart < 0 {
+		return template.HTML(template.HTMLEscapeString(publicFrontendClipRunes(text, publicFrontendPreviewRunes)))
+	}
+	runes := []rune(text)
+	start := hitStart - publicFrontendPreviewLead
+	if start < 0 {
+		start = 0
+	}
+	end := start + publicFrontendPreviewRunes
+	if end < hitEnd {
+		end = hitEnd
+	}
+	if end > len(runes) {
+		end = len(runes)
+		if end-publicFrontendPreviewRunes > 0 {
+			start = end - publicFrontendPreviewRunes
+		}
+	}
+	prefix := ""
+	if start > 0 {
+		prefix = publicFrontendTextMore
+	}
+	suffix := ""
+	if end < len(runes) {
+		suffix = publicFrontendTextMore
+	}
+	relativeStart := hitStart - start
+	relativeEnd := hitEnd - start
+	visible := runes[start:end]
+	var builder strings.Builder
+	builder.WriteString(template.HTMLEscapeString(prefix))
+	builder.WriteString(template.HTMLEscapeString(string(visible[:relativeStart])))
+	builder.WriteString(`<mark>`)
+	builder.WriteString(template.HTMLEscapeString(string(visible[relativeStart:relativeEnd])))
+	builder.WriteString(`</mark>`)
+	builder.WriteString(template.HTMLEscapeString(string(visible[relativeEnd:])))
+	builder.WriteString(template.HTMLEscapeString(suffix))
+	return template.HTML(builder.String())
+}
+
+// publicFrontendFindKeywordRunes returns the first case-insensitive keyword
+// hit as rune offsets.
+func publicFrontendFindKeywordRunes(text string, keyword string) (int, int) {
+	runes := []rune(text)
+	keywordRunes := []rune(keyword)
+	if len(keywordRunes) == 0 || len(keywordRunes) > len(runes) {
+		return -1, -1
+	}
+	lowerKeyword := strings.ToLower(keyword)
+	for start := 0; start+len(keywordRunes) <= len(runes); start++ {
+		end := start + len(keywordRunes)
+		if strings.ToLower(string(runes[start:end])) == lowerKeyword {
+			return start, end
+		}
+	}
+	return -1, -1
+}
+
+// publicFrontendClipRunes returns a compact plain preview when there is no
+// keyword hit in the selected fallback text.
+func publicFrontendClipRunes(text string, limit int) string {
+	runes := []rune(text)
+	if limit <= 0 || len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + publicFrontendTextMore
 }
 
 // mapPublicFrontendLinks maps enabled friendly links for template loops.

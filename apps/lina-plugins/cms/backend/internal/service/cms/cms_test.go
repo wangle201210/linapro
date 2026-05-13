@@ -245,6 +245,45 @@ func TestListPublicArticlesOrderSorting(t *testing.T) {
 	}
 }
 
+// TestListPublicArticlesSearchesBodyContent verifies the public search page can
+// find articles whose keyword only appears in the body.
+func TestListPublicArticlesSearchesBodyContent(t *testing.T) {
+	ctx := context.Background()
+	setupSQLiteCMSDB(t, ctx)
+
+	categoryID := insertCMSCategory(t, ctx, "search-body", StatusEnabled)
+	insertCMSArticleWithOptions(t, ctx, cmsArticleOptions{
+		categoryID: categoryID,
+		slug:       "body-hit",
+		status:     ArticleStatusPublished,
+		content:    "<p>前沿算力网络专题报告</p>",
+		title:      "技术观察",
+	})
+	insertCMSArticleWithOptions(t, ctx, cmsArticleOptions{
+		categoryID: categoryID,
+		slug:       "body-miss",
+		status:     ArticleStatusPublished,
+		content:    "<p>普通产业动态</p>",
+		title:      "产业动态",
+	})
+
+	out, err := New().ListPublicArticles(ctx, PublicArticleListInput{
+		PageNum:    1,
+		PageSize:   10,
+		Keyword:    "算力网络",
+		CategoryId: categoryID,
+	})
+	if err != nil {
+		t.Fatalf("search public CMS articles by body content: %v", err)
+	}
+	if out.Total != 1 || len(out.List) != 1 {
+		t.Fatalf("expected one body search hit, got total=%d len=%d", out.Total, len(out.List))
+	}
+	if out.List[0].Slug != "body-hit" {
+		t.Fatalf("expected body-hit article, got %q", out.List[0].Slug)
+	}
+}
+
 // TestNormalizeImportedArticleContentIsIdempotent verifies already-decoded
 // admin-authored HTML is preserved.
 func TestNormalizeImportedArticleContentIsIdempotent(t *testing.T) {
@@ -384,6 +423,7 @@ func insertCMSArticle(t *testing.T, ctx context.Context, categoryID int64, slug 
 type cmsArticleOptions struct {
 	categoryID  int64
 	slug        string
+	title       string
 	status      int
 	content     string
 	sort        int
@@ -420,10 +460,14 @@ func insertCMSArticleWithOptions(
 	if content == "" {
 		content = "<p>" + opts.slug + "</p>"
 	}
+	title := opts.title
+	if title == "" {
+		title = opts.slug
+	}
 
 	id, err := dao.CmsArticle.Ctx(ctx).Data(do.CmsArticle{
 		CategoryId:  opts.categoryID,
-		Title:       opts.slug,
+		Title:       title,
 		Slug:        opts.slug,
 		Content:     content,
 		Sort:        opts.sort,

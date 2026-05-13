@@ -502,6 +502,58 @@
                 "dc": "更新一个 CMS 栏目。"
               }
             },
+            "LinkCreateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "logo": {
+                  "dc": "標識圖片地址"
+                },
+                "name": {
+                  "dc": "友情連結名稱"
+                },
+                "sort": {
+                  "dc": "顯示順序"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                },
+                "url": {
+                  "dc": "友情連結 URL"
+                }
+              },
+              "meta": {
+                "dc": "新增一条 CMS 友情連結。",
+                "summary": "新增 CMS 友情連結",
+                "tags": "CMS 友情連結"
+              },
+              "schema": {
+                "dc": "新增一条 CMS 友情連結。"
+              }
+            },
+            "LinkCreateRes": {
+              "fields": {
+                "id": {
+                  "dc": "友情連結 ID"
+                }
+              }
+            },
+            "LinkDeleteReq": {
+              "fields": {
+                "id": {
+                  "dc": "友情連結 ID"
+                }
+              },
+              "meta": {
+                "dc": "根据 ID 删除一条 CMS 友情連結。",
+                "summary": "删除 CMS 友情連結",
+                "tags": "CMS 友情連結"
+              },
+              "schema": {
+                "dc": "根据 ID 删除一条 CMS 友情連結。"
+              }
+            },
             "LinkItem": {
               "fields": {
                 "id": {
@@ -521,7 +573,92 @@
                 },
                 "url": {
                   "dc": "链接 URL"
+                },
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "createdBy": {
+                  "dc": "建立者使用者 ID"
+                },
+                "updatedBy": {
+                  "dc": "更新者使用者 ID"
+                },
+                "createdAt": {
+                  "dc": "建立時間"
+                },
+                "updatedAt": {
+                  "dc": "更新時間"
                 }
+              }
+            },
+            "LinkListReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "按分組編碼过滤"
+                },
+                "keyword": {
+                  "dc": "按友情連結名称或 URL 过滤"
+                },
+                "pageNum": {
+                  "dc": "頁碼"
+                },
+                "pageSize": {
+                  "dc": "每頁數量"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                }
+              },
+              "meta": {
+                "dc": "分页查询 CMS 友情連結。",
+                "summary": "获取 CMS 友情連結列表",
+                "tags": "CMS 友情連結"
+              },
+              "schema": {
+                "dc": "分页查询 CMS 友情連結。"
+              }
+            },
+            "LinkListRes": {
+              "fields": {
+                "list": {
+                  "dc": "友情連結列表"
+                },
+                "total": {
+                  "dc": "友情連結总数"
+                }
+              }
+            },
+            "LinkUpdateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "id": {
+                  "dc": "友情連結 ID"
+                },
+                "logo": {
+                  "dc": "標識圖片地址"
+                },
+                "name": {
+                  "dc": "友情連結名稱"
+                },
+                "sort": {
+                  "dc": "顯示順序"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                },
+                "url": {
+                  "dc": "友情連結 URL"
+                }
+              },
+              "meta": {
+                "dc": "更新一条 CMS 友情連結。",
+                "summary": "更新 CMS 友情連結",
+                "tags": "CMS 友情連結"
+              },
+              "schema": {
+                "dc": "更新一条 CMS 友情連結。"
               }
             },
             "MessageDeleteReq": {
@@ -894,6 +1031,61 @@
                 "dc": "更新可编辑的 CMS 站点配置。"
               }
             },
+            "SlideCreateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "image": {
+                  "dc": "輪播圖圖片 URL"
+                },
+                "link": {
+                  "dc": "點擊目標 URL"
+                },
+                "sort": {
+                  "dc": "顯示順序"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                },
+                "subtitle": {
+                  "dc": "輪播圖副標題"
+                },
+                "title": {
+                  "dc": "輪播圖標題"
+                }
+              },
+              "meta": {
+                "dc": "新增一张 CMS 輪播圖。",
+                "summary": "新增 CMS 輪播圖",
+                "tags": "CMS 輪播圖"
+              },
+              "schema": {
+                "dc": "新增一张 CMS 輪播圖。"
+              }
+            },
+            "SlideCreateRes": {
+              "fields": {
+                "id": {
+                  "dc": "輪播圖 ID"
+                }
+              }
+            },
+            "SlideDeleteReq": {
+              "fields": {
+                "id": {
+                  "dc": "輪播圖 ID"
+                }
+              },
+              "meta": {
+                "dc": "根据 ID 删除一张 CMS 輪播圖。",
+                "summary": "删除 CMS 輪播圖",
+                "tags": "CMS 輪播圖"
+              },
+              "schema": {
+                "dc": "根据 ID 删除一张 CMS 輪播圖。"
+              }
+            },
             "SlideItem": {
               "fields": {
                 "id": {
@@ -913,7 +1105,98 @@
                 },
                 "title": {
                   "dc": "轮播图标题"
+                },
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "subtitle": {
+                  "dc": "輪播圖副標題"
+                },
+                "createdBy": {
+                  "dc": "建立者使用者 ID"
+                },
+                "updatedBy": {
+                  "dc": "更新者使用者 ID"
+                },
+                "createdAt": {
+                  "dc": "建立時間"
+                },
+                "updatedAt": {
+                  "dc": "更新時間"
                 }
+              }
+            },
+            "SlideListReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "按分組編碼过滤"
+                },
+                "keyword": {
+                  "dc": "按輪播圖標題或副標題過濾"
+                },
+                "pageNum": {
+                  "dc": "頁碼"
+                },
+                "pageSize": {
+                  "dc": "每頁數量"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                }
+              },
+              "meta": {
+                "dc": "分页查询 CMS 輪播圖。",
+                "summary": "获取 CMS 輪播圖列表",
+                "tags": "CMS 輪播圖"
+              },
+              "schema": {
+                "dc": "分页查询 CMS 輪播圖。"
+              }
+            },
+            "SlideListRes": {
+              "fields": {
+                "list": {
+                  "dc": "輪播圖列表"
+                },
+                "total": {
+                  "dc": "輪播圖总数"
+                }
+              }
+            },
+            "SlideUpdateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分組編碼"
+                },
+                "id": {
+                  "dc": "輪播圖 ID"
+                },
+                "image": {
+                  "dc": "輪播圖圖片 URL"
+                },
+                "link": {
+                  "dc": "點擊目標 URL"
+                },
+                "sort": {
+                  "dc": "顯示順序"
+                },
+                "status": {
+                  "dc": "狀態：0=停用，1=啟用"
+                },
+                "subtitle": {
+                  "dc": "輪播圖副標題"
+                },
+                "title": {
+                  "dc": "輪播圖標題"
+                }
+              },
+              "meta": {
+                "dc": "更新一张 CMS 輪播圖。",
+                "summary": "更新 CMS 輪播圖",
+                "tags": "CMS 輪播圖"
+              },
+              "schema": {
+                "dc": "更新一张 CMS 輪播圖。"
               }
             }
           }

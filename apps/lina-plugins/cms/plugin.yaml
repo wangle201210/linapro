@@ -73,15 +73,63 @@ menus:
     perms: cms:article:remove
     type: B
     sort: 9
+  - key: plugin:cms:slide:query
+    parent_key: plugin:cms:workspace
+    name: 轮播图查询
+    perms: cms:slide:query
+    type: B
+    sort: 10
+  - key: plugin:cms:slide:add
+    parent_key: plugin:cms:workspace
+    name: 轮播图新增
+    perms: cms:slide:add
+    type: B
+    sort: 11
+  - key: plugin:cms:slide:edit
+    parent_key: plugin:cms:workspace
+    name: 轮播图修改
+    perms: cms:slide:edit
+    type: B
+    sort: 12
+  - key: plugin:cms:slide:remove
+    parent_key: plugin:cms:workspace
+    name: 轮播图删除
+    perms: cms:slide:remove
+    type: B
+    sort: 13
+  - key: plugin:cms:link:query
+    parent_key: plugin:cms:workspace
+    name: 友情链接查询
+    perms: cms:link:query
+    type: B
+    sort: 14
+  - key: plugin:cms:link:add
+    parent_key: plugin:cms:workspace
+    name: 友情链接新增
+    perms: cms:link:add
+    type: B
+    sort: 15
+  - key: plugin:cms:link:edit
+    parent_key: plugin:cms:workspace
+    name: 友情链接修改
+    perms: cms:link:edit
+    type: B
+    sort: 16
+  - key: plugin:cms:link:remove
+    parent_key: plugin:cms:workspace
+    name: 友情链接删除
+    perms: cms:link:remove
+    type: B
+    sort: 17
   - key: plugin:cms:message:query
     parent_key: plugin:cms:workspace
     name: 留言查询
     perms: cms:message:query
     type: B
-    sort: 10
+    sort: 18
   - key: plugin:cms:message:edit
     parent_key: plugin:cms:workspace
     name: 留言审核
     perms: cms:message:edit
     type: B
-    sort: 11
+    sort: 19

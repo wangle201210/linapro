@@ -57,6 +57,18 @@ var (
 		"CMS visitor message does not exist",
 		gcode.CodeNotFound,
 	)
+	// CodeLinkNotFound reports that a CMS friendly link does not exist.
+	CodeLinkNotFound = bizerr.MustDefine(
+		"CMS_LINK_NOT_FOUND",
+		"CMS friendly link does not exist",
+		gcode.CodeNotFound,
+	)
+	// CodeSlideNotFound reports that a CMS slide does not exist.
+	CodeSlideNotFound = bizerr.MustDefine(
+		"CMS_SLIDE_NOT_FOUND",
+		"CMS slide does not exist",
+		gcode.CodeNotFound,
+	)
 	// CodePublicContentNotFound reports that requested public CMS content is unavailable.
 	CodePublicContentNotFound = bizerr.MustDefine(
 		"CMS_PUBLIC_CONTENT_NOT_FOUND",

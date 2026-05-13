@@ -10,7 +10,9 @@
         "reject": "拒绝",
         "reset": "重置",
         "review": "处理",
-        "save": "保存"
+        "save": "保存",
+        "newLink": "新建友情链接",
+        "newSlide": "新建轮播图"
       },
       "description": "提供站点配置、栏目、内容、留言和公开内容接口的官方源码 CMS 插件",
       "dialogs": {
@@ -18,12 +20,18 @@
         "createCategory": "新增栏目",
         "editArticle": "编辑内容",
         "editCategory": "编辑栏目",
-        "reviewMessage": "处理留言"
+        "reviewMessage": "处理留言",
+        "createLink": "新增友情链接",
+        "createSlide": "新增轮播图",
+        "editLink": "编辑友情链接",
+        "editSlide": "编辑轮播图"
       },
       "empty": {
         "articles": "暂无内容",
         "categories": "暂无栏目",
-        "messages": "暂无留言"
+        "messages": "暂无留言",
+        "links": "暂无友情链接",
+        "slides": "暂无轮播图"
       },
       "editor": {
         "actions": {
@@ -79,7 +87,14 @@
         "top": "置顶",
         "views": "浏览量",
         "weixin": "微信二维码",
-        "visitorName": "访客"
+        "visitorName": "访客",
+        "groupCode": "分组编码",
+        "linkLogo": "链接标识",
+        "linkName": "链接名称",
+        "linkUrl": "链接地址",
+        "slideImage": "轮播图片",
+        "slideLink": "跳转链接",
+        "slideTitle": "轮播标题"
       },
       "metrics": {
         "articleGlyph": "文",
@@ -108,7 +123,10 @@
         "category": "选择栏目",
         "messageKeyword": "搜索访客或留言内容",
         "rootCategory": "根栏目",
-        "status": "选择状态"
+        "status": "选择状态",
+        "groupCode": "输入分组编码",
+        "linkKeyword": "搜索链接名称或地址",
+        "slideKeyword": "搜索轮播标题或副标题"
       },
       "sections": {
         "categoryTree": "栏目结构",
@@ -119,13 +137,19 @@
         "contentModulesSubtitle": "按内容模型或栏目组切换。",
         "messageInbox": "留言审核",
         "siteProfile": "站点资料",
-        "siteProfileSubtitle": "维护站点在公开接口中展示的基础信息和搜索优化元数据"
+        "siteProfileSubtitle": "维护站点在公开接口中展示的基础信息和搜索优化元数据",
+        "linkManager": "友情链接管理",
+        "linkManagerSubtitle": "维护页脚分组链接和公开友情链接数据。",
+        "slideManager": "轮播图管理",
+        "slideManagerSubtitle": "维护首页轮播图片、文案、跳转链接与显示顺序。"
       },
       "tabs": {
         "articles": "内容",
         "categories": "栏目",
         "messages": "留言",
-        "site": "站点"
+        "site": "站点",
+        "links": "友情链接",
+        "slides": "轮播图"
       },
       "templates": {
         "detail": "文章详情（detail.html）",

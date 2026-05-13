@@ -189,6 +189,47 @@ export class CmsPluginPage {
     await waitForBusyIndicatorsToClear(this.page);
   }
 
+  async openSlidesTab() {
+    await this.page.getByTestId("cms-section-slides").click();
+    await this.page.getByTestId("cms-slide-table").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await waitForBusyIndicatorsToClear(this.page);
+  }
+
+  async openLinksTab() {
+    await this.page.getByTestId("cms-section-links").click();
+    await this.page.getByTestId("cms-link-table").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await waitForBusyIndicatorsToClear(this.page);
+  }
+
+  async expectSlideAndLinkManagersVisible(input: {
+    linkName: string;
+    slideTitle: string;
+  }) {
+    await this.openSlidesTab();
+    await expect(this.page.getByTestId("cms-section-slides")).toContainText(
+      /轮播图|Slides/i,
+    );
+    await expect(this.page.getByTestId("cms-slide-table")).toContainText(
+      input.slideTitle,
+    );
+    await expect(this.page.getByTestId("cms-slide-add-secondary")).toBeVisible();
+
+    await this.openLinksTab();
+    await expect(this.page.getByTestId("cms-section-links")).toContainText(
+      /友情链接|Links/i,
+    );
+    await expect(this.page.getByTestId("cms-link-table")).toContainText(
+      input.linkName,
+    );
+    await expect(this.page.getByTestId("cms-link-add-secondary")).toBeVisible();
+  }
+
   async createCategory(input: { code: string; name: string; path: string }) {
     await this.openCategoriesTab();
     await this.page.getByTestId("cms-category-add").click();

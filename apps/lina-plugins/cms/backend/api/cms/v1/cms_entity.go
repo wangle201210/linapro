@@ -98,20 +98,31 @@ type MessageItem struct {
 
 // LinkItem defines a public CMS friendly link.
 type LinkItem struct {
-	Id     int64  `json:"id" dc:"Link ID" eg:"1"`
-	Name   string `json:"name" dc:"Link name" eg:"LinaPro"`
-	Url    string `json:"url" dc:"Link URL" eg:"https://linapro.ai"`
-	Logo   string `json:"logo" dc:"Logo URL" eg:"/uploads/link.png"`
-	Sort   int    `json:"sort" dc:"Display order" eg:"1"`
-	Status int    `json:"status" dc:"Status: 0=disabled, 1=enabled" eg:"1"`
+	Id        int64       `json:"id" dc:"Link ID" eg:"1"`
+	GroupCode string      `json:"groupCode" dc:"Display group code" eg:"1"`
+	Name      string      `json:"name" dc:"Link name" eg:"LinaPro"`
+	Url       string      `json:"url" dc:"Link URL" eg:"https://linapro.ai"`
+	Logo      string      `json:"logo" dc:"Logo URL" eg:"/uploads/link.png"`
+	Sort      int         `json:"sort" dc:"Display order" eg:"1"`
+	Status    int         `json:"status" dc:"Status: 0=disabled, 1=enabled" eg:"1"`
+	CreatedBy int64       `json:"createdBy" dc:"Creator user ID" eg:"1"`
+	UpdatedBy int64       `json:"updatedBy" dc:"Updater user ID" eg:"1"`
+	CreatedAt *gtime.Time `json:"createdAt" dc:"Creation time"`
+	UpdatedAt *gtime.Time `json:"updatedAt" dc:"Update time"`
 }
 
 // SlideItem defines a public CMS slide.
 type SlideItem struct {
-	Id     int64  `json:"id" dc:"Slide ID" eg:"1"`
-	Title  string `json:"title" dc:"Slide title" eg:"Welcome"`
-	Image  string `json:"image" dc:"Slide image URL" eg:"/uploads/banner.png"`
-	Link   string `json:"link" dc:"Click target URL" eg:"/news"`
-	Sort   int    `json:"sort" dc:"Display order" eg:"1"`
-	Status int    `json:"status" dc:"Status: 0=disabled, 1=enabled" eg:"1"`
+	Id        int64       `json:"id" dc:"Slide ID" eg:"1"`
+	GroupCode string      `json:"groupCode" dc:"Display group code" eg:"1"`
+	Title     string      `json:"title" dc:"Slide title" eg:"Welcome"`
+	Subtitle  string      `json:"subtitle" dc:"Slide subtitle" eg:"First slide"`
+	Image     string      `json:"image" dc:"Slide image URL" eg:"/uploads/banner.png"`
+	Link      string      `json:"link" dc:"Click target URL" eg:"/news"`
+	Sort      int         `json:"sort" dc:"Display order" eg:"1"`
+	Status    int         `json:"status" dc:"Status: 0=disabled, 1=enabled" eg:"1"`
+	CreatedBy int64       `json:"createdBy" dc:"Creator user ID" eg:"1"`
+	UpdatedBy int64       `json:"updatedBy" dc:"Updater user ID" eg:"1"`
+	CreatedAt *gtime.Time `json:"createdAt" dc:"Creation time"`
+	UpdatedAt *gtime.Time `json:"updatedAt" dc:"Update time"`
 }

@@ -96,6 +96,14 @@ func registerRoutes(_ context.Context, registrar pluginhost.HTTPRegistrar) error
 				controller.MessageList,
 				controller.MessageUpdate,
 				controller.MessageDelete,
+				controller.LinkList,
+				controller.LinkCreate,
+				controller.LinkUpdate,
+				controller.LinkDelete,
+				controller.SlideList,
+				controller.SlideCreate,
+				controller.SlideUpdate,
+				controller.SlideDelete,
 			)
 		})
 	})

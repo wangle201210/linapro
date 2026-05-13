@@ -84,6 +84,22 @@ type Service interface {
 	UpdateMessage(ctx context.Context, in MessageUpdateInput) error
 	// DeleteMessage deletes one visitor message.
 	DeleteMessage(ctx context.Context, id int64) error
+	// ListLinks returns paged friendly links.
+	ListLinks(ctx context.Context, in LinkListInput) (*LinkListOutput, error)
+	// CreateLink creates a friendly link.
+	CreateLink(ctx context.Context, in LinkSaveInput) (int64, error)
+	// UpdateLink updates a friendly link.
+	UpdateLink(ctx context.Context, in LinkSaveInput) error
+	// DeleteLink deletes one friendly link.
+	DeleteLink(ctx context.Context, id int64) error
+	// ListSlides returns paged carousel slides.
+	ListSlides(ctx context.Context, in SlideListInput) (*SlideListOutput, error)
+	// CreateSlide creates a carousel slide.
+	CreateSlide(ctx context.Context, in SlideSaveInput) (int64, error)
+	// UpdateSlide updates a carousel slide.
+	UpdateSlide(ctx context.Context, in SlideSaveInput) error
+	// DeleteSlide deletes one carousel slide.
+	DeleteSlide(ctx context.Context, id int64) error
 	// ListPublicArticles returns published articles only.
 	ListPublicArticles(ctx context.Context, in PublicArticleListInput) (*ArticleListOutput, error)
 	// GetPublicArticleBySlug retrieves one published article by slug.
@@ -276,6 +292,59 @@ type MessageUpdateInput struct {
 	Id     int64  // Message ID.
 	Status int    // Moderation status.
 	Reply  string // Reply content.
+}
+
+// LinkListInput defines friendly link list filters.
+type LinkListInput struct {
+	PageNum   int    // Page number.
+	PageSize  int    // Page size.
+	GroupCode string // Optional display group code filter.
+	Status    *int   // Optional status filter.
+	Keyword   string // Fuzzy search keyword.
+}
+
+// LinkListOutput defines paged friendly links.
+type LinkListOutput struct {
+	List  []*LinkItem // Link list.
+	Total int         // Total count.
+}
+
+// LinkSaveInput defines friendly link create/update input.
+type LinkSaveInput struct {
+	Id        int64  // Link ID for updates.
+	GroupCode string // Display group code.
+	Name      string // Link name.
+	Url       string // Link URL.
+	Logo      string // Logo URL.
+	Sort      int    // Display order.
+	Status    int    // Status.
+}
+
+// SlideListInput defines carousel slide list filters.
+type SlideListInput struct {
+	PageNum   int    // Page number.
+	PageSize  int    // Page size.
+	GroupCode string // Optional display group code filter.
+	Status    *int   // Optional status filter.
+	Keyword   string // Fuzzy search keyword.
+}
+
+// SlideListOutput defines paged carousel slides.
+type SlideListOutput struct {
+	List  []*SlideItem // Slide list.
+	Total int          // Total count.
+}
+
+// SlideSaveInput defines carousel slide create/update input.
+type SlideSaveInput struct {
+	Id        int64  // Slide ID for updates.
+	GroupCode string // Display group code.
+	Title     string // Slide title.
+	Subtitle  string // Slide subtitle.
+	Image     string // Slide image URL.
+	Link      string // Click target URL.
+	Sort      int    // Display order.
+	Status    int    // Status.
 }
 
 // PublicMessageCreateInput defines public visitor message creation input.
@@ -609,6 +678,170 @@ func (s *serviceImpl) DeleteMessage(ctx context.Context, id int64) error {
 	return err
 }
 
+// ListLinks returns paged friendly links for management.
+func (s *serviceImpl) ListLinks(ctx context.Context, in LinkListInput) (*LinkListOutput, error) {
+	columns := dao.CmsLink.Columns()
+	model := dao.CmsLink.Ctx(ctx)
+	if in.GroupCode != "" {
+		model = model.Where(columns.GroupCode, strings.TrimSpace(in.GroupCode))
+	}
+	if in.Status != nil {
+		model = model.Where(columns.Status, *in.Status)
+	}
+	if keywordText := strings.TrimSpace(in.Keyword); keywordText != "" {
+		keyword := "%" + keywordText + "%"
+		model = model.Where(
+			fmt.Sprintf("(%s LIKE ? OR %s LIKE ?)", columns.Name, columns.Url),
+			keyword,
+			keyword,
+		)
+	}
+
+	total, err := model.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]*LinkItem, 0)
+	if err = model.
+		Page(normalizePageNum(in.PageNum), normalizePageSize(in.PageSize)).
+		OrderAsc(columns.Sort).
+		OrderAsc(columns.Id).
+		Scan(&list); err != nil {
+		return nil, err
+	}
+	return &LinkListOutput{List: list, Total: total}, nil
+}
+
+// CreateLink creates a friendly link.
+func (s *serviceImpl) CreateLink(ctx context.Context, in LinkSaveInput) (int64, error) {
+	userID := s.currentUserID(ctx)
+	return dao.CmsLink.Ctx(ctx).Data(do.CmsLink{
+		GroupCode: strings.TrimSpace(in.GroupCode),
+		Name:      strings.TrimSpace(in.Name),
+		Url:       strings.TrimSpace(in.Url),
+		Logo:      strings.TrimSpace(in.Logo),
+		Sort:      in.Sort,
+		Status:    in.Status,
+		CreatedBy: userID,
+		UpdatedBy: userID,
+	}).InsertAndGetId()
+}
+
+// UpdateLink updates a friendly link.
+func (s *serviceImpl) UpdateLink(ctx context.Context, in LinkSaveInput) error {
+	columns := dao.CmsLink.Columns()
+	if err := s.ensureLinkExists(ctx, in.Id); err != nil {
+		return err
+	}
+	_, err := dao.CmsLink.Ctx(ctx).
+		Where(columns.Id, in.Id).
+		Data(do.CmsLink{
+			GroupCode: strings.TrimSpace(in.GroupCode),
+			Name:      strings.TrimSpace(in.Name),
+			Url:       strings.TrimSpace(in.Url),
+			Logo:      strings.TrimSpace(in.Logo),
+			Sort:      in.Sort,
+			Status:    in.Status,
+			UpdatedBy: s.currentUserID(ctx),
+		}).
+		Update()
+	return err
+}
+
+// DeleteLink deletes one friendly link.
+func (s *serviceImpl) DeleteLink(ctx context.Context, id int64) error {
+	columns := dao.CmsLink.Columns()
+	if err := s.ensureLinkExists(ctx, id); err != nil {
+		return err
+	}
+	_, err := dao.CmsLink.Ctx(ctx).Where(columns.Id, id).Delete()
+	return err
+}
+
+// ListSlides returns paged carousel slides for management.
+func (s *serviceImpl) ListSlides(ctx context.Context, in SlideListInput) (*SlideListOutput, error) {
+	columns := dao.CmsSlide.Columns()
+	model := dao.CmsSlide.Ctx(ctx)
+	if in.GroupCode != "" {
+		model = model.Where(columns.GroupCode, strings.TrimSpace(in.GroupCode))
+	}
+	if in.Status != nil {
+		model = model.Where(columns.Status, *in.Status)
+	}
+	if keywordText := strings.TrimSpace(in.Keyword); keywordText != "" {
+		keyword := "%" + keywordText + "%"
+		model = model.Where(
+			fmt.Sprintf("(%s LIKE ? OR %s LIKE ?)", columns.Title, columns.Subtitle),
+			keyword,
+			keyword,
+		)
+	}
+
+	total, err := model.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]*SlideItem, 0)
+	if err = model.
+		Page(normalizePageNum(in.PageNum), normalizePageSize(in.PageSize)).
+		OrderAsc(columns.Sort).
+		OrderAsc(columns.Id).
+		Scan(&list); err != nil {
+		return nil, err
+	}
+	return &SlideListOutput{List: list, Total: total}, nil
+}
+
+// CreateSlide creates a carousel slide.
+func (s *serviceImpl) CreateSlide(ctx context.Context, in SlideSaveInput) (int64, error) {
+	userID := s.currentUserID(ctx)
+	return dao.CmsSlide.Ctx(ctx).Data(do.CmsSlide{
+		GroupCode: strings.TrimSpace(in.GroupCode),
+		Title:     strings.TrimSpace(in.Title),
+		Subtitle:  strings.TrimSpace(in.Subtitle),
+		Image:     strings.TrimSpace(in.Image),
+		Link:      strings.TrimSpace(in.Link),
+		Sort:      in.Sort,
+		Status:    in.Status,
+		CreatedBy: userID,
+		UpdatedBy: userID,
+	}).InsertAndGetId()
+}
+
+// UpdateSlide updates a carousel slide.
+func (s *serviceImpl) UpdateSlide(ctx context.Context, in SlideSaveInput) error {
+	columns := dao.CmsSlide.Columns()
+	if err := s.ensureSlideExists(ctx, in.Id); err != nil {
+		return err
+	}
+	_, err := dao.CmsSlide.Ctx(ctx).
+		Where(columns.Id, in.Id).
+		Data(do.CmsSlide{
+			GroupCode: strings.TrimSpace(in.GroupCode),
+			Title:     strings.TrimSpace(in.Title),
+			Subtitle:  strings.TrimSpace(in.Subtitle),
+			Image:     strings.TrimSpace(in.Image),
+			Link:      strings.TrimSpace(in.Link),
+			Sort:      in.Sort,
+			Status:    in.Status,
+			UpdatedBy: s.currentUserID(ctx),
+		}).
+		Update()
+	return err
+}
+
+// DeleteSlide deletes one carousel slide.
+func (s *serviceImpl) DeleteSlide(ctx context.Context, id int64) error {
+	columns := dao.CmsSlide.Columns()
+	if err := s.ensureSlideExists(ctx, id); err != nil {
+		return err
+	}
+	_, err := dao.CmsSlide.Ctx(ctx).Where(columns.Id, id).Delete()
+	return err
+}
+
 // ListPublicArticles returns published articles with enabled categories only.
 func (s *serviceImpl) ListPublicArticles(ctx context.Context, in PublicArticleListInput) (*ArticleListOutput, error) {
 	columns := dao.CmsArticle.Columns()
@@ -616,14 +849,22 @@ func (s *serviceImpl) ListPublicArticles(ctx context.Context, in PublicArticleLi
 	if in.CategoryId > 0 {
 		model = model.Where(columns.CategoryId, in.CategoryId)
 	}
-	if in.Keyword != "" {
-		keyword := "%" + in.Keyword + "%"
+	if keywordText := strings.TrimSpace(in.Keyword); keywordText != "" {
+		keyword := "%" + keywordText + "%"
 		model = model.Where(
-			fmt.Sprintf("(%s LIKE ? OR %s LIKE ? OR %s LIKE ?)",
+			fmt.Sprintf("(%s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?)",
 				columns.Title,
+				columns.Subtitle,
 				columns.Summary,
+				columns.Content,
 				columns.Tags,
+				columns.Keywords,
+				columns.Description,
 			),
+			keyword,
+			keyword,
+			keyword,
+			keyword,
 			keyword,
 			keyword,
 			keyword,
@@ -985,6 +1226,32 @@ func (s *serviceImpl) ensureMessageExists(ctx context.Context, id int64) error {
 	}
 	if count == 0 {
 		return bizerr.NewCode(CodeMessageNotFound)
+	}
+	return nil
+}
+
+// ensureLinkExists verifies a friendly link exists.
+func (s *serviceImpl) ensureLinkExists(ctx context.Context, id int64) error {
+	columns := dao.CmsLink.Columns()
+	count, err := dao.CmsLink.Ctx(ctx).Where(columns.Id, id).Count()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return bizerr.NewCode(CodeLinkNotFound)
+	}
+	return nil
+}
+
+// ensureSlideExists verifies a carousel slide exists.
+func (s *serviceImpl) ensureSlideExists(ctx context.Context, id int64) error {
+	columns := dao.CmsSlide.Columns()
+	count, err := dao.CmsSlide.Ctx(ctx).Where(columns.Id, id).Count()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return bizerr.NewCode(CodeSlideNotFound)
 	}
 	return nil
 }

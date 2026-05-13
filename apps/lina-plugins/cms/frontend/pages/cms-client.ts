@@ -72,6 +72,29 @@ export interface Message {
   userIp: string;
 }
 
+export interface Link {
+  createdAt?: string;
+  groupCode: string;
+  id: number;
+  logo: string;
+  name: string;
+  sort: number;
+  status: number;
+  url: string;
+}
+
+export interface Slide {
+  createdAt?: string;
+  groupCode: string;
+  id: number;
+  image: string;
+  link: string;
+  sort: number;
+  status: number;
+  subtitle: string;
+  title: string;
+}
+
 export interface ArticleListParams {
   categoryId?: number;
   categoryType?: number;
@@ -83,6 +106,22 @@ export interface ArticleListParams {
 }
 
 export interface MessageListParams {
+  keyword?: string;
+  pageNum?: number;
+  pageSize?: number;
+  status?: number;
+}
+
+export interface LinkListParams {
+  groupCode?: string;
+  keyword?: string;
+  pageNum?: number;
+  pageSize?: number;
+  status?: number;
+}
+
+export interface SlideListParams {
+  groupCode?: string;
   keyword?: string;
   pageNum?: number;
   pageSize?: number;
@@ -154,4 +193,44 @@ export function cmsMessageUpdate(id: number, data: Partial<Message>) {
 
 export function cmsMessageDelete(id: number) {
   return requestClient.delete(`/cms/messages/${id}`);
+}
+
+export async function cmsLinkList(params?: LinkListParams) {
+  const res = await requestClient.get<{ list: Link[]; total: number }>(
+    "/cms/links",
+    { params },
+  );
+  return { items: res.list, total: res.total };
+}
+
+export function cmsLinkCreate(data: Partial<Link>) {
+  return requestClient.post("/cms/links", data);
+}
+
+export function cmsLinkUpdate(id: number, data: Partial<Link>) {
+  return requestClient.put(`/cms/links/${id}`, data);
+}
+
+export function cmsLinkDelete(id: number) {
+  return requestClient.delete(`/cms/links/${id}`);
+}
+
+export async function cmsSlideList(params?: SlideListParams) {
+  const res = await requestClient.get<{ list: Slide[]; total: number }>(
+    "/cms/slides",
+    { params },
+  );
+  return { items: res.list, total: res.total };
+}
+
+export function cmsSlideCreate(data: Partial<Slide>) {
+  return requestClient.post("/cms/slides", data);
+}
+
+export function cmsSlideUpdate(id: number, data: Partial<Slide>) {
+  return requestClient.put(`/cms/slides/${id}`, data);
+}
+
+export function cmsSlideDelete(id: number) {
+  return requestClient.delete(`/cms/slides/${id}`);
 }

@@ -6,7 +6,7 @@ export const pluginPageMeta = {
 </script>
 
 <script setup lang="ts">
-import type { Article, Category, Message, Site } from "./cms-client";
+import type { Article, Category, Link, Message, Site, Slide } from "./cms-client";
 
 import { computed, onMounted, reactive, ref, watch } from "vue";
 
@@ -48,11 +48,19 @@ import {
   cmsCategoryDelete,
   cmsCategoryList,
   cmsCategoryUpdate,
+  cmsLinkCreate,
+  cmsLinkDelete,
+  cmsLinkList,
+  cmsLinkUpdate,
   cmsMessageDelete,
   cmsMessageList,
   cmsMessageUpdate,
   cmsSite,
   cmsSiteUpdate,
+  cmsSlideCreate,
+  cmsSlideDelete,
+  cmsSlideList,
+  cmsSlideUpdate,
 } from "./cms-client";
 
 const dictStore = useDictStore();
@@ -149,6 +157,49 @@ const messageForm = reactive<Partial<Message>>({
   status: 1,
 });
 const currentMessage = ref<Message | null>(null);
+
+const slideRows = ref<Slide[]>([]);
+const slideTotal = ref(0);
+const slideLoading = ref(false);
+const slideQuery = reactive({
+  groupCode: "",
+  keyword: "",
+  pageNum: 1,
+  pageSize: 10,
+  status: undefined as number | undefined,
+});
+const slideModalOpen = ref(false);
+const slideModalMode = ref<"create" | "update">("create");
+const slideForm = reactive<Partial<Slide>>({
+  groupCode: "1",
+  image: "",
+  link: "",
+  sort: 0,
+  status: 1,
+  subtitle: "",
+  title: "",
+});
+
+const linkRows = ref<Link[]>([]);
+const linkTotal = ref(0);
+const linkLoading = ref(false);
+const linkQuery = reactive({
+  groupCode: "",
+  keyword: "",
+  pageNum: 1,
+  pageSize: 10,
+  status: undefined as number | undefined,
+});
+const linkModalOpen = ref(false);
+const linkModalMode = ref<"create" | "update">("create");
+const linkForm = reactive<Partial<Link>>({
+  groupCode: "1",
+  logo: "",
+  name: "",
+  sort: 0,
+  status: 1,
+  url: "",
+});
 
 const statusDicts = ref<any[]>([]);
 const categoryTypeDicts = ref<any[]>([]);
@@ -372,6 +423,71 @@ const messageColumns = computed(() => [
   },
 ]);
 
+const slideColumns = computed(() => [
+  {
+    dataIndex: "title",
+    title: $t("plugin.cms.fields.slideTitle"),
+    width: 280,
+  },
+  {
+    dataIndex: "groupCode",
+    title: $t("plugin.cms.fields.groupCode"),
+    width: 120,
+  },
+  {
+    dataIndex: "image",
+    title: $t("plugin.cms.fields.slideImage"),
+    width: 160,
+  },
+  {
+    dataIndex: "status",
+    title: $t("pages.common.status"),
+    width: 120,
+  },
+  {
+    dataIndex: "sort",
+    title: $t("pages.fields.sort"),
+    width: 96,
+  },
+  {
+    key: "action",
+    title: $t("pages.common.actions"),
+    width: 160,
+  },
+]);
+
+const linkColumns = computed(() => [
+  {
+    dataIndex: "name",
+    title: $t("plugin.cms.fields.linkName"),
+    width: 220,
+  },
+  {
+    dataIndex: "url",
+    title: $t("plugin.cms.fields.linkUrl"),
+  },
+  {
+    dataIndex: "groupCode",
+    title: $t("plugin.cms.fields.groupCode"),
+    width: 120,
+  },
+  {
+    dataIndex: "status",
+    title: $t("pages.common.status"),
+    width: 120,
+  },
+  {
+    dataIndex: "sort",
+    title: $t("pages.fields.sort"),
+    width: 96,
+  },
+  {
+    key: "action",
+    title: $t("pages.common.actions"),
+    width: 160,
+  },
+]);
+
 onMounted(async () => {
   [
     statusDicts.value,
@@ -400,6 +516,14 @@ watch(activeTab, async (tab) => {
   }
   if (tab === "articles") {
     await Promise.all([loadCategories(), loadArticles()]);
+    return;
+  }
+  if (tab === "slides") {
+    await loadSlides();
+    return;
+  }
+  if (tab === "links") {
+    await loadLinks();
     return;
   }
   if (tab === "messages") {
@@ -649,6 +773,8 @@ async function refreshAll() {
     loadCategories(),
     loadArticles(),
     loadMessages(),
+    loadSlides(),
+    loadLinks(),
     loadDashboardMetrics(),
   ]);
 }
@@ -875,6 +1001,137 @@ async function deleteMessage(row: Message) {
   message.success($t("pages.common.deleteSuccess"));
   await Promise.all([loadMessages(), loadDashboardMetrics()]);
 }
+
+async function loadSlides() {
+  slideLoading.value = true;
+  try {
+    const resp = await cmsSlideList(slideQuery);
+    slideRows.value = resp.items;
+    slideTotal.value = resp.total;
+  } finally {
+    slideLoading.value = false;
+  }
+}
+
+function resetSlideQuery() {
+  Object.assign(slideQuery, {
+    groupCode: "",
+    keyword: "",
+    pageNum: 1,
+    pageSize: 10,
+    status: undefined,
+  });
+  loadSlides();
+}
+
+function resetSlideForm() {
+  Object.assign(slideForm, {
+    groupCode: "1",
+    id: undefined,
+    image: "",
+    link: "",
+    sort: 0,
+    status: 1,
+    subtitle: "",
+    title: "",
+  });
+}
+
+function openCreateSlide() {
+  slideModalMode.value = "create";
+  resetSlideForm();
+  slideModalOpen.value = true;
+}
+
+function openEditSlide(row: Slide) {
+  slideModalMode.value = "update";
+  resetSlideForm();
+  Object.assign(slideForm, row);
+  slideModalOpen.value = true;
+}
+
+async function submitSlide() {
+  if (slideModalMode.value === "update" && slideForm.id) {
+    await cmsSlideUpdate(slideForm.id, slideForm);
+    message.success($t("pages.common.updateSuccess"));
+  } else {
+    await cmsSlideCreate(slideForm);
+    message.success($t("pages.common.createSuccess"));
+  }
+  slideModalOpen.value = false;
+  await loadSlides();
+}
+
+async function deleteSlide(row: Slide) {
+  await cmsSlideDelete(row.id);
+  message.success($t("pages.common.deleteSuccess"));
+  await loadSlides();
+}
+
+async function loadLinks() {
+  linkLoading.value = true;
+  try {
+    const resp = await cmsLinkList(linkQuery);
+    linkRows.value = resp.items;
+    linkTotal.value = resp.total;
+  } finally {
+    linkLoading.value = false;
+  }
+}
+
+function resetLinkQuery() {
+  Object.assign(linkQuery, {
+    groupCode: "",
+    keyword: "",
+    pageNum: 1,
+    pageSize: 10,
+    status: undefined,
+  });
+  loadLinks();
+}
+
+function resetLinkForm() {
+  Object.assign(linkForm, {
+    groupCode: "1",
+    id: undefined,
+    logo: "",
+    name: "",
+    sort: 0,
+    status: 1,
+    url: "",
+  });
+}
+
+function openCreateLink() {
+  linkModalMode.value = "create";
+  resetLinkForm();
+  linkModalOpen.value = true;
+}
+
+function openEditLink(row: Link) {
+  linkModalMode.value = "update";
+  resetLinkForm();
+  Object.assign(linkForm, row);
+  linkModalOpen.value = true;
+}
+
+async function submitLink() {
+  if (linkModalMode.value === "update" && linkForm.id) {
+    await cmsLinkUpdate(linkForm.id, linkForm);
+    message.success($t("pages.common.updateSuccess"));
+  } else {
+    await cmsLinkCreate(linkForm);
+    message.success($t("pages.common.createSuccess"));
+  }
+  linkModalOpen.value = false;
+  await loadLinks();
+}
+
+async function deleteLink(row: Link) {
+  await cmsLinkDelete(row.id);
+  message.success($t("pages.common.deleteSuccess"));
+  await loadLinks();
+}
 </script>
 
 <template>
@@ -960,6 +1217,22 @@ async function deleteMessage(row: Message) {
             {{ $t("plugin.cms.tabs.articles") }}
           </button>
           <button
+            :class="{ 'is-active': activeTab === 'slides' }"
+            data-testid="cms-section-slides"
+            type="button"
+            @click="activeTab = 'slides'"
+          >
+            {{ $t("plugin.cms.tabs.slides") }}
+          </button>
+          <button
+            :class="{ 'is-active': activeTab === 'links' }"
+            data-testid="cms-section-links"
+            type="button"
+            @click="activeTab = 'links'"
+          >
+            {{ $t("plugin.cms.tabs.links") }}
+          </button>
+          <button
             :class="{ 'is-active': activeTab === 'messages' }"
             data-testid="cms-section-messages"
             type="button"
@@ -987,6 +1260,22 @@ async function deleteMessage(row: Message) {
             @click="openCreateArticle"
           >
             {{ $t("plugin.cms.actions.newArticle") }}
+          </a-button>
+          <a-button
+            v-if="activeTab === 'slides'"
+            data-testid="cms-slide-add"
+            type="primary"
+            @click="openCreateSlide"
+          >
+            {{ $t("plugin.cms.actions.newSlide") }}
+          </a-button>
+          <a-button
+            v-if="activeTab === 'links'"
+            data-testid="cms-link-add"
+            type="primary"
+            @click="openCreateLink"
+          >
+            {{ $t("plugin.cms.actions.newLink") }}
           </a-button>
         </Space>
       </div>
@@ -1380,6 +1669,234 @@ async function deleteMessage(row: Message) {
           </div>
         </a-tab-pane>
 
+        <a-tab-pane key="slides" :tab="$t('plugin.cms.tabs.slides')">
+          <section class="cms-panel">
+            <div class="cms-panel-head">
+              <div>
+                <h2>{{ $t("plugin.cms.sections.slideManager") }}</h2>
+                <p>{{ $t("plugin.cms.sections.slideManagerSubtitle") }}</p>
+              </div>
+              <a-button
+                data-testid="cms-slide-add-secondary"
+                type="primary"
+                @click="openCreateSlide"
+              >
+                {{ $t("plugin.cms.actions.newSlide") }}
+              </a-button>
+            </div>
+            <div class="cms-filterbar">
+              <a-input
+                v-model:value="slideQuery.keyword"
+                :placeholder="$t('plugin.cms.placeholders.slideKeyword')"
+                class="cms-filter-input"
+                data-testid="cms-slide-keyword-filter"
+                allow-clear
+              />
+              <a-input
+                v-model:value="slideQuery.groupCode"
+                :placeholder="$t('plugin.cms.placeholders.groupCode')"
+                class="cms-filter-select"
+                data-testid="cms-slide-group-filter"
+                allow-clear
+              />
+              <a-select
+                v-model:value="slideQuery.status"
+                :options="siteStatusOptions"
+                :placeholder="$t('plugin.cms.placeholders.status')"
+                class="cms-filter-select"
+                allow-clear
+              />
+              <Space>
+                <a-button data-testid="cms-slide-query" @click="loadSlides">
+                  {{ $t("plugin.cms.actions.query") }}
+                </a-button>
+                <a-button @click="resetSlideQuery">
+                  {{ $t("plugin.cms.actions.reset") }}
+                </a-button>
+              </Space>
+            </div>
+            <a-table
+              :columns="slideColumns"
+              :data-source="slideRows"
+              :loading="slideLoading"
+              data-testid="cms-slide-table"
+              :pagination="{
+                current: slideQuery.pageNum,
+                pageSize: slideQuery.pageSize,
+                total: slideTotal,
+                showSizeChanger: true,
+                onChange: (page: number, pageSize: number) => {
+                  slideQuery.pageNum = page;
+                  slideQuery.pageSize = pageSize;
+                  loadSlides();
+                },
+              }"
+              row-key="id"
+              size="middle"
+            >
+              <template #emptyText>
+                <a-empty :description="$t('plugin.cms.empty.slides')" />
+              </template>
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.dataIndex === 'title'">
+                  <div class="cms-primary-cell">
+                    <strong>{{ record.title }}</strong>
+                    <span>{{ record.subtitle || record.link || "--" }}</span>
+                  </div>
+                </template>
+                <template v-else-if="column.dataIndex === 'image'">
+                  <span class="cms-table-ellipsis" :title="record.image">
+                    {{ truncateText(record.image, 30) }}
+                  </span>
+                </template>
+                <template v-else-if="column.dataIndex === 'status'">
+                  <DictTag :dicts="statusDicts" :value="String(record.status)" />
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <Space>
+                    <a-button
+                      :data-testid="`cms-slide-edit-${record.id}`"
+                      type="link"
+                      @click="openEditSlide(record)"
+                    >
+                      {{ $t("pages.common.edit") }}
+                    </a-button>
+                    <Popconfirm
+                      :title="$t('pages.common.deleteConfirm')"
+                      @confirm="deleteSlide(record)"
+                    >
+                      <a-button
+                        :data-testid="`cms-slide-delete-${record.id}`"
+                        danger
+                        type="link"
+                      >
+                        {{ $t("pages.common.delete") }}
+                      </a-button>
+                    </Popconfirm>
+                  </Space>
+                </template>
+              </template>
+            </a-table>
+          </section>
+        </a-tab-pane>
+
+        <a-tab-pane key="links" :tab="$t('plugin.cms.tabs.links')">
+          <section class="cms-panel">
+            <div class="cms-panel-head">
+              <div>
+                <h2>{{ $t("plugin.cms.sections.linkManager") }}</h2>
+                <p>{{ $t("plugin.cms.sections.linkManagerSubtitle") }}</p>
+              </div>
+              <a-button
+                data-testid="cms-link-add-secondary"
+                type="primary"
+                @click="openCreateLink"
+              >
+                {{ $t("plugin.cms.actions.newLink") }}
+              </a-button>
+            </div>
+            <div class="cms-filterbar">
+              <a-input
+                v-model:value="linkQuery.keyword"
+                :placeholder="$t('plugin.cms.placeholders.linkKeyword')"
+                class="cms-filter-input"
+                data-testid="cms-link-keyword-filter"
+                allow-clear
+              />
+              <a-input
+                v-model:value="linkQuery.groupCode"
+                :placeholder="$t('plugin.cms.placeholders.groupCode')"
+                class="cms-filter-select"
+                data-testid="cms-link-group-filter"
+                allow-clear
+              />
+              <a-select
+                v-model:value="linkQuery.status"
+                :options="siteStatusOptions"
+                :placeholder="$t('plugin.cms.placeholders.status')"
+                class="cms-filter-select"
+                allow-clear
+              />
+              <Space>
+                <a-button data-testid="cms-link-query" @click="loadLinks">
+                  {{ $t("plugin.cms.actions.query") }}
+                </a-button>
+                <a-button @click="resetLinkQuery">
+                  {{ $t("plugin.cms.actions.reset") }}
+                </a-button>
+              </Space>
+            </div>
+            <a-table
+              :columns="linkColumns"
+              :data-source="linkRows"
+              :loading="linkLoading"
+              data-testid="cms-link-table"
+              :pagination="{
+                current: linkQuery.pageNum,
+                pageSize: linkQuery.pageSize,
+                total: linkTotal,
+                showSizeChanger: true,
+                onChange: (page: number, pageSize: number) => {
+                  linkQuery.pageNum = page;
+                  linkQuery.pageSize = pageSize;
+                  loadLinks();
+                },
+              }"
+              row-key="id"
+              size="middle"
+            >
+              <template #emptyText>
+                <a-empty :description="$t('plugin.cms.empty.links')" />
+              </template>
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.dataIndex === 'name'">
+                  <div class="cms-primary-cell">
+                    <strong>{{ record.name }}</strong>
+                    <span>{{ record.logo || "--" }}</span>
+                  </div>
+                </template>
+                <template v-else-if="column.dataIndex === 'url'">
+                  <a
+                    class="cms-table-ellipsis"
+                    :href="record.url"
+                    :title="record.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{ record.url }}
+                  </a>
+                </template>
+                <template v-else-if="column.dataIndex === 'status'">
+                  <DictTag :dicts="statusDicts" :value="String(record.status)" />
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <Space>
+                    <a-button
+                      :data-testid="`cms-link-edit-${record.id}`"
+                      type="link"
+                      @click="openEditLink(record)"
+                    >
+                      {{ $t("pages.common.edit") }}
+                    </a-button>
+                    <Popconfirm
+                      :title="$t('pages.common.deleteConfirm')"
+                      @confirm="deleteLink(record)"
+                    >
+                      <a-button
+                        :data-testid="`cms-link-delete-${record.id}`"
+                        danger
+                        type="link"
+                      >
+                        {{ $t("pages.common.delete") }}
+                      </a-button>
+                    </Popconfirm>
+                  </Space>
+                </template>
+              </template>
+            </a-table>
+          </section>
+        </a-tab-pane>
+
         <a-tab-pane key="messages" :tab="$t('plugin.cms.tabs.messages')">
           <section class="cms-panel">
             <div class="cms-panel-head">
@@ -1746,6 +2263,124 @@ async function deleteMessage(row: Message) {
             :rows="4"
             data-testid="cms-message-reply-input"
           />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="slideModalOpen"
+      data-testid="cms-slide-modal"
+      :title="
+        slideModalMode === 'update'
+          ? $t('plugin.cms.dialogs.editSlide')
+          : $t('plugin.cms.dialogs.createSlide')
+      "
+      :width="720"
+      @ok="submitSlide"
+    >
+      <a-form :model="slideForm" layout="vertical" class="cms-form-grid">
+        <a-form-item :label="$t('plugin.cms.fields.slideTitle')" required>
+          <a-input
+            v-model:value="slideForm.title"
+            data-testid="cms-slide-title-input"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('plugin.cms.fields.groupCode')">
+          <a-input
+            v-model:value="slideForm.groupCode"
+            data-testid="cms-slide-group-input"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('plugin.cms.fields.subtitle')">
+          <a-input v-model:value="slideForm.subtitle" />
+        </a-form-item>
+        <a-form-item :label="$t('plugin.cms.fields.slideLink')">
+          <a-input v-model:value="slideForm.link" />
+        </a-form-item>
+        <a-form-item :label="$t('pages.common.status')">
+          <a-select
+            v-model:value="slideForm.status"
+            :options="siteStatusOptions"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('pages.fields.sort')">
+          <a-input-number
+            v-model:value="slideForm.sort"
+            class="w-full"
+            :min="0"
+          />
+        </a-form-item>
+        <a-form-item
+          :label="$t('plugin.cms.fields.slideImage')"
+          class="cms-span-all"
+          required
+        >
+          <div data-testid="cms-slide-image-upload">
+            <CmsImageUpload
+              v-model:value="slideForm.image"
+              scene="cms-site"
+              :max-count="1"
+            />
+          </div>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="linkModalOpen"
+      data-testid="cms-link-modal"
+      :title="
+        linkModalMode === 'update'
+          ? $t('plugin.cms.dialogs.editLink')
+          : $t('plugin.cms.dialogs.createLink')
+      "
+      :width="720"
+      @ok="submitLink"
+    >
+      <a-form :model="linkForm" layout="vertical" class="cms-form-grid">
+        <a-form-item :label="$t('plugin.cms.fields.linkName')" required>
+          <a-input
+            v-model:value="linkForm.name"
+            data-testid="cms-link-name-input"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('plugin.cms.fields.groupCode')">
+          <a-input
+            v-model:value="linkForm.groupCode"
+            data-testid="cms-link-group-input"
+          />
+        </a-form-item>
+        <a-form-item
+          :label="$t('plugin.cms.fields.linkUrl')"
+          class="cms-span-all"
+          required
+        >
+          <a-input
+            v-model:value="linkForm.url"
+            data-testid="cms-link-url-input"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('pages.common.status')">
+          <a-select
+            v-model:value="linkForm.status"
+            :options="siteStatusOptions"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('pages.fields.sort')">
+          <a-input-number
+            v-model:value="linkForm.sort"
+            class="w-full"
+            :min="0"
+          />
+        </a-form-item>
+        <a-form-item :label="$t('plugin.cms.fields.linkLogo')" class="cms-span-all">
+          <div data-testid="cms-link-logo-upload">
+            <CmsImageUpload
+              v-model:value="linkForm.logo"
+              scene="cms-site"
+              :max-count="1"
+            />
+          </div>
         </a-form-item>
       </a-form>
     </a-modal>

@@ -502,6 +502,58 @@
                 "dc": "更新一个 CMS 栏目。"
               }
             },
+            "LinkCreateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "logo": {
+                  "dc": "标识图片地址"
+                },
+                "name": {
+                  "dc": "友情链接名称"
+                },
+                "sort": {
+                  "dc": "显示顺序"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                },
+                "url": {
+                  "dc": "友情链接 URL"
+                }
+              },
+              "meta": {
+                "dc": "新增一条 CMS 友情链接。",
+                "summary": "新增 CMS 友情链接",
+                "tags": "CMS 友情链接"
+              },
+              "schema": {
+                "dc": "新增一条 CMS 友情链接。"
+              }
+            },
+            "LinkCreateRes": {
+              "fields": {
+                "id": {
+                  "dc": "友情链接 ID"
+                }
+              }
+            },
+            "LinkDeleteReq": {
+              "fields": {
+                "id": {
+                  "dc": "友情链接 ID"
+                }
+              },
+              "meta": {
+                "dc": "根据 ID 删除一条 CMS 友情链接。",
+                "summary": "删除 CMS 友情链接",
+                "tags": "CMS 友情链接"
+              },
+              "schema": {
+                "dc": "根据 ID 删除一条 CMS 友情链接。"
+              }
+            },
             "LinkItem": {
               "fields": {
                 "id": {
@@ -521,7 +573,92 @@
                 },
                 "url": {
                   "dc": "链接 URL"
+                },
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "createdBy": {
+                  "dc": "创建者用户 ID"
+                },
+                "updatedBy": {
+                  "dc": "更新者用户 ID"
+                },
+                "createdAt": {
+                  "dc": "创建时间"
+                },
+                "updatedAt": {
+                  "dc": "更新时间"
                 }
+              }
+            },
+            "LinkListReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "按分组编码过滤"
+                },
+                "keyword": {
+                  "dc": "按友情链接名称或 URL 过滤"
+                },
+                "pageNum": {
+                  "dc": "页码"
+                },
+                "pageSize": {
+                  "dc": "每页数量"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                }
+              },
+              "meta": {
+                "dc": "分页查询 CMS 友情链接。",
+                "summary": "获取 CMS 友情链接列表",
+                "tags": "CMS 友情链接"
+              },
+              "schema": {
+                "dc": "分页查询 CMS 友情链接。"
+              }
+            },
+            "LinkListRes": {
+              "fields": {
+                "list": {
+                  "dc": "友情链接列表"
+                },
+                "total": {
+                  "dc": "友情链接总数"
+                }
+              }
+            },
+            "LinkUpdateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "id": {
+                  "dc": "友情链接 ID"
+                },
+                "logo": {
+                  "dc": "标识图片地址"
+                },
+                "name": {
+                  "dc": "友情链接名称"
+                },
+                "sort": {
+                  "dc": "显示顺序"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                },
+                "url": {
+                  "dc": "友情链接 URL"
+                }
+              },
+              "meta": {
+                "dc": "更新一条 CMS 友情链接。",
+                "summary": "更新 CMS 友情链接",
+                "tags": "CMS 友情链接"
+              },
+              "schema": {
+                "dc": "更新一条 CMS 友情链接。"
               }
             },
             "MessageDeleteReq": {
@@ -894,6 +1031,61 @@
                 "dc": "更新可编辑的 CMS 站点配置。"
               }
             },
+            "SlideCreateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "image": {
+                  "dc": "轮播图图片 URL"
+                },
+                "link": {
+                  "dc": "点击目标 URL"
+                },
+                "sort": {
+                  "dc": "显示顺序"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                },
+                "subtitle": {
+                  "dc": "轮播图副标题"
+                },
+                "title": {
+                  "dc": "轮播图标题"
+                }
+              },
+              "meta": {
+                "dc": "新增一张 CMS 轮播图。",
+                "summary": "新增 CMS 轮播图",
+                "tags": "CMS 轮播图"
+              },
+              "schema": {
+                "dc": "新增一张 CMS 轮播图。"
+              }
+            },
+            "SlideCreateRes": {
+              "fields": {
+                "id": {
+                  "dc": "轮播图 ID"
+                }
+              }
+            },
+            "SlideDeleteReq": {
+              "fields": {
+                "id": {
+                  "dc": "轮播图 ID"
+                }
+              },
+              "meta": {
+                "dc": "根据 ID 删除一张 CMS 轮播图。",
+                "summary": "删除 CMS 轮播图",
+                "tags": "CMS 轮播图"
+              },
+              "schema": {
+                "dc": "根据 ID 删除一张 CMS 轮播图。"
+              }
+            },
             "SlideItem": {
               "fields": {
                 "id": {
@@ -913,7 +1105,98 @@
                 },
                 "title": {
                   "dc": "轮播图标题"
+                },
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "subtitle": {
+                  "dc": "轮播图副标题"
+                },
+                "createdBy": {
+                  "dc": "创建者用户 ID"
+                },
+                "updatedBy": {
+                  "dc": "更新者用户 ID"
+                },
+                "createdAt": {
+                  "dc": "创建时间"
+                },
+                "updatedAt": {
+                  "dc": "更新时间"
                 }
+              }
+            },
+            "SlideListReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "按分组编码过滤"
+                },
+                "keyword": {
+                  "dc": "按轮播图标题或副标题过滤"
+                },
+                "pageNum": {
+                  "dc": "页码"
+                },
+                "pageSize": {
+                  "dc": "每页数量"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                }
+              },
+              "meta": {
+                "dc": "分页查询 CMS 轮播图。",
+                "summary": "获取 CMS 轮播图列表",
+                "tags": "CMS 轮播图"
+              },
+              "schema": {
+                "dc": "分页查询 CMS 轮播图。"
+              }
+            },
+            "SlideListRes": {
+              "fields": {
+                "list": {
+                  "dc": "轮播图列表"
+                },
+                "total": {
+                  "dc": "轮播图总数"
+                }
+              }
+            },
+            "SlideUpdateReq": {
+              "fields": {
+                "groupCode": {
+                  "dc": "分组编码"
+                },
+                "id": {
+                  "dc": "轮播图 ID"
+                },
+                "image": {
+                  "dc": "轮播图图片 URL"
+                },
+                "link": {
+                  "dc": "点击目标 URL"
+                },
+                "sort": {
+                  "dc": "显示顺序"
+                },
+                "status": {
+                  "dc": "状态：0=停用，1=启用"
+                },
+                "subtitle": {
+                  "dc": "轮播图副标题"
+                },
+                "title": {
+                  "dc": "轮播图标题"
+                }
+              },
+              "meta": {
+                "dc": "更新一张 CMS 轮播图。",
+                "summary": "更新 CMS 轮播图",
+                "tags": "CMS 轮播图"
+              },
+              "schema": {
+                "dc": "更新一张 CMS 轮播图。"
               }
             }
           }

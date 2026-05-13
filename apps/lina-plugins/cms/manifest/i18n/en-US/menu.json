@@ -24,6 +24,18 @@
     "plugin:cms:category:remove": {
       "title": "Delete Category"
     },
+    "plugin:cms:link:add": {
+      "title": "Create Friendly Link"
+    },
+    "plugin:cms:link:edit": {
+      "title": "Update Friendly Link"
+    },
+    "plugin:cms:link:query": {
+      "title": "Query Friendly Links"
+    },
+    "plugin:cms:link:remove": {
+      "title": "Delete Friendly Link"
+    },
     "plugin:cms:message:edit": {
       "title": "Moderate Message"
     },
@@ -32,6 +44,18 @@
     },
     "plugin:cms:site:edit": {
       "title": "Update Site"
+    },
+    "plugin:cms:slide:add": {
+      "title": "Create Slide"
+    },
+    "plugin:cms:slide:edit": {
+      "title": "Update Slide"
+    },
+    "plugin:cms:slide:query": {
+      "title": "Query Slides"
+    },
+    "plugin:cms:slide:remove": {
+      "title": "Delete Slide"
     },
     "plugin:cms:workspace": {
       "title": "CMS"

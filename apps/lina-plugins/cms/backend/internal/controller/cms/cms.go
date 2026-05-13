@@ -158,12 +158,17 @@ func toAPILinks(list []*cmssvc.LinkItem) []*v1.LinkItem {
 			continue
 		}
 		items = append(items, &v1.LinkItem{
-			Id:     item.Id,
-			Name:   item.Name,
-			Url:    item.Url,
-			Logo:   item.Logo,
-			Sort:   item.Sort,
-			Status: item.Status,
+			Id:        item.Id,
+			GroupCode: item.GroupCode,
+			Name:      item.Name,
+			Url:       item.Url,
+			Logo:      item.Logo,
+			Sort:      item.Sort,
+			Status:    item.Status,
+			CreatedBy: item.CreatedBy,
+			UpdatedBy: item.UpdatedBy,
+			CreatedAt: item.CreatedAt,
+			UpdatedAt: item.UpdatedAt,
 		})
 	}
 	return items
@@ -177,12 +182,18 @@ func toAPISlides(list []*cmssvc.SlideItem) []*v1.SlideItem {
 			continue
 		}
 		items = append(items, &v1.SlideItem{
-			Id:     item.Id,
-			Title:  item.Title,
-			Image:  item.Image,
-			Link:   item.Link,
-			Sort:   item.Sort,
-			Status: item.Status,
+			Id:        item.Id,
+			GroupCode: item.GroupCode,
+			Title:     item.Title,
+			Subtitle:  item.Subtitle,
+			Image:     item.Image,
+			Link:      item.Link,
+			Sort:      item.Sort,
+			Status:    item.Status,
+			CreatedBy: item.CreatedBy,
+			UpdatedBy: item.UpdatedBy,
+			CreatedAt: item.CreatedAt,
+			UpdatedAt: item.UpdatedAt,
 		})
 	}
 	return items
