@@ -84,21 +84,21 @@
 
 ### Requirement: 流别名管理
 
-系统 SHALL 提供流别名分页查询、详情、新增、修改和删除能力。
+系统 SHALL 按用户截图中的 `media_stream_alias` 表结构提供流别名分页查询、详情、新增、修改和删除能力。
 
 #### Scenario: 创建流别名
 
-- **WHEN** 用户提交别名、真实流路径和自动移除标记
+- **WHEN** 用户提交别名、真实流路径、自动移除标记、设备 ID 和设备通道 ID
 - **THEN** 系统 SHALL 创建一条流别名记录，并保证别名全局唯一
 
 #### Scenario: 更新流别名
 
-- **WHEN** 用户修改流别名的真实流路径或自动移除标记
+- **WHEN** 用户修改流别名的真实流路径、自动移除标记、设备 ID 或设备通道 ID
 - **THEN** 系统 SHALL 保存更新后的流别名配置
 
 ### Requirement: 租户白名单管理
 
-系统 SHALL 按 `media_tenant_white` 表结构提供租户白名单分页查询、新增、修改、启用状态切换和删除能力，并以 `tenant_id` 与 `ip` 的联合唯一键定位一条白名单记录。
+系统 SHALL 按用户截图中的 `media_tenant_white` 表结构提供租户白名单分页查询、新增、修改、启用状态切换和删除能力，并以 `tenant_id` 与 `ip` 的联合唯一键定位一条白名单记录。
 
 #### Scenario: 创建租户白名单
 
@@ -122,7 +122,7 @@
 
 ### Requirement: 媒体节点与流并发配置管理
 
-系统 SHALL 按 `media_node`、`media_device_node` 与 `media_tenant_stream_config` 表结构提供节点、设备节点和租户流配置的分页查询、新增、修改、详情和删除能力，并将它们作为相互独立的 REST 资源管理。
+系统 SHALL 按用户截图中的 `media_node`、`media_device_node` 与 `media_tenant_stream_config` 表结构提供节点、设备节点和租户流配置的分页查询、新增、修改、详情和删除能力，并将它们作为相互独立的 REST 资源管理。
 
 #### Scenario: 管理节点
 
@@ -131,8 +131,8 @@
 
 #### Scenario: 管理设备节点
 
-- **WHEN** 用户提交设备国标 ID 和节点编号
-- **THEN** 系统 SHALL 保存该设备与节点的唯一关系，并拒绝引用不存在的节点编号
+- **WHEN** 用户提交设备 ID、设备通道 ID 和节点编号
+- **THEN** 系统 SHALL 以设备 ID 和设备通道 ID 的组合唯一保存该设备通道与节点的关系，并拒绝引用不存在的节点编号
 
 #### Scenario: 管理租户流配置
 

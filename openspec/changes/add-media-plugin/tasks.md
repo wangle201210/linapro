@@ -26,7 +26,7 @@
 
 ## 5. 测试与验证
 
-- [x] 5.1 新增插件自有 E2E 冒烟用例 `TC0234-media-plugin-smoke.ts`
+- [x] 5.1 新增插件自有 E2E 冒烟用例 `TC0236-media-plugin-smoke.ts`
 - [x] 5.2 运行 Go 单元测试和源码插件聚合编译
 - [x] 5.3 运行前端类型检查、E2E 静态校验和 OpenSpec 严格校验
 
@@ -37,7 +37,7 @@
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本模块未新增运行时 i18n、manifest i18n 或 apidoc i18n 资源。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts --list` 能发现 1 条插件自有 E2E 用例。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts --list` 能发现 1 条插件自有 E2E 用例。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] 插件安装 SQL 使用 `psql` 重复执行通过，并完成策略、设备绑定、租户绑定、租户设备绑定、`auto_remove=0/1` 流别名的最小写入与清理冒烟验证。
@@ -62,7 +62,7 @@
 - [x] **FB-14**: 租户白名单 IP 必须在后端校验为有效 IPv4 或 IPv6 地址
 - [x] **FB-15**: 优化媒体管理页面顶部 Tab 视觉效果
 - [x] **FB-16**: 增加 `media_tenant_stream_config`、`media_device_node`、`media_node` 表及相关业务逻辑
-- [x] **FB-17**: `media_device_node.device_id` 应按原表结构使用唯一约束而不是主键
+- [x] **FB-17**: `media_device_node.device_id` 应按当时原表结构从主键改为唯一约束，后续由 FB-30 修正为 `device_id + channel_id` 组合唯一
 - [x] **FB-18**: 后续新增的 `hg_*` 媒体表统一改为 `media_*` 命名
 - [x] **FB-19**: media 策略解析需要支持通过铁塔 token 鉴权并校验租户设备权限
 - [x] **FB-20**: CMS 公开前端缺少原站点静态资源导致 CSS、图片和脚本无法加载
@@ -72,9 +72,49 @@
 - [x] **FB-24**: water 插件中文水印渲染成方框乱码
 - [x] **FB-25**: 为 water 插件增加类似 HotGo `cmd/stress` 的并发压测工具
 - [x] **FB-26**: water 服务端消费者并发配置已读取但未交付到配置文件和文档
+- [x] **FB-27**: media 相关表字段、类型和字段备注必须与用户截图数据结构保持一致，物理表名暂继续使用 `media_*`
+- [x] **FB-28**: 非宿主源码插件 E2E 用例编号应避开宿主 `TC0234/TC0235`，修复 `test:validate` 重号失败
+- [x] **FB-29**: 复核 media 表结构与截图完全一致，补齐旧表升级路径中 `media_tenant_stream_config.tenant_id` 主键约束
+- [x] **FB-30**: `media_device_node` 唯一索引应改为 `device_id + channel_id` 组合唯一，不能只按 `device_id` 唯一
 
 ## Feedback 验证记录
 
+- [x] FB-30 将 `media_device_node` 唯一约束修正为 `uk_media_device_node_device_channel UNIQUE (device_id, channel_id)`；安装 SQL 重放会移除旧 `uk_media_device_node_device` 单列唯一约束后重建组合唯一约束。
+- [x] FB-30 将设备节点详情、修改、删除 API 调整为按 `/media/device-nodes/{deviceId}/channels/{channelId}` 定位；服务层查询、重复校验、更新和删除均使用 `device_id + channel_id` 组合条件。
+- [x] FB-30 同步更新前端设备节点列表行键、编辑/删除 testid、弹窗回显和 media E2E：同一个 `deviceId` 的不同 `channelId` 可同时创建、查询和独立删除。
+- [x] `psql` 对当前库 `linapro` 连续执行 media 安装 SQL 两次和 mock 数据两次通过；对临时空库 `linapro_media_schema_check` 连续执行 media 安装 SQL 两次通过。
+- [x] PostgreSQL 元数据断言通过：`linapro` 与 `linapro_media_schema_check` 的 `media_device_node` 均为 `device_id:varchar(64):NO:unique_part`、`channel_id:varchar(64):NO:unique_part`、`node_num:smallint:NO`，`mismatch_count=0`；约束为 `uk_media_device_node_device_channel|UNIQUE (device_id, channel_id)` 与 `fk_media_device_node_node|ON UPDATE CASCADE ON DELETE RESTRICT`。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `pnpm --dir apps/lina-vben --filter @lina/web-antd typecheck` 通过。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts --list` 能发现 5 个媒体插件 E2E 用例。
+- [x] `make stop && make dev` 通过，后端与前端服务重新加载当前工作区组合键版本；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236c|TC-236e"` 通过，覆盖设备节点组合键 API 与页面编辑/删除链路。
+- [x] `pnpm --dir hack/tests test:validate` 通过，校验 219 个 E2E 文件；`openspec validate add-media-plugin --strict` 通过；`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-30 调整设备节点自然键、接口路径和既有中文页面/API 文案，当前 media 插件仍按既有中文-only 方式维护，未新增运行时 i18n、manifest i18n 或 apidoc i18n 资源；不新增缓存；数据访问仍沿用 media 管理平台权限点和数据库权威数据源。
+- [x] `/lina-review` 审查：FB-30 未发现阻断问题；设备节点自然键、SQL 约束、服务层条件、前端行键和 E2E 覆盖均已统一为 `device_id + channel_id` 组合定位。
+- [x] FB-29 复核当前库实际元数据发现：新安装 SQL 中 `media_tenant_stream_config.tenant_id` 为主键，但旧表升级路径只保留唯一约束，和截图“是否主键=是”不完全一致。
+- [x] FB-29 在 media 安装 SQL 中补充 `media_tenant_stream_config_pkey` 幂等迁移：旧表升级路径会移除旧唯一约束并在不存在主键时为 `tenant_id` 添加主键，全新安装路径重复执行不会报错。
+- [x] FB-29 对当前本地库 `linapro` 连续执行 `apps/lina-plugins/media/manifest/sql/001-media-schema.sql` 两次通过；对临时空库 `linapro_media_schema_check` 全新安装并重复执行同一 SQL 两次通过。
+- [x] FB-29 使用 PostgreSQL 元数据断言逐表核对表名、表备注、字段顺序、字段名、归一化类型/长度、是否非空、是否主键、是否唯一和字段备注；`linapro` 与 `linapro_media_schema_check` 均返回 `mismatch_count=0`。
+- [x] i18n/缓存/数据权限影响评估：FB-29 仅补充 SQL 约束迁移，不新增运行时文案、缓存、接口或数据访问模式；media 表物理名仍保持 `media_*`。
+- [x] FB-28 将 media 插件自有 E2E 从 `TC0234-media-plugin-smoke.ts` 重命名为 `TC0236-media-plugin-smoke.ts`，并同步文件内 `TC-236a~e` 子用例标签和 OpenSpec 任务记录引用。
+- [x] FB-28 将 water 插件自有 E2E 从 `TC0235-water-plugin-smoke.ts` 重命名为 `TC0237-water-plugin-smoke.ts`，并同步文件内 `TC-237a~b` 子用例标签；宿主 `TC0234/TC0235` 文件未修改。
+- [x] `pnpm --dir hack/tests test:validate` 通过，校验 219 个 E2E 文件且不再报告 TC 编号重复。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts ../apps/lina-plugins/water/hack/tests/e2e/TC0237-water-plugin-smoke.ts --list` 能发现 7 个插件自有 E2E 子用例。
+- [x] `/lina-review` 审查：FB-28 属于 E2E 编号治理修复，不改变运行时功能、API、数据库、i18n 或缓存行为；编号按当前最大 `TC0235` 之后递增分配为 `TC0236/TC0237`，未复用宿主编号。
+- [x] FB-27 按用户最新反馈保留物理表名 `media_*`，未切换为 `hg_*`；将 `media_strategy`、策略绑定表、`media_stream_alias`、`media_tenant_white`、`media_tenant_stream_config`、`media_device_node`、`media_node` 的字段类型、字段备注和 `1/0` 开关语义对齐截图。
+- [x] FB-27 为 `media_stream_alias` 与 `media_device_node` 补齐 `device_id`/`channel_id` 字段链路，覆盖安装 SQL、mock 数据、DAO/DO/Entity、服务层、Controller、API DTO、前端列表/表单和媒体 E2E 用例。
+- [x] FB-27 安装 SQL 增加旧 `media_*` 表升级修正：重放时会补 `channel_id`，修正旧 `1/2` 开关值为 `1/0`，调整 varchar 长度、smallint/integer/timestamp 类型、字段非空性和唯一/检查/外键约束。
+- [x] FB-27 water 插件仍读取共享 `media_strategy*` 表，重新基于 `media_*` 表生成 water 侧 DAO/DO/Entity，并同步将 water E2E 策略默认 `global` 改为 `0`。
+- [x] `psql` 对本地库执行 media 插件卸载 SQL、安装 SQL两次、mock 数据两次通过；结构断言覆盖关键字段类型、长度、nullable 与备注，结果为 `0` 个不匹配。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 与 `apps/lina-plugins/water` 均通过。
+- [x] `pnpm --dir apps/lina-vben --filter @lina/web-antd typecheck` 通过。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts --list` 能发现 5 个媒体插件 E2E 用例。
+- [x] `pnpm --dir hack/tests test:validate` 当时因 TC 编号重复失败：`TC0234` 与宿主 `TC0234-host-only-plugin-list-empty.ts` 重号，`TC0235` 与宿主 `TC0235-plugin-dependency-management.ts` 重号；本次已用 TypeScript 编译和媒体用例 Playwright 列表校验覆盖新增 E2E 文件可加载性。
+- [x] `openspec validate add-media-plugin --strict` 通过；`git diff --check` 于仓库根目录通过。
+- [x] i18n 影响评估：FB-27 修改运行时中文页面文案和中文 API 文档标签，当前 media/water 插件仍为中文内置页面与接口文档，未新增 manifest i18n、前端运行时语言包或 apidoc i18n JSON；未引入新的跨语言资源。
+- [x] 缓存影响评估：FB-27 不新增业务缓存；media/water 策略、流别名和节点配置仍直接读取数据库权威数据，分布式缓存一致性边界未变化。
+- [x] 数据权限影响评估：FB-27 未新增新的资源访问模式，只扩展既有 media 管理资源字段；media 插件当前为 platform-only 源码插件，仍沿用既有插件权限点与平台管理入口。
+- [x] `/lina-review` 审查：本次 `media_*` 表结构对齐未发现阻断问题；保留既有中文 API 文档源文本和 `hack/tests test:validate` 中既有 TC 编号重复作为后续治理风险。
 - [x] FB-26 根因确认为 water 服务端已通过 `water.consumerCount` 读取异步水印消费者并发数，但宿主配置模板和 water 插件说明文档未显式交付该配置。
 - [x] FB-26 在 `apps/lina-core/manifest/config/config.template.yaml` 新增 `water.consumerCount: 1`，并注明小于 1 回退为 1、大于 32 按 32 封顶；本地忽略文件 `apps/lina-core/manifest/config/config.yaml` 已同步更新，便于当前开发环境直接生效。
 - [x] FB-26 在 water 插件 `README.md` 与 `README.zh-CN.md` 补充运行配置说明，明确水印规则在 `media_strategy.strategy`，服务端异步消费者并发在宿主配置 `water.consumerCount`。
@@ -161,27 +201,27 @@
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
 - [x] `make stop && make dev` 通过，后端与前端服务重新加载 `media_*` 表名版本。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts -g "TC-234e"` 通过，覆盖页面编辑回显与接口执行。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 复跑通过，5 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236e"` 通过，覆盖页面编辑回显与接口执行。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 复跑通过，5 条用例全部通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] i18n 影响评估：本次仅调整表物理命名和生成访问层，本模块仍按用户要求中文-only，未新增运行时 i18n、manifest i18n 或 apidoc i18n 资源。
 - [x] 缓存影响评估：本次未新增缓存，media 页面和接口仍直接读写 PostgreSQL，不涉及跨实例缓存一致性问题。
-- [x] FB-17 将 `media_device_node.device_id` 从 PostgreSQL 主键改为普通非空字段，并新增 `uk_media_device_node_device` 唯一约束，对齐 `media_v2.md` 中 `UNIQUE KEY uk_device(device_id)`。
-- [x] FB-17 插件安装 SQL 的重复执行修正段会移除旧本地库中的 `media_device_node_pkey`，再重建 `uk_media_device_node_device` 和节点外键，保证重放后结构一致。
-- [x] `psql` 约束断言通过：`media_device_node` 当前 `primary_count=0`、`unique_count=1`，约束为 `uk_media_device_node_device|UNIQUE (device_id)` 与 `fk_media_device_node_node|ON UPDATE CASCADE ON DELETE RESTRICT`。
+- [x] FB-17 曾将 `media_device_node.device_id` 从 PostgreSQL 主键改为普通非空字段并临时使用单列唯一约束；该结论已由 FB-30 修正为 `device_id + channel_id` 组合唯一。
+- [x] FB-17 的旧重放修正段已由 FB-30 更新：安装 SQL 会移除 `media_device_node_pkey`、旧 `uk_media_device_node_device` 单列唯一约束和旧组合约束，再重建当前组合唯一约束与节点外键。
+- [x] FB-17 旧约束断言已由 FB-30 覆盖；当前有效断言应以 `uk_media_device_node_device_channel|UNIQUE (device_id, channel_id)` 为准。
 - [x] `psql` 连续执行 `apps/lina-plugins/media/manifest/sql/001-media-schema.sql` 两次通过。
 - [x] FB-16 新增 `media_node`、`media_device_node`、`media_tenant_stream_config` PostgreSQL 表，字段名保持截图中的 `tenant_id/device_id/node_num/create_time/update_time` 等原始命名，MySQL `tinyint(1)` 转为 `smallint`，`datetime` 转为 PostgreSQL `timestamp`。
 - [x] FB-16 新增节点、设备节点、租户流配置三组独立 REST 资源：`/media/nodes`、`/media/device-nodes`、`/media/tenant-stream-configs`，支持分页查询、新增、详情、修改、删除；设备节点和租户流配置均校验引用节点存在。
 - [x] FB-16 新增“节点管理”“设备节点”“租户流配置”独立页签和编辑弹窗，覆盖新增、编辑回显、自然键修改、节点选择、启用状态和删除；页面顶部 Tab 保持优化后的紧凑分段样式。
 - [x] FB-16 新增案例数据：`华东媒体节点`、`华北媒体节点`，设备 `34020000001320000001/34020000001320000002`，租户流配置 `tenant-retail-east/tenant-park-security`；`psql` 连续执行 `manifest/sql/mock-data/001-media-mock-data.sql` 两次通过，第二次全部 `INSERT 0 0`，不重复写入。
 - [x] `psql` 结构断言通过：`media_node` 字段为 `id:integer:NO`、`node_num:smallint:NO`、`name:varchar(32):NO`、`qn_url/basic_url/dn_url:varchar(255):NO`、`creator_id:integer:YES`、`create_time:timestamp without time zone:NO`、`updater_id:integer:YES`、`update_time:timestamp without time zone:YES`。
-- [x] `psql` 结构断言通过：`media_device_node` 字段为 `device_id:varchar(64):NO`、`node_num:smallint:NO`；`media_tenant_stream_config` 字段为 `tenant_id:varchar(64):NO`、`max_concurrent:integer:NO`、`node_num:smallint:NO`、`enable:smallint:NO`、`creator_id:integer:YES`、`create_time:timestamp without time zone:NO`、`updater_id:integer:YES`、`update_time:timestamp without time zone:YES`。
+- [x] `psql` 结构断言通过：`media_device_node` 字段为 `device_id:varchar(64):NO`、`channel_id:varchar(64):NO`、`node_num:smallint:NO`；`media_tenant_stream_config` 字段为 `tenant_id:varchar(64):NO`、`max_concurrent:integer:NO`、`node_num:smallint:NO`、`enable:smallint:NO`、`creator_id:integer:YES`、`create_time:timestamp without time zone:NO`、`updater_id:integer:YES`、`update_time:timestamp without time zone:YES`。
 - [x] `psql` 外键断言通过：`fk_media_device_node_node` 与 `fk_media_tenant_stream_config_node` 均为 `ON UPDATE CASCADE ON DELETE RESTRICT`；插件安装 SQL 重复执行时会重建外键，避免旧本地约束保留 `NO ACTION`。
 - [x] `go test ./...` 于 `apps/lina-plugins/media` 通过。
 - [x] `pnpm -C apps/lina-vben -F @lina/web-antd typecheck` 通过。
 - [x] `pnpm exec tsc -p tsconfig.json --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖三组新增接口的 REST 语义、页面页签加载、编辑回显、节点编号级联、被引用节点删除保护和完整清理流程。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖三组新增接口的 REST 语义、页面页签加载、编辑回显、节点编号级联、被引用节点删除保护和完整清理流程。
 - [x] `pnpm -C hack/tests test:validate` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
@@ -193,27 +233,27 @@
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 于 `apps/lina-vben` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
 - [x] `make dev` 通过，宿主内嵌静态资源已重新生成并启动后端 `8080`、前端 `5666`。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 于 `hack/tests` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] FB-14 在租户白名单后端服务层通过 `net.ParseIP` 统一校验自然键 IP，新增、修改、详情和删除接口均拒绝非法 IPv4/IPv6 地址。
 - [x] FB-14 前端“租户白名单”弹窗新增 IPv4/IPv6 表单校验，非法地址会在提交前显示“白名单地址必须是有效的 IPv4 或 IPv6 地址”。
-- [x] FB-14 更新 `TC0234-media-plugin-smoke.ts`，覆盖非法 IPv4 新增、非法字符串更新、合法 IPv6 新增，以及页面新增弹窗非法 IP 校验。
+- [x] FB-14 更新 `TC0236-media-plugin-smoke.ts`，覆盖非法 IPv4 新增、非法字符串更新、合法 IPv6 新增，以及页面新增弹窗非法 IP 校验。
 - [x] `go test ./...` 于 `apps/lina-plugins/media` 通过。
 - [x] `go test ./...` 于 `apps/lina-plugins` 通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 于 `apps/lina-vben` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
 - [x] `make stop && make dev` 通过，后端与前端服务已重新加载租户白名单 IP 校验版本。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 于 `hack/tests` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，覆盖媒体页面加载、三页签切换、前端未捕获异常、页面高度稳定性、策略绑定优先级、被引用策略删除保护和流别名 CRUD。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，覆盖媒体页面加载、三页签切换、前端未捕获异常、页面高度稳定性、策略绑定优先级、被引用策略删除保护和流别名 CRUD。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本次反馈修复未新增 i18n 资源。
 - [x] `openspec validate add-media-plugin --strict` 通过。
@@ -226,14 +266,14 @@
 - [x] `go test ./...` 于 `apps/lina-plugins` 通过。
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，2 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，2 条用例全部通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本次平台共享调整未新增 i18n 资源。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] SQL 静态扫描通过：media 插件 SQL 不包含 `host_tenant_id`、MySQL 方言标记或显式自增 `id` 写入。
 - [x] FB-4 修复 `clearGlobalStrategies` 在平台共享模式下无 WHERE 更新被 GoFrame Safe 模式拒绝的问题；清理旧全局策略时限定 `global=1`。
-- [x] 补充 `TC0234-media-plugin-smoke.ts` 全接口 API 场景，覆盖策略列表、详情、新增、修改、启用状态、设置全局、删除，设备绑定、租户绑定、租户设备绑定的独立列表/保存/删除，策略解析，流别名列表、详情、新增、修改、删除。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，3 条用例全部通过。
+- [x] 补充 `TC0236-media-plugin-smoke.ts` 全接口 API 场景，覆盖策略列表、详情、新增、修改、启用状态、设置全局、删除，设备绑定、租户绑定、租户设备绑定的独立列表/保存/删除，策略解析，流别名列表、详情、新增、修改、删除。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，3 条用例全部通过。
 - [x] 后端日志扫描确认本轮 E2E 后未再出现 `MEDIA_STRATEGY_UPDATE_FAILED`、`更新媒体策略失败` 或 `there should be WHERE condition statement for UPDATE operation`。
 - [x] FB-5 将原 `GET/PUT/DELETE /media/bindings` 拆分为 `GET/PUT/DELETE /media/device-bindings`、`/media/tenant-bindings`、`/media/tenant-device-bindings` 三组独立资源接口，接口不再接收或返回绑定 `scope`。
 - [x] FB-5 前端将“策略绑定”单页签拆分为“设备绑定”“租户绑定”“租户设备绑定”三个独立页签，并将“策略解析”独立成页签；绑定弹窗不再展示绑定类型切换。
@@ -242,19 +282,19 @@
 - [x] `go test ./...` 于 `apps/lina-plugins` 通过。
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，3 条用例全部通过，覆盖独立绑定接口、独立页签、策略解析和流别名 CRUD。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，3 条用例全部通过，覆盖独立绑定接口、独立页签、策略解析和流别名 CRUD。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] FB-6 在 `feat/media2` 中不保留宿主开发命令源码改动；媒体页面加载依赖当前 `apps/lina-plugins` 子模块指向包含 media 前端页的插件提交，宿主静态资源刷新流程使用 `main` 分支现状。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts -g "TC-234d"` 通过，覆盖 `http://127.0.0.1:8080/#/media` 宿主静态入口可加载媒体管理页面且不显示“插件页面未找到”。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，4 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236d"` 通过，覆盖 `http://127.0.0.1:8080/#/media` 宿主静态入口可加载媒体管理页面且不显示“插件页面未找到”。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，4 条用例全部通过。
 - [x] FB-7 修复策略、绑定、流别名弹窗回显状态维护：弹窗表单改为保持同一个 `reactive` 对象引用，打开时先重置校验和默认值，再写入后端详情或表格行数据，避免 `resetFields()` 和整体替换 `formData` 导致编辑数据被旧初始值覆盖。
 - [x] FB-8 为策略、设备绑定、租户绑定、租户设备绑定、流别名编辑按钮补充稳定 `data-testid`，用于逐界面核实真实页面操作和接口执行。
-- [x] 补充 `TC0234-media-plugin-smoke.ts` UI 场景 `TC-234e`，覆盖策略编辑详情 `GET`/更新 `PUT`、三类绑定页签列表 `GET`/保存 `PUT`、策略解析 `GET`、流别名详情 `GET`/更新 `PUT`，并断言每个编辑弹窗字段回显。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts -g "TC-234e"` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过。
+- [x] 补充 `TC0236-media-plugin-smoke.ts` UI 场景 `TC-236e`，覆盖策略编辑详情 `GET`/更新 `PUT`、三类绑定页签列表 `GET`/保存 `PUT`、策略解析 `GET`、流别名详情 `GET`/更新 `PUT`，并断言每个编辑弹窗字段回显。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236e"` 通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过。
 - [x] FB-9 将 media 对外接口、前端状态、页面列、表单、策略解析参数和 E2E 测试中的 `bizTenantId` 统一改回 `tenantId`；数据库列仍保持原始 `tenant_id`，且不恢复 `host_tenant_id` 宿主租户隔离字段。
 - [x] FB-9 更新 media 插件 SQL 注释并通过 `gf gen dao` 重新生成插件本地 DAO/DO/Entity，使生成文件中的租户字段说明同步为“租户ID”。
 - [x] `rg -n "bizTenantId|BizTenantId|bizTenantID|BizTenantID|业务租户" apps/lina-plugins/media apps/lina-core/internal/packed/public openspec/changes/add-media-plugin -g '!backend/internal/dao/**' -g '!backend/internal/model/**'` 仅命中 FB-9 任务描述，确认代码、前端产物和规范正文无旧字段残留。
@@ -267,7 +307,7 @@
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] `make stop && make dev` 通过，后端与前端服务重新加载 `tenantId` 字段版本。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖 `tenantId` 版租户绑定、租户设备绑定、策略解析、页面回显和 8080 宿主静态入口。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖 `tenantId` 版租户绑定、租户设备绑定、策略解析、页面回显和 8080 宿主静态入口。
 - [x] FB-10 将 media 插件数据库时间字段恢复为 `media_v2.md` 原始结构：`media_strategy.create_time/update_time`、`media_stream_alias.create_time`，不再使用 `created_at/updated_at`，也不再为流别名虚构更新时间字段。
 - [x] FB-10 在 PostgreSQL 中通过 `trg_media_strategy_update_time` 触发器等价实现策略表 `update_time` 自动更新时间，并重新执行插件卸载 SQL、安装 SQL 与 `gf gen dao`。
 - [x] FB-10 将后端服务、API DTO、前端类型和页面列同步为 `createTime/updateTime`；流别名接口和页面仅保留 `createTime`。
@@ -283,18 +323,18 @@
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] `make stop && make dev` 通过，后端与前端服务重新加载时间字段版本。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖策略和流别名接口、页面列表、编辑回显与 8080 宿主静态入口。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖策略和流别名接口、页面列表、编辑回显与 8080 宿主静态入口。
 - [x] FB-11 修复策略、流别名和绑定新增入口复用旧弹窗状态的问题：新增时显式清空旧 `id`、`tenantId`、`deviceId` 和 `strategyId`，表单重置时移除旧主键，避免编辑后新增误走更新接口。
 - [x] FB-12 逐项核实后端 API、Controller、Service、前端 `media-client.ts` 和页面按钮调用：策略、设备绑定、租户绑定、租户设备绑定、策略解析、流别名均保持独立 REST 资源和正确 HTTP 方法。
-- [x] FB-12 为策略启停、设为全局、删除，以及三类绑定和流别名删除按钮补充稳定 `data-testid`，并在 `TC0234-media-plugin-smoke.ts` 的 UI 场景中真实点击验证页面触发接口。
+- [x] FB-12 为策略启停、设为全局、删除，以及三类绑定和流别名删除按钮补充稳定 `data-testid`，并在 `TC0236-media-plugin-smoke.ts` 的 UI 场景中真实点击验证页面触发接口。
 - [x] FB-12 修复演示 mock 数据在已有全局策略时可能撞 `uk_media_strategy_single_global` 的问题；默认全局策略仅在当前没有全局策略时写入。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 于 `apps/lina-vben` 通过；从仓库根使用 `corepack pnpm -F` 会因当前 shell 解析到不匹配 pnpm 版本或缺少 workspace bin 而失败，验证改用前端工作区根路径。
 - [x] `go test ./...` 于 `apps/lina-plugins/media` 通过。
 - [x] `go test ./...` 于 `apps/lina-plugins` 通过。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts -g "TC-234e"` 通过，覆盖策略编辑后新增 `POST /media/strategies`、策略启停/设全局/删除、三类绑定编辑后新增与删除、流别名编辑后新增 `POST /media/stream-aliases` 与删除。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖媒体 API 语义、页面加载、8080 宿主静态入口和页面全操作链路。
-- [x] `E2E_HOST_BASE_URL=http://127.0.0.1:8080 ./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts -g "TC-234d"` 通过，确认宿主 8080 静态入口已加载最新 media 页面；直接把 `E2E_BASE_URL` 改为 8080 会让测试全局登录访问非 hash 路由 `/auth/login` 并出现重定向循环，因此宿主入口验证使用专用 `E2E_HOST_BASE_URL`。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236e"` 通过，覆盖策略编辑后新增 `POST /media/strategies`、策略启停/设全局/删除、三类绑定编辑后新增与删除、流别名编辑后新增 `POST /media/stream-aliases` 与删除。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖媒体 API 语义、页面加载、8080 宿主静态入口和页面全操作链路。
+- [x] `E2E_HOST_BASE_URL=http://127.0.0.1:8080 ./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts -g "TC-236d"` 通过，确认宿主 8080 静态入口已加载最新 media 页面；直接把 `E2E_BASE_URL` 改为 8080 会让测试全局登录访问非 hash 路由 `/auth/login` 并出现重定向循环，因此宿主入口验证使用专用 `E2E_HOST_BASE_URL`。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 于 `hack/tests` 通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `openspec validate add-media-plugin --strict` 通过。
@@ -315,7 +355,7 @@
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 于 `apps/lina-vben` 通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本模块仍按用户要求中文-only，未新增 i18n 资源。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖白名单 API、页签加载、编辑回显、新增后状态重置、删除和 8080 宿主静态入口。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，5 条用例全部通过，覆盖白名单 API、页签加载、编辑回显、新增后状态重置、删除和 8080 宿主静态入口。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 于 `hack/tests` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
@@ -324,12 +364,12 @@
 
 - [x] 按 `media_v2.md` 原始表结构恢复媒体策略 `create_time`/`update_time` 与流别名 `create_time` 字段；策略 `update_time` 通过 PostgreSQL 触发器自动维护，流别名不再维护原表不存在的更新时间字段。
 - [x] 将策略绑定保存接口按资源拆分为 `PUT /media/device-bindings/{deviceId}`、`PUT /media/tenant-bindings/{tenantId}`、`PUT /media/tenant-device-bindings/{tenantId}/{deviceId}`，匹配按自然键创建或替换绑定的 RESTful 更新语义。
-- [x] 补充 `TC0234-media-plugin-smoke.ts` API 场景，覆盖三个独立绑定资源、策略绑定优先级解析、策略引用保护和流别名新增/更新/详情/删除。
+- [x] 补充 `TC0236-media-plugin-smoke.ts` API 场景，覆盖三个独立绑定资源、策略绑定优先级解析、策略引用保护和流别名新增/更新/详情/删除。
 - [x] `go test ./...` 于 `apps/lina-plugins/media` 通过。
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本模块仍未新增运行时 i18n、manifest i18n 或 apidoc i18n 资源。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0234-media-plugin-smoke.ts` 通过，2 条用例全部通过。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0236-media-plugin-smoke.ts` 通过，2 条用例全部通过。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。

@@ -85,3 +85,6 @@ CREATE TABLE `media_node` (
 PRIMARY KEY (`id`),
 UNIQUE KEY `uk_node_num` (`node_num`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='节点表';
+
+
+![img_1.png](img_1.png)
