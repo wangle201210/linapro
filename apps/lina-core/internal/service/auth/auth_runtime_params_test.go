@@ -58,7 +58,10 @@ func newRuntimeParamAuthTestService() Service {
 	cacheCoordSvc := cachecoord.Default(nil)
 	i18nSvc := i18nsvc.New(bizCtxSvc, configSvc, cacheCoordSvc)
 	sessionStore := session.NewDBStore()
-	pluginSvc := pluginsvc.New(nil, configSvc, bizCtxSvc, cacheCoordSvc, i18nSvc, sessionStore)
+	pluginSvc, err := pluginsvc.New(nil, configSvc, bizCtxSvc, cacheCoordSvc, i18nSvc, sessionStore, nil)
+	if err != nil {
+		panic(err)
+	}
 	pluginSvc.SetHostServices(newRuntimeParamAuthTestHostServices(i18nSvc))
 	cacheSvc := kvcache.New()
 	return New(configSvc, pluginSvc, orgcap.New(pluginSvc), roleTestService{}, disabledTenantAuthTestService{}, sessionStore, cacheSvc)
@@ -79,10 +82,14 @@ var _ pluginhost.HostServices = (*runtimeParamAuthTestHostServices)(nil)
 // service directory needed by auth runtime-parameter tests.
 func newRuntimeParamAuthTestHostServices(i18nSvc i18nsvc.Service) pluginhost.HostServices {
 	bizCtxSvc := pluginservicebizctx.New(nil)
+	tenantFilterSvc, err := pluginservicetenantfilter.New(bizCtxSvc, nil)
+	if err != nil {
+		panic(err)
+	}
 	return &runtimeParamAuthTestHostServices{
 		config:       pluginserviceconfig.New(),
 		i18n:         runtimeParamAuthTestI18n{service: i18nSvc},
-		tenantFilter: pluginservicetenantfilter.New(bizCtxSvc, nil),
+		tenantFilter: tenantFilterSvc,
 	}
 }
 
@@ -113,6 +120,11 @@ func (s *runtimeParamAuthTestHostServices) I18n() plugincontract.I18nService {
 
 // Notify returns no notification service for auth runtime-parameter tests.
 func (s *runtimeParamAuthTestHostServices) Notify() plugincontract.NotifyService { return nil }
+
+// PluginLifecycle returns no plugin lifecycle service for auth runtime-parameter tests.
+func (s *runtimeParamAuthTestHostServices) PluginLifecycle() plugincontract.PluginLifecycleService {
+	return nil
+}
 
 // PluginState returns no plugin-state service for auth runtime-parameter tests.
 func (s *runtimeParamAuthTestHostServices) PluginState() plugincontract.PluginStateService {

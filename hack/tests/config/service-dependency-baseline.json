@@ -74,8 +74,18 @@
     },
     {
       "path": "apps/lina-core/internal/service/plugin/plugin_lifecycle_source.go",
-      "maxCalls": 1,
-      "reason": "source-plugin lifecycle payload value constructor; no runtime service graph is created."
+      "maxCalls": 5,
+      "reason": "source-plugin lifecycle payload and callback adapter value constructors; no runtime service graph is created."
+    },
+    {
+      "path": "apps/lina-core/internal/service/plugin/internal/sourceupgrade/sourceupgrade_lifecycle.go",
+      "maxCalls": 4,
+      "reason": "source-upgrade lifecycle payload, callback adapter, and manifest snapshot value constructors; no runtime service graph is created."
+    },
+    {
+      "path": "apps/lina-core/internal/service/plugin/plugin_lifecycle.go",
+      "maxCalls": 5,
+      "reason": "plugin lifecycle precondition payload value constructors for source and tenant lifecycle callbacks; no runtime service graph is created."
     },
     {
       "path": "apps/lina-core/internal/service/plugin/plugin_runtime_cache.go",
@@ -89,7 +99,7 @@
     },
     {
       "path": "apps/lina-core/internal/service/pluginhostservices/pluginhostservices.go",
-      "maxCalls": 3,
+      "maxCalls": 4,
       "reason": "source-plugin host service publication boundary; adapters are constructed once from runtime-owned dependencies."
     },
     {

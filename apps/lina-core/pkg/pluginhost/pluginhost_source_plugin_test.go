@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+
+	bridgecontract "lina-core/pkg/pluginbridge/contract"
 )
 
 // TestExtensionPointExecutionModes verifies hook and registrar points publish
@@ -61,6 +63,11 @@ func TestCallbackInputContractsUseInterfaces(t *testing.T) {
 	assertInterfaceType(t, (*SourcePluginGovernance)(nil), "SourcePluginGovernance")
 	assertInterfaceType(t, (*SourcePluginDefinition)(nil), "SourcePluginDefinition")
 	assertInterfaceType(t, (*HookPayload)(nil), "HookPayload")
+	assertInterfaceType(t, (*SourcePluginLifecycleInput)(nil), "SourcePluginLifecycleInput")
+	assertInterfaceType(t, (*SourcePluginTenantLifecycleInput)(nil), "SourcePluginTenantLifecycleInput")
+	assertInterfaceType(t, (*SourcePluginInstallModeChangeInput)(nil), "SourcePluginInstallModeChangeInput")
+	assertInterfaceType(t, (*ManifestSnapshot)(nil), "ManifestSnapshot")
+	assertInterfaceType(t, (*SourcePluginUpgradeInput)(nil), "SourcePluginUpgradeInput")
 	assertInterfaceType(t, (*SourcePluginUninstallInput)(nil), "SourcePluginUninstallInput")
 	assertInterfaceType(t, (*HTTPRegistrar)(nil), "HTTPRegistrar")
 	assertInterfaceType(t, (*RouteRegistrar)(nil), "RouteRegistrar")
@@ -73,13 +80,15 @@ func TestCallbackInputContractsUseInterfaces(t *testing.T) {
 // TestRegisterHookAcceptsAsyncMode verifies async execution is allowed for hook callbacks.
 func TestRegisterHookAcceptsAsyncMode(t *testing.T) {
 	plugin := NewSourcePlugin("test-plugin-hook")
-	plugin.Hooks().RegisterHook(
+	if err := plugin.Hooks().RegisterHook(
 		ExtensionPointAuthLoginSucceeded,
 		CallbackExecutionModeAsync,
 		func(ctx context.Context, payload HookPayload) error {
 			return nil
 		},
-	)
+	); err != nil {
+		t.Fatalf("expected hook registration to succeed, got %v", err)
+	}
 
 	items := mustSourcePluginDefinition(t, plugin).GetHookHandlers()
 	if len(items) != 1 {
@@ -90,23 +99,20 @@ func TestRegisterHookAcceptsAsyncMode(t *testing.T) {
 	}
 }
 
-// TestRegisterRoutesRejectsAsyncMode verifies route registration remains a
-// blocking-only extension point.
+// TestRegisterRoutesRejectsAsyncMode verifies route registration returns an
+// error when the caller requests an unsupported execution mode.
 func TestRegisterRoutesRejectsAsyncMode(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("expected async route registration to panic")
-		}
-	}()
-
 	plugin := NewSourcePlugin("test-plugin-route")
-	plugin.HTTP().RegisterRoutes(
+	err := plugin.HTTP().RegisterRoutes(
 		ExtensionPointHTTPRouteRegister,
 		CallbackExecutionModeAsync,
 		func(ctx context.Context, registrar HTTPRegistrar) error {
 			return nil
 		},
 	)
+	if err == nil {
+		t.Fatalf("expected async route registration to return an error")
+	}
 }
 
 // TestRegisterSourcePluginForTestReturnsGoFrameError verifies test fixture
@@ -196,7 +202,7 @@ func TestRegisterUninstallHandlerPublishesPolicySnapshot(t *testing.T) {
 	plugin := NewSourcePlugin("test-plugin-uninstall")
 	called := false
 
-	plugin.Lifecycle().RegisterUninstallHandler(func(ctx context.Context, input SourcePluginUninstallInput) error {
+	if err := plugin.Lifecycle().RegisterUninstallHandler(func(ctx context.Context, input SourcePluginUninstallInput) error {
 		called = true
 		if input.PluginID() != "test-plugin-uninstall" {
 			t.Fatalf("expected plugin id to be published, got %s", input.PluginID())
@@ -205,7 +211,9 @@ func TestRegisterUninstallHandlerPublishesPolicySnapshot(t *testing.T) {
 			t.Fatalf("expected purgeStorageData to be true")
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("expected uninstall handler registration to succeed, got %v", err)
+	}
 
 	handler := mustSourcePluginDefinition(t, plugin).GetUninstallHandler()
 	if handler == nil {
@@ -216,6 +224,244 @@ func TestRegisterUninstallHandlerPublishesPolicySnapshot(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected uninstall handler to be called")
+	}
+}
+
+// TestRegisterUpgradeHandlersPublishesManifestSnapshots verifies source-plugin
+// upgrade callbacks receive stable manifest snapshot interfaces.
+func TestRegisterUpgradeHandlersPublishesManifestSnapshots(t *testing.T) {
+	plugin := NewSourcePlugin("test-plugin-upgrade")
+	called := false
+
+	if err := plugin.Lifecycle().RegisterUpgradeHandler(func(ctx context.Context, input SourcePluginUpgradeInput) error {
+		called = true
+		if input.PluginID() != "test-plugin-upgrade" {
+			t.Fatalf("expected upgrade plugin id to be published, got %s", input.PluginID())
+		}
+		if input.FromVersion() != "v0.1.0" || input.ToVersion() != "v0.2.0" {
+			t.Fatalf("expected version pair v0.1.0/v0.2.0, got %s/%s", input.FromVersion(), input.ToVersion())
+		}
+		if input.FromManifest().Version() != "v0.1.0" || input.ToManifest().Version() != "v0.2.0" {
+			t.Fatalf("expected manifest snapshot versions to be published")
+		}
+		if input.ToManifest().Values().MenuCount != 2 {
+			t.Fatalf("expected manifest values copy to include menuCount")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("expected upgrade handler registration to succeed, got %v", err)
+	}
+
+	handler := mustSourcePluginDefinition(t, plugin).GetUpgradeHandler()
+	if handler == nil {
+		t.Fatalf("expected upgrade handler to be registered")
+	}
+	input := NewSourcePluginUpgradeInput(
+		"test-plugin-upgrade",
+		"v0.1.0",
+		"v0.2.0",
+		NewManifestSnapshot(&bridgecontract.ManifestSnapshotV1{
+			ID:      "test-plugin-upgrade",
+			Name:    "Test Plugin Upgrade",
+			Version: "v0.1.0",
+			Type:    "source",
+		}),
+		NewManifestSnapshot(&bridgecontract.ManifestSnapshotV1{
+			ID:        "test-plugin-upgrade",
+			Name:      "Test Plugin Upgrade",
+			Version:   "v0.2.0",
+			Type:      "source",
+			MenuCount: 2,
+		}),
+	)
+	if err := handler(context.Background(), input); err != nil {
+		t.Fatalf("expected upgrade handler to execute without error, got %v", err)
+	}
+	if !called {
+		t.Fatalf("expected upgrade handler to be called")
+	}
+}
+
+// TestNewManifestSnapshotUsesBridgeContract verifies source-plugin snapshots
+// use the shared typed bridge lifecycle contract.
+func TestNewManifestSnapshotUsesBridgeContract(t *testing.T) {
+	input := &bridgecontract.ManifestSnapshotV1{
+		ID:          "test-plugin-typed-snapshot",
+		Name:        "Test Plugin Typed Snapshot",
+		Version:     "v1.0.0",
+		Type:        "source",
+		Description: "typed contract",
+	}
+	snapshot := NewManifestSnapshot(input)
+	input.Description = "mutated"
+	values := snapshot.Values()
+	values.Description = "mutated again"
+
+	if snapshot.ID() != "test-plugin-typed-snapshot" ||
+		snapshot.Name() != "Test Plugin Typed Snapshot" ||
+		snapshot.Version() != "v1.0.0" ||
+		snapshot.Type() != "source" ||
+		snapshot.Values().Description != "typed contract" {
+		t.Fatalf("expected typed bridge contract to be copied, got %#v", snapshot.Values())
+	}
+}
+
+// TestNewManifestSnapshotReturnsNilForMissingContract verifies absent snapshots
+// stay absent instead of creating empty wrappers.
+func TestNewManifestSnapshotReturnsNilForMissingContract(t *testing.T) {
+	if snapshot := NewManifestSnapshot(nil); snapshot != nil {
+		t.Fatalf("expected nil manifest snapshot, got %#v", snapshot)
+	}
+}
+
+// TestSourcePluginLifecycleCallbackAdapterRunsBeforeUpgrade verifies lifecycle
+// facade callbacks are adapted into the shared callback runner.
+func TestSourcePluginLifecycleCallbackAdapterRunsBeforeUpgrade(t *testing.T) {
+	plugin := NewSourcePlugin("test-plugin-before-upgrade")
+	if err := plugin.Lifecycle().RegisterBeforeUpgradeHandler(func(ctx context.Context, input SourcePluginUpgradeInput) (bool, string, error) {
+		if input.PluginID() != "test-plugin-before-upgrade" {
+			t.Fatalf("expected plugin id to be published, got %s", input.PluginID())
+		}
+		return false, "plugin.test.beforeUpgrade.blocked", nil
+	}); err != nil {
+		t.Fatalf("expected before-upgrade handler registration to succeed, got %v", err)
+	}
+
+	result := RunLifecycleCallbacks(context.Background(), LifecycleRequest{
+		Hook: LifecycleHookBeforeUpgrade,
+		UpgradeInput: NewSourcePluginUpgradeInput(
+			"test-plugin-before-upgrade",
+			"v0.1.0",
+			"v0.2.0",
+			nil,
+			nil,
+		),
+		Participants: []LifecycleParticipant{
+			{
+				PluginID: "test-plugin-before-upgrade",
+				Callback: NewSourcePluginLifecycleCallbackAdapter(mustSourcePluginDefinition(t, plugin)),
+			},
+		},
+	})
+	if result.OK {
+		t.Fatalf("expected before-upgrade callback to veto")
+	}
+	if len(result.Decisions) != 1 || result.Decisions[0].Reason != "plugin.test.beforeUpgrade.blocked" {
+		t.Fatalf("expected veto reason to be preserved, got %#v", result.Decisions)
+	}
+}
+
+// TestSourcePluginLifecycleCallbackAdapterRunsUpgrade verifies custom upgrade
+// callbacks are exposed through the shared lifecycle runner.
+func TestSourcePluginLifecycleCallbackAdapterRunsUpgrade(t *testing.T) {
+	plugin := NewSourcePlugin("test-plugin-upgrade")
+	called := false
+	if err := plugin.Lifecycle().RegisterUpgradeHandler(func(ctx context.Context, input SourcePluginUpgradeInput) error {
+		called = true
+		if input.PluginID() != "test-plugin-upgrade" {
+			t.Fatalf("expected plugin id to be published, got %s", input.PluginID())
+		}
+		if input.FromVersion() != "v0.1.0" || input.ToVersion() != "v0.2.0" {
+			t.Fatalf("expected upgrade versions v0.1.0 -> v0.2.0, got %s -> %s", input.FromVersion(), input.ToVersion())
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("expected upgrade handler registration to succeed, got %v", err)
+	}
+
+	result := RunLifecycleCallbacks(context.Background(), LifecycleRequest{
+		Hook: LifecycleHookUpgrade,
+		UpgradeInput: NewSourcePluginUpgradeInput(
+			"test-plugin-upgrade",
+			"v0.1.0",
+			"v0.2.0",
+			nil,
+			nil,
+		),
+		Participants: []LifecycleParticipant{
+			{
+				PluginID: "test-plugin-upgrade",
+				Callback: NewSourcePluginLifecycleCallbackAdapter(mustSourcePluginDefinition(t, plugin)),
+			},
+		},
+	})
+	if !result.OK || len(result.Decisions) != 1 || !called {
+		t.Fatalf("expected upgrade callback to run successfully, result=%#v called=%v", result, called)
+	}
+}
+
+// TestSourcePluginLifecycleCallbackAdapterRunsAfterInstall verifies source
+// plugin After* facade callbacks are adapted into the shared callback runner.
+func TestSourcePluginLifecycleCallbackAdapterRunsAfterInstall(t *testing.T) {
+	plugin := NewSourcePlugin("test-plugin-after-install")
+	called := false
+	if err := plugin.Lifecycle().RegisterAfterInstallHandler(func(ctx context.Context, input SourcePluginLifecycleInput) error {
+		called = true
+		if input.PluginID() != "test-plugin-after-install" {
+			t.Fatalf("expected plugin id to be published, got %s", input.PluginID())
+		}
+		if input.Operation() != LifecycleHookAfterInstall.String() {
+			t.Fatalf("expected operation %s, got %s", LifecycleHookAfterInstall, input.Operation())
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("expected after-install handler registration to succeed, got %v", err)
+	}
+
+	result := RunLifecycleCallbacks(context.Background(), LifecycleRequest{
+		Hook:        LifecycleHookAfterInstall,
+		PluginInput: NewSourcePluginLifecycleInput("test-plugin-after-install", LifecycleHookAfterInstall.String()),
+		Participants: []LifecycleParticipant{
+			{
+				PluginID: "test-plugin-after-install",
+				Callback: NewSourcePluginLifecycleCallbackAdapter(mustSourcePluginDefinition(t, plugin)),
+			},
+		},
+	})
+	if !result.OK || len(result.Decisions) != 1 || !called {
+		t.Fatalf("expected after-install callback to run successfully, result=%#v called=%v", result, called)
+	}
+}
+
+// TestSourcePluginLifecycleCallbackAdapterRunsInstallModeChange verifies
+// install-mode precondition callbacks are exposed through the lifecycle facade.
+func TestSourcePluginLifecycleCallbackAdapterRunsInstallModeChange(t *testing.T) {
+	plugin := NewSourcePlugin("test-plugin-before-install-mode")
+	if err := plugin.Lifecycle().RegisterBeforeInstallModeChangeHandler(func(
+		ctx context.Context,
+		input SourcePluginInstallModeChangeInput,
+	) (bool, string, error) {
+		if input.PluginID() != "test-plugin-before-install-mode" {
+			t.Fatalf("expected plugin id to be published, got %s", input.PluginID())
+		}
+		if input.FromMode() != "global" || input.ToMode() != "tenant_scoped" {
+			t.Fatalf("expected install mode transition to be published, got %s -> %s", input.FromMode(), input.ToMode())
+		}
+		return false, "plugin.test.installMode.blocked", nil
+	}); err != nil {
+		t.Fatalf("expected install-mode handler registration to succeed, got %v", err)
+	}
+
+	result := RunLifecycleCallbacks(context.Background(), LifecycleRequest{
+		Hook: LifecycleHookBeforeInstallModeChange,
+		InstallModeInput: NewSourcePluginInstallModeChangeInput(
+			"test-plugin-before-install-mode",
+			LifecycleHookBeforeInstallModeChange.String(),
+			"global",
+			"tenant_scoped",
+		),
+		Participants: []LifecycleParticipant{
+			{
+				PluginID: "test-plugin-before-install-mode",
+				Callback: NewSourcePluginLifecycleCallbackAdapter(mustSourcePluginDefinition(t, plugin)),
+			},
+		},
+	})
+	if result.OK {
+		t.Fatalf("expected before-install-mode callback to veto")
+	}
+	if len(result.Decisions) != 1 || result.Decisions[0].Reason != "plugin.test.installMode.blocked" {
+		t.Fatalf("expected veto reason to be preserved, got %#v", result.Decisions)
 	}
 }
 
