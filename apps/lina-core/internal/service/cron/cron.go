@@ -6,8 +6,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/gogf/gf/v2/os/gcron"
-
 	"lina-core/internal/model/entity"
 	"lina-core/internal/service/cluster"
 	"lina-core/internal/service/config"
@@ -17,7 +15,6 @@ import (
 	pluginsvc "lina-core/internal/service/plugin"
 	rolesvc "lina-core/internal/service/role"
 	"lina-core/internal/service/session"
-	"lina-core/pkg/logger"
 )
 
 // Cron job name constants.
@@ -29,11 +26,16 @@ const (
 
 // Service defines the cron service contract.
 type Service interface {
-	// Start registers and starts all cron jobs.
+	// Start registers and starts all cron jobs for the current node. The method
+	// also reconciles code-owned persistent jobs and logs startup failures rather
+	// than returning them because cron startup is invoked from host bootstrapping.
 	Start(ctx context.Context)
-	// Stop gracefully stops cron scheduling and waits for in-flight jobs.
+	// Stop gracefully stops cron scheduling and waits for in-flight jobs. The
+	// provided context bounds the wait; timeout or cancellation is logged.
 	Stop(ctx context.Context)
 	// IsPrimary reports whether the current node should execute primary-only jobs.
+	// Standalone deployments and services without a cluster dependency are
+	// treated as primary to preserve single-node behavior.
 	IsPrimary() bool
 }
 
@@ -42,6 +44,14 @@ type builtinJobSyncer interface {
 	// ReconcileBuiltinJobs refreshes code-owned scheduled-job projections and
 	// returns declaration-derived snapshots keyed with sys_job IDs.
 	ReconcileBuiltinJobs(ctx context.Context, jobs []jobmgmtsvc.BuiltinJobDef) ([]*entity.SysJob, error)
+}
+
+// pluginCronCatalog exposes installed plugin cron declarations needed for
+// scheduled-job projection without coupling cron to the full plugin facade.
+type pluginCronCatalog interface {
+	// ListInstalledCronDeclarations returns installed plugin-owned cron
+	// declarations, including disabled plugins whose handlers are not executable.
+	ListInstalledCronDeclarations(ctx context.Context) ([]pluginsvc.ManagedCronJob, error)
 }
 
 // startupJob abstracts warm-up and watcher registration logic selected during
@@ -63,7 +73,7 @@ type serviceImpl struct {
 	sessionStore          session.Store          // Session store
 	clusterSvc            cluster.Service        // Cluster topology service
 	registry              jobhandlersvc.Registry // registry stores managed host and plugin handlers.
-	pluginSvc             pluginsvc.Service      // Plugin service
+	pluginSvc             pluginCronCatalog      // pluginSvc exposes installed plugin cron declarations.
 	builtinSyncer         builtinJobSyncer       // builtinSyncer persists code-owned job definitions.
 	persistentScheduler   jobmgmtsvc.Scheduler   // persistentScheduler loads and registers persisted jobs.
 	runtimeParamSyncJob   startupJob             // Runtime-parameter sync startup job
@@ -106,39 +116,4 @@ func New(
 			roleSvc,
 		),
 	}
-}
-
-// Start registers and starts all cron jobs.
-func (s *serviceImpl) Start(ctx context.Context) {
-	s.startAccessTopologyRevisionSync(ctx)
-	s.startRuntimeParamSnapshotSync(ctx)
-	s.attachPluginLifecycleObserver()
-
-	if err := s.syncBuiltinScheduledJobs(ctx); err != nil {
-		logger.Warningf(ctx, "sync builtin scheduled jobs failed: %v", err)
-	}
-	if s.persistentScheduler != nil {
-		if err := s.persistentScheduler.LoadAndRegister(ctx); err != nil {
-			logger.Warningf(ctx, "register persistent cron jobs failed: %v", err)
-		}
-	}
-}
-
-// Stop gracefully stops cron scheduling and waits for in-flight jobs.
-func (s *serviceImpl) Stop(ctx context.Context) {
-	doneCtx := gcron.StopGracefullyNonBlocking()
-	select {
-	case <-doneCtx.Done():
-		return
-	case <-ctx.Done():
-		logger.Warningf(ctx, "cron graceful stop timed out or was canceled: %v", ctx.Err())
-	}
-}
-
-// IsPrimary reports whether the current node should execute primary-only jobs.
-func (s *serviceImpl) IsPrimary() bool {
-	if s == nil || s.clusterSvc == nil {
-		return true
-	}
-	return s.clusterSvc.IsPrimary()
 }
