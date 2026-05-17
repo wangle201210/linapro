@@ -76,8 +76,23 @@
 - [x] **FB-28**: 非宿主源码插件 E2E 用例编号应避开宿主 `TC0234/TC0235`，修复 `test:validate` 重号失败
 - [x] **FB-29**: 复核 media 表结构与截图完全一致，补齐旧表升级路径中 `media_tenant_stream_config.tenant_id` 主键约束
 - [x] **FB-30**: `media_device_node` 唯一索引应改为 `device_id + channel_id` 组合唯一，不能只按 `device_id` 唯一
+- [x] **FB-31**: 对齐 HotGo `1a8b88f9..fe300a7a` 的 Token+DeviceId 策略查询兼容接口，并将 Docker 镜像构建入口放在 LinaPro 根项目
 
 ## Feedback 验证记录
+
+- [x] FB-31 对比 HotGo `1a8b88f9..fe300a7a` 确认新增功能包括 `POST /strategy/userDeviceStrategyByToken` 和 Docker 镜像构建 workflow；media 原有 `/media/strategy-authorizations` 已覆盖 token+deviceId 核心策略解析，但缺少 HotGo 兼容路径和响应结构。
+- [x] FB-31 在 media 插件新增 `POST /api/v1/strategy/userDeviceStrategyByToken` 兼容接口，复用现有铁塔 token 鉴权、租户设备权限校验和 media 策略优先级解析；响应返回 `userInfo`、`hasAccess`、`strategyId` 和 `strategy.strategyContent`，不拆分 `store/snap/pull/push/transcoding` 字段。
+- [x] FB-31 将 Docker 构建入口放在 LinaPro 根项目：新增 `.github/workflows/docker-image.yml`，复用 `.github/workflows/reusable-image-publish.yml`，分支和手动构建发布 short SHA tag；现有 release tag workflow 继续负责 tag/latest 发布，避免绕过 release 测试门禁。
+- [x] `ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f) }' .github/workflows/docker-image.yml .github/workflows/reusable-image-publish.yml` 通过。
+- [x] `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/docker-image.yml .github/workflows/reusable-image-publish.yml` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test lina-plugins -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `openspec validate add-media-plugin --strict` 通过。
+- [x] `git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n 影响评估：FB-31 不新增前端运行时文案、manifest i18n 或 apidoc i18n JSON；media 插件仍按既有中文-only 方式处理。
+- [x] 缓存影响评估：FB-31 不新增业务缓存；token 策略查询仍实时调用铁塔权限和数据库策略解析，Docker workflow 不影响运行时缓存一致性。
+- [x] 数据权限影响评估：FB-31 新增公开兼容接口不使用宿主数据权限，访问边界由铁塔 token 和租户设备权限接口决定；media 配置仍为 platform-only 共享配置。
+- [x] `/lina-review` 审查：FB-31 未发现阻断问题；兼容接口为 HotGo 迁移兼容保留原路径，不替代现有 RESTful `/media/strategy-authorizations`，且 `StrategyInfo` 只保留单一 `strategyContent` 策略字段。
 
 - [x] FB-30 将 `media_device_node` 唯一约束修正为 `uk_media_device_node_device_channel UNIQUE (device_id, channel_id)`；安装 SQL 重放会移除旧 `uk_media_device_node_device` 单列唯一约束后重建组合唯一约束。
 - [x] FB-30 将设备节点详情、修改、删除 API 调整为按 `/media/device-nodes/{deviceId}/channels/{channelId}` 定位；服务层查询、重复校验、更新和删除均使用 `device_id + channel_id` 组合条件。

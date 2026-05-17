@@ -1,0 +1,56 @@
+# LinaPro branch Docker image publishing workflow.
+# LinaPro 分支 Docker 镜像发布工作流。
+name: Build and Push Docker Image
+
+on:
+  # Publish the LinaPro image when core delivery sources change on main or media feature branches.
+  # 当 main 或 media 功能分支上的核心交付源码变更时发布 LinaPro 镜像。
+  push:
+    branches:
+      - main
+      - feat/media
+      - feat/media2
+    paths:
+      - ".github/image/**"
+      - ".github/workflows/docker-image.yml"
+      - ".github/workflows/reusable-image-publish.yml"
+      - "apps/lina-core/**"
+      - "apps/lina-plugins"
+      - "apps/lina-plugins/**"
+      - "apps/lina-vben/**"
+      - "hack/docker/**"
+      - "hack/makefiles/image.mk"
+      - "hack/tools/image-builder/**"
+      - "hack/tools/linactl/**"
+      - "go.work"
+      - "Makefile"
+
+  # Allow maintainers to publish a branch image on demand.
+  # 允许维护者按需发布分支镜像。
+  workflow_dispatch:
+
+# The top-level workflow stays read-only; package write access is scoped to the publishing job.
+# 顶层工作流保持只读；包写权限只授予发布 job。
+permissions:
+  contents: read
+
+# Avoid concurrent writes to the same branch image target.
+# 避免同一分支镜像目标并发写入。
+concurrency:
+  group: "${{ github.workflow }} @ ${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  # Publish branch and manual runs as the short commit SHA.
+  # 分支和手动运行按短 commit SHA 发布。
+  docker-image:
+    name: Build and publish Docker image
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/reusable-image-publish.yml
+    with:
+      image-name: linapro
+      platforms: linux/amd64,linux/arm64
+      tag-mode: sha
+      plugins: "1"

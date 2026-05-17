@@ -72,6 +72,13 @@
 - **WHEN** 外部调用方提交铁塔 token 和设备国标 ID 查询生效策略
 - **THEN** 系统 SHALL 先调用铁塔用户信息接口换取租户 ID，再调用铁塔租户设备权限接口校验访问权限，权限通过后按租户设备、设备、租户、全局优先级返回策略
 
+#### Scenario: 通过 HotGo 兼容接口解析设备策略
+
+- **WHEN** 外部调用方调用 `POST /strategy/userDeviceStrategyByToken` 并提交铁塔 token 与设备国标 ID
+- **THEN** 系统 SHALL 复用铁塔 token 鉴权、租户设备权限校验和 media 本地策略优先级解析
+- **AND** 响应 SHALL 返回 `userInfo`、`hasAccess`、`strategyId` 和策略对象
+- **AND** 策略对象 SHALL 使用单一 `strategyContent` 字段承载 `media_strategy.strategy` 的 YAML 内容，不拆分为 `store`、`snap`、`pull`、`push` 或 `transcoding`
+
 #### Scenario: 铁塔 token 租户不匹配
 
 - **WHEN** 外部调用方同时提交铁塔 token 和租户 ID，且租户 ID 与铁塔用户信息返回租户不一致
