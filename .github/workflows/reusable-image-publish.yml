@@ -21,18 +21,19 @@ on:
         required: false
         type: string
         default: linux/amd64,linux/arm64
-      # Controls whether the immutable tag is date-based nightly or the Git release tag.
-      # 控制不可变标签使用日期型 nightly 还是 Git 发布标签。
+      # Controls whether the immutable tag is date-based nightly, the Git release tag, or commit SHA.
+      # 控制不可变标签使用日期型 nightly、Git 发布标签或提交 SHA。
       tag-mode:
-        description: "Image tag strategy: nightly or release."
+        description: "Image tag strategy: nightly, release, or sha."
         required: true
         type: string
       # Publishes an additional moving tag such as nightly or latest.
       # 额外发布一个可移动标签，例如 nightly 或 latest。
       floating-tag:
         description: Floating tag to publish after the immutable tag.
-        required: true
+        required: false
         type: string
+        default: ""
       # Lets release callers verify the moving tag after it is updated.
       # 允许 release 调用方在移动标签更新后执行检查。
       inspect-floating-tag:
@@ -138,8 +139,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # Normalize registry names and compute the immutable image tag for nightly or release publishing.
-      # 归一化 registry 名称，并计算 nightly 或 release 发布使用的不可变镜像标签。
+      # Normalize registry names and compute the immutable image tag for branch, nightly, or release publishing.
+      # 归一化 registry 名称，并计算分支、nightly 或 release 发布使用的不可变镜像标签。
       - name: Prepare Image Metadata
         id: image
         env:
@@ -164,6 +165,9 @@ jobs:
                 exit 1
               fi
               ;;
+            sha)
+              image_tag="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+              ;;
             *)
               echo "Unsupported tag mode: ${TAG_MODE}" >&2
               exit 1
@@ -177,7 +181,11 @@ jobs:
             echo "image_ref=${image_ref}"
           } >> "${GITHUB_OUTPUT}"
 
-          echo "Publishing ${image_ref}:${image_tag} and ${image_ref}:${FLOATING_TAG} for ${PLATFORMS}"
+          if [ -n "${FLOATING_TAG}" ]; then
+            echo "Publishing ${image_ref}:${image_tag} and ${image_ref}:${FLOATING_TAG} for ${PLATFORMS}"
+          else
+            echo "Publishing ${image_ref}:${image_tag} for ${PLATFORMS}"
+          fi
 
       # Build and push the multi-platform image through the project image target.
       # 通过项目镜像目标构建并推送多平台镜像。
@@ -195,6 +203,7 @@ jobs:
       # Point the moving tag at the just-published immutable image tag.
       # 将移动标签指向刚发布的不可变镜像标签。
       - name: Publish Floating Tag
+        if: ${{ inputs.floating-tag != '' }}
         run: |
           docker buildx imagetools create \
             --tag "${{ steps.image.outputs.image_ref }}:${{ inputs.floating-tag }}" \
@@ -209,6 +218,6 @@ jobs:
       # Optionally inspect the moving manifest, used by release to verify latest.
       # 可选检查移动 manifest，release 用它验证 latest。
       - name: Inspect Floating Manifest
-        if: ${{ inputs.inspect-floating-tag }}
+        if: ${{ inputs.inspect-floating-tag && inputs.floating-tag != '' }}
         run: |
           docker buildx imagetools inspect "${{ steps.image.outputs.image_ref }}:${{ inputs.floating-tag }}"
