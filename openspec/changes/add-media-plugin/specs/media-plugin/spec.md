@@ -79,6 +79,13 @@
 - **AND** 响应 SHALL 返回 `userInfo`、`hasAccess`、`strategyId` 和策略对象
 - **AND** 策略对象 SHALL 使用单一 `strategyContent` 字段承载 `media_strategy.strategy` 的 YAML 内容，不拆分为 `store`、`snap`、`pull`、`push` 或 `transcoding`
 
+#### Scenario: 通过 HotGo 兼容接口维护路由记忆
+
+- **WHEN** 外部调用方调用 `POST /route/set` 并提交设备编号、通道编号和路由数据
+- **THEN** 系统 SHALL 以设备编号与通道编号作为唯一键保存路由数据，默认保留 12 小时
+- **AND** 外部调用方调用 `POST /route/get` 时 SHALL 返回同一设备通道的未过期路由数据，未命中时返回空字符串
+- **AND** 外部调用方调用 `POST /route/del` 时 SHALL 删除同一设备通道的路由数据，重复删除 SHALL 视为成功
+
 #### Scenario: 铁塔 token 租户不匹配
 
 - **WHEN** 外部调用方同时提交铁塔 token 和租户 ID，且租户 ID 与铁塔用户信息返回租户不一致
