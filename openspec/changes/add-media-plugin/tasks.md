@@ -79,15 +79,26 @@
 - [x] **FB-31**: 对齐 HotGo `1a8b88f9..fe300a7a` 的 Token+DeviceId 策略查询兼容接口，并将 Docker 镜像构建入口放在 LinaPro 根项目
 - [x] **FB-32**: 补齐 HotGo `1a8b88f9` 的 DeviceCode+ChannelCode 路由记忆兼容接口，默认保留 12 小时
 - [x] **FB-33**: 合并上游 main 的宿主 cache 重实现，并让 media/water 复用上游 `HostServices.Cache()` 契约
+- [x] **FB-34**: Tieta 鉴权边界应收敛在 media 插件，不能扩展 core AuthService 契约
 
 ## Feedback 验证记录
 
+- [x] FB-34 回退 core `pluginservice/contract.AuthService` 中为 media 双鉴权新增的 `AuthenticateBearer` 与 `AuthenticatedIdentity`，`pluginhostservices` 只保留上游通用租户 token 适配能力。
+- [x] FB-34 删除 media 旧的 `mediaDualAuthMiddleware`，管理端 `/api/v1/media/*` 路由改为复用宿主发布的 `Auth`、`Tenancy`、`Permission` 中间件；HotGo 兼容公开接口继续在 media service 内通过 Tieta token 做业务鉴权。
+- [x] FB-34 参考 HotGo `ParseLoginUser -> parseTietaToken` 边界，将 `parseTietaToken` 放在 `apps/lina-plugins/media/backend/internal/service/media` 内部，调用 media 自己的 Tieta client，不扩展 core 鉴权契约。
+- [x] FB-34 删除旧的 LinaPro+Tieta 双通道中间件测试，新增 media 路由边界测试，验证公开兼容路由不调用宿主 Auth、管理路由调用宿主 Auth。
+- [x] `rg "AuthenticateBearer|AuthenticatedIdentity|mediaDualAuth|CodeMediaAuthFailed|CodeMediaPermissionDenied" apps/lina-core apps/lina-plugins/media` 无残留。
+- [x] `GOWORK=<temp>/go.work go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过，覆盖 media 路由边界和 Tieta token 解析服务测试。
+- [x] `go test ./pkg/pluginservice/contract ./internal/service/pluginhostservices ./internal/cmd -count=1` 于 `apps/lina-core` 通过，覆盖 core AuthService 契约、pluginhostservices 装配和启动绑定包。
+- [x] i18n 影响评估：FB-34 仅调整后端鉴权边界和测试，不新增前端运行时文案、manifest i18n 或 apidoc i18n JSON；media 按用户要求不新增 i18n。
+- [x] 缓存影响评估：FB-34 不新增缓存；media 路由记忆仍复用宿主 `HostServices.Cache()`，Tieta token 解析不引入 core 或插件侧新增缓存模块。
+- [x] 数据权限影响评估：FB-34 管理接口继续由宿主 Auth/Tenancy/Permission 和既有 service 数据边界保护；公开 HotGo 兼容接口仍仅按 Tieta token 的租户设备权限和 transient route-memory key 工作，不读取管理表范围外数据。
 - [x] FB-33 将上游 main 作为 cache 权威实现，保留宿主 `pkg/pluginservice/contract.CacheService`、`pluginhost.HostServices.Cache()` 与 `pluginhostservices` 的 plugin-scoped kvcache adapter，不恢复本分支旧的 `Cache().KV()`、`coordination.Service` 暴露或插件自建 Redis 配置。
 - [x] FB-33 media 路由记忆改为通过 `contract.CacheService` 的 `route-memory` namespace 存取 `route_data:<deviceCode>:<channelCode>`，TTL 保持 12 小时；water 异步任务状态改为通过 `task-status` namespace 存取 `water:task:<taskID>`，TTL 保持 12 小时。
 - [x] FB-33 `rg` 确认 media/water 未保留 `go-redis`、GoFrame Redis 或旧 `Cache().KV()` 代码依赖；缓存后端统一由宿主上游 `HostServices.Cache()` 注入。
 - [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.merge-check go test ./backend/... -count=1` 于 `apps/lina-plugins/media`、`apps/lina-plugins/water`、`apps/lina-plugins/cms` 均通过。
 - [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.merge-check go test ./... -count=1` 于 `apps/lina-plugins` 通过。
-- [x] `go test ./internal/service/auth ./internal/service/pluginhostservices ./internal/cmd -count=1` 于 `apps/lina-core` 通过，覆盖宿主 AuthService 扩展、plugin host services cache adapter 装配与启动期路由绑定包。
+- [x] `go test ./internal/service/auth ./internal/service/pluginhostservices ./internal/cmd -count=1` 于 `apps/lina-core` 通过，覆盖 plugin host services cache adapter 装配与启动期路由绑定包。
 - [x] `openspec validate add-media-plugin --strict` 通过；`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
 - [x] i18n 影响评估：FB-33 只调整 cache 契约接入和后端依赖注入；media/water 按用户要求不新增运行时 i18n、manifest i18n 或 apidoc i18n JSON，cms 未新增 i18n 资源。
 - [x] 缓存影响评估：FB-33 的权威缓存契约为上游 `HostServices.Cache()`；media/water 不再自建 Redis 或进程内业务缓存，分布式一致性由宿主 plugin-scoped kvcache 后端承担，业务侧仅使用带 namespace 的幂等 set/get/delete。

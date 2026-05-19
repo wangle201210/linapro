@@ -4,7 +4,6 @@ package pluginhostservices
 
 import (
 	"context"
-	"time"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 
@@ -15,7 +14,6 @@ import (
 	i18nsvc "lina-core/internal/service/i18n"
 	"lina-core/internal/service/kvcache"
 	"lina-core/internal/service/notify"
-	"lina-core/internal/service/role"
 	"lina-core/internal/service/session"
 	tenantcapsvc "lina-core/internal/service/tenantcap"
 	"lina-core/pkg/pluginhost"
@@ -81,17 +79,10 @@ func New(
 	authSvc auth.Service,
 	authTokenIssuer auth.TenantTokenIssuer,
 	bizCtxSvc bizctx.Service,
-	configSvc interface {
-		GetSessionTimeout(ctx context.Context) (time.Duration, error)
-	},
 	scopeSvc datascope.Service,
 	i18nSvc i18nsvc.Service,
 	pluginStateReader PluginStateReader,
 	pluginLifecycleRunner PluginLifecycleRunner,
-	roleSvc interface {
-		GetUserAccessContext(ctx context.Context, userId int) (*role.UserAccessContext, error)
-		InvalidateTokenAccessContext(ctx context.Context, tokenID string)
-	},
 	sessionStore session.Store,
 	tenantSvc tenantcapsvc.Service,
 	notifySvc notify.Service,
@@ -107,7 +98,7 @@ func New(
 	}
 	return &directory{
 		apiDoc:       newAPIDocAdapter(apiDocSvc),
-		auth:         newAuthAdapter(authSvc, authTokenIssuer, configSvc, roleSvc, sessionStore),
+		auth:         newAuthAdapter(authTokenIssuer),
 		bizCtx:       bizCtxAdapter,
 		cache:        kvCacheSvc,
 		config:       pluginserviceconfig.New(),
