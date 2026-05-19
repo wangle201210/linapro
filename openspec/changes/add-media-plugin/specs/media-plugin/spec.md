@@ -96,6 +96,30 @@
 - **WHEN** 铁塔设备权限接口返回该租户无权访问设备
 - **THEN** 系统 SHALL 返回 `hasAccess=false` 且不返回任何媒体策略内容
 
+### Requirement: Media 接口双通道鉴权
+
+系统 SHALL 仅对 media 插件注册的接口启用 LinaPro 与 Tieta 双通道鉴权，不影响 core、water 或其他模块接口。
+
+#### Scenario: LinaPro 鉴权通过
+
+- **WHEN** 请求携带有效 LinaPro token 且通过宿主 Auth、Tenancy 与 Permission 校验
+- **THEN** media 接口 SHALL 按宿主用户上下文继续处理请求
+
+#### Scenario: Tieta token 兜底通过
+
+- **WHEN** 请求未通过宿主 Auth、Tenancy 或 Permission 校验，但携带有效 Tieta token
+- **THEN** media 接口 SHALL 使用 media 插件内的 Tieta token 解析结果继续处理请求
+
+#### Scenario: Tieta mock 模式
+
+- **WHEN** `tieta.mock=true` 且请求携带任意非空 token
+- **THEN** media 接口 SHALL 在 LinaPro 鉴权未通过后允许 Tieta mock 兜底通过
+
+#### Scenario: 双通道均失败
+
+- **WHEN** 请求既未通过 LinaPro 鉴权，也未通过 Tieta token 鉴权
+- **THEN** media 接口 SHALL 返回鉴权失败
+
 ### Requirement: 流别名管理
 
 系统 SHALL 按用户截图中的 `media_stream_alias` 表结构提供流别名分页查询、详情、新增、修改和删除能力。

@@ -80,14 +80,34 @@
 - [x] **FB-32**: 补齐 HotGo `1a8b88f9` 的 DeviceCode+ChannelCode 路由记忆兼容接口，默认保留 12 小时
 - [x] **FB-33**: 合并上游 main 的宿主 cache 重实现，并让 media/water 复用上游 `HostServices.Cache()` 契约
 - [x] **FB-34**: Tieta 鉴权边界应收敛在 media 插件，不能扩展 core AuthService 契约
+- [x] **FB-35**: `tieta.mock=true` 时 media 管理接口仍被宿主 Auth 提前拦截，Tieta 任意 token 兜底未生效
 
 ## Feedback 验证记录
 
+- [x] FB-35 新增 `Media 接口双通道鉴权` 增量规范，明确双鉴权仅对 media 插件注册接口生效，不影响 core、water 或其他模块。
+- [x] FB-35 调整了 FB-34 中“管理接口仅复用宿主 Auth/Tenancy/Permission”的阶段性做法：当前最终边界为 media 插件内组合宿主 LinaPro 链路与 media 自有 Tieta 兜底，仍不扩展 core。
+- [x] FB-35 在 media 插件 `backend` 包内新增 media-scoped 双通道鉴权中间件：先调用宿主发布的 LinaPro `Auth`，并继续经过宿主 `Tenancy` 与 `Permission`；若宿主链未到达 media handler，则清理宿主失败响应后调用 media service 内部的 Tieta token 解析兜底。
+- [x] FB-35 Tieta 鉴权仍完全收敛在 media 插件内部，复用 `AuthenticateTietaToken -> parseTietaToken -> mediaTietaClient` 路径；未修改 core `AuthService`、`pluginhostservices`、启动编排或 water 插件。
+- [x] FB-35 为 Tieta fallback 增加 media-local BizCtx overlay，Tieta 通过后仅向 media service 暴露插件上下文；LinaPro 正常路径仍使用宿主业务上下文。
+- [x] FB-35 按用户要求未新增 media/water E2E，改为更新 `media_plugin_routes_test.go` 的 route-level Go 测试，覆盖 LinaPro 成功、宿主 Auth 失败后 Tieta mock 兜底、宿主 Permission 失败后 Tieta mock 兜底，以及双通道都失败时返回 401。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPluginRoutes' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPluginRoutes|TestMediaBizCtxOverlay' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test lina-plugins -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `make stop && make dev` 通过，后端 `http://127.0.0.1:8080/` 与前端 `http://127.0.0.1:5666/` 已加载最新 media 插件代码。
+- [x] 使用用户提供的 Tieta token 请求 `GET /api/v1/media/strategies?pageNum=1&pageSize=1` 返回 HTTP 200，响应 `{"code":0,"message":"OK","data":{"list":[],"total":0}}`；同接口无 token 返回 HTTP 401 且 `errorCode=MEDIA_AUTH_FAILED`。
+- [x] 请求 `/api.json` 确认当前接口文档已包含 30 个 media/HotGo 兼容路径，包括 `/api/v1/media/strategies`、`/api/v1/media/strategy-authorizations`、`/api/v1/strategy/userDeviceStrategyByToken`、`/api/v1/route/get` 等。
+- [x] `git diff -- apps/lina-core | wc -c` 输出 `0`，确认本次 FB-35 未修改 core；`rg "AuthenticateBearer|AuthenticatedIdentity|CodeMediaPermissionDenied" apps/lina-core apps/lina-plugins/media` 无命中。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n 影响评估：FB-35 仅调整 media 后端鉴权链路、错误码和增量规范，不新增前端运行时语言包、manifest i18n 或 apidoc i18n JSON；media 模块仍按用户要求中文-only。
+- [x] 缓存影响评估：FB-35 不新增缓存；Tieta fallback 的上下文仅影响 media 当前请求，路由记忆仍通过宿主 `HostServices.Cache()`，且当前 Tieta fallback 注入平台上下文，缓存 key 仍保持插件级 scope。
+- [x] 数据权限影响评估：FB-35 不新增数据表或数据操作；media 配置仍为全平台共享配置，LinaPro 路径继续经过宿主 Permission，Tieta 路径仅在 media 接口内按 Tieta token 作为访问边界。
 - [x] FB-34 回退 core `pluginservice/contract.AuthService` 中为 media 双鉴权新增的 `AuthenticateBearer` 与 `AuthenticatedIdentity`，`pluginhostservices` 只保留上游通用租户 token 适配能力。
 - [x] FB-34 删除 media 旧的 `mediaDualAuthMiddleware`，管理端 `/api/v1/media/*` 路由改为复用宿主发布的 `Auth`、`Tenancy`、`Permission` 中间件；HotGo 兼容公开接口继续在 media service 内通过 Tieta token 做业务鉴权。
 - [x] FB-34 参考 HotGo `ParseLoginUser -> parseTietaToken` 边界，将 `parseTietaToken` 放在 `apps/lina-plugins/media/backend/internal/service/media` 内部，调用 media 自己的 Tieta client，不扩展 core 鉴权契约。
 - [x] FB-34 删除旧的 LinaPro+Tieta 双通道中间件测试，新增 media 路由边界测试，验证公开兼容路由不调用宿主 Auth、管理路由调用宿主 Auth。
-- [x] `rg "AuthenticateBearer|AuthenticatedIdentity|mediaDualAuth|CodeMediaAuthFailed|CodeMediaPermissionDenied" apps/lina-core apps/lina-plugins/media` 无残留。
+- [x] `rg "AuthenticateBearer|AuthenticatedIdentity|CodeMediaPermissionDenied" apps/lina-core apps/lina-plugins/media` 无残留。
 - [x] `GOWORK=<temp>/go.work go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过，覆盖 media 路由边界和 Tieta token 解析服务测试。
 - [x] `go test ./pkg/pluginservice/contract ./internal/service/pluginhostservices ./internal/cmd -count=1` 于 `apps/lina-core` 通过，覆盖 core AuthService 契约、pluginhostservices 装配和启动绑定包。
 - [x] i18n 影响评估：FB-34 仅调整后端鉴权边界和测试，不新增前端运行时文案、manifest i18n 或 apidoc i18n JSON；media 按用户要求不新增 i18n。
