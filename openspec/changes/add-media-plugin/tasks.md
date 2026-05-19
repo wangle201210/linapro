@@ -78,19 +78,31 @@
 - [x] **FB-30**: `media_device_node` 唯一索引应改为 `device_id + channel_id` 组合唯一，不能只按 `device_id` 唯一
 - [x] **FB-31**: 对齐 HotGo `1a8b88f9..fe300a7a` 的 Token+DeviceId 策略查询兼容接口，并将 Docker 镜像构建入口放在 LinaPro 根项目
 - [x] **FB-32**: 补齐 HotGo `1a8b88f9` 的 DeviceCode+ChannelCode 路由记忆兼容接口，默认保留 12 小时
+- [x] **FB-33**: 合并上游 main 的宿主 cache 重实现，并让 media/water 复用上游 `HostServices.Cache()` 契约
 
 ## Feedback 验证记录
 
+- [x] FB-33 将上游 main 作为 cache 权威实现，保留宿主 `pkg/pluginservice/contract.CacheService`、`pluginhost.HostServices.Cache()` 与 `pluginhostservices` 的 plugin-scoped kvcache adapter，不恢复本分支旧的 `Cache().KV()`、`coordination.Service` 暴露或插件自建 Redis 配置。
+- [x] FB-33 media 路由记忆改为通过 `contract.CacheService` 的 `route-memory` namespace 存取 `route_data:<deviceCode>:<channelCode>`，TTL 保持 12 小时；water 异步任务状态改为通过 `task-status` namespace 存取 `water:task:<taskID>`，TTL 保持 12 小时。
+- [x] FB-33 `rg` 确认 media/water 未保留 `go-redis`、GoFrame Redis 或旧 `Cache().KV()` 代码依赖；缓存后端统一由宿主上游 `HostServices.Cache()` 注入。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.merge-check go test ./backend/... -count=1` 于 `apps/lina-plugins/media`、`apps/lina-plugins/water`、`apps/lina-plugins/cms` 均通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.merge-check go test ./... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `go test ./internal/service/auth ./internal/service/pluginhostservices ./internal/cmd -count=1` 于 `apps/lina-core` 通过，覆盖宿主 AuthService 扩展、plugin host services cache adapter 装配与启动期路由绑定包。
+- [x] `openspec validate add-media-plugin --strict` 通过；`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n 影响评估：FB-33 只调整 cache 契约接入和后端依赖注入；media/water 按用户要求不新增运行时 i18n、manifest i18n 或 apidoc i18n JSON，cms 未新增 i18n 资源。
+- [x] 缓存影响评估：FB-33 的权威缓存契约为上游 `HostServices.Cache()`；media/water 不再自建 Redis 或进程内业务缓存，分布式一致性由宿主 plugin-scoped kvcache 后端承担，业务侧仅使用带 namespace 的幂等 set/get/delete。
+- [x] 数据权限影响评估：FB-33 不新增数据库读写资源；media 路由记忆和 water 任务状态均为 transient cache 数据，不读取或泄露管理表范围外记录。
+- [x] `/lina-review` 审查：FB-33 未发现阻断问题；剩余风险是 media 的铁塔 token 兼容回退仍沿用既有双鉴权设计，未在本次上游 cache 合并中扩大权限面。
 - [x] FB-32 对比 HotGo `1a8b88f9` 确认该提交新增的是 `POST /route/set`、`POST /route/get`、`POST /route/del` 路由记忆接口，不是 Docker workflow 或 Token+DeviceId 策略接口；前次 FB-31 只覆盖了后续提交，确实遗漏该功能。
-- [x] FB-32 边界修正：未在宿主 `pkg/pluginservice/contract` 新增 cache 接缝，路由记忆能力收敛在 media 插件内部；media 插件通过 GoFrame Redis adapter 维护 HotGo 兼容路由记忆，不修改宿主公共插件服务契约。
-- [x] FB-32 在 media 插件新增 HotGo 兼容公开接口 `POST /api/v1/route/set`、`POST /api/v1/route/get`、`POST /api/v1/route/del`，按 `route_data:<deviceCode>:<channelCode>` 构造 Redis 键，写入 TTL 为 12 小时；未命中读取返回空字符串，重复删除视为成功。
+- [x] FB-32 边界修正：路由记忆能力收敛在 media 插件业务层，缓存后端复用宿主上游 `pluginhost.HostServices.Cache()` 提供的 plugin-scoped cache 契约；media 插件不维护专属 Redis 配置或自有缓存后端。
+- [x] FB-32 在 media 插件新增 HotGo 兼容公开接口 `POST /api/v1/route/set`、`POST /api/v1/route/get`、`POST /api/v1/route/del`，按 `route_data:<deviceCode>:<channelCode>` 构造逻辑缓存键，写入 TTL 为 12 小时；未命中读取返回空字符串，重复删除视为成功。
 - [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -count=1` 于 `apps/lina-plugins/media` 通过。
 - [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
 - [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test lina-plugins -count=1` 于 `apps/lina-plugins` 通过。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
 - [x] i18n 影响评估：FB-32 仅新增 media 中文-only 兼容接口文档标签和后端错误码，不新增前端运行时文案、manifest i18n 或 apidoc i18n JSON。
-- [x] 缓存影响评估：FB-32 新增路由记忆缓存，权威数据源为 Redis；media 优先读取 `media.routeMemory.redis.*`，未配置时复用 `cluster.redis.*`，再兜底兼容 `redis.default.*`；缓存键保持 HotGo 原格式 `route_data:<deviceCode>:<channelCode>`，TTL 为 12 小时，set 覆盖、get 读取未过期值、delete 幂等删除，无本地进程内状态。
+- [x] 缓存影响评估：FB-32 新增路由记忆缓存，权威缓存契约为宿主 `HostServices.Cache()`；缓存键保持 HotGo 逻辑格式 `route_data:<deviceCode>:<channelCode>`，由宿主按插件 ID 和租户上下文绑定到底层 kvcache，TTL 为 12 小时，set 覆盖、get 读取未过期值、delete 幂等删除，无本地进程内状态。
 - [x] 数据权限影响评估：FB-32 新增 HotGo 兼容公开接口不接入宿主用户数据权限；访问边界与原 HotGo innerapi 兼容目标一致，路由记忆仅保存调用方提交的设备通道路由字符串，不读取或泄露 media 管理表数据。
 - [x] `/lina-review` 审查：FB-32 未发现阻断问题；兼容接口保留 HotGo 原 POST 路径作为迁移接缝，缓存实现位于 media 插件内部，未扩展宿主公共插件服务契约，未引入单机内存缓存。
 

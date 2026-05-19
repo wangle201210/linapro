@@ -7,6 +7,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
@@ -17,6 +18,7 @@ import (
 	internali18n "lina-core/internal/service/i18n"
 	internalnotify "lina-core/internal/service/notify"
 	internalplugin "lina-core/internal/service/plugin"
+	internalrole "lina-core/internal/service/role"
 	internalsession "lina-core/internal/service/session"
 	tenantcapsvc "lina-core/internal/service/tenantcap"
 	"lina-core/pkg/bizerr"
@@ -83,12 +85,28 @@ func (s *apiDocAdapter) FindRouteTitleOperationKeys(ctx context.Context, keyword
 
 // authAdapter bridges the internal auth service into the published plugin contract.
 type authAdapter struct {
-	tokenIssuer internalauth.TenantTokenIssuer
+	authSvc                internalauth.Service
+	tokenIssuer            internalauth.TenantTokenIssuer
+	sessionTimeoutProvider authSessionTimeoutProvider
+	roleSvc                authRoleAccessProvider
+	sessionStore           internalsession.Store
 }
 
 // newAuthAdapter creates the source-plugin auth service adapter.
-func newAuthAdapter(tokenIssuer internalauth.TenantTokenIssuer) plugincontract.AuthService {
-	return &authAdapter{tokenIssuer: tokenIssuer}
+func newAuthAdapter(
+	authSvc internalauth.Service,
+	tokenIssuer internalauth.TenantTokenIssuer,
+	sessionTimeoutProvider authSessionTimeoutProvider,
+	roleSvc authRoleAccessProvider,
+	sessionStore internalsession.Store,
+) plugincontract.AuthService {
+	return &authAdapter{
+		authSvc:                authSvc,
+		tokenIssuer:            tokenIssuer,
+		sessionTimeoutProvider: sessionTimeoutProvider,
+		roleSvc:                roleSvc,
+		sessionStore:           sessionStore,
+	}
 }
 
 // SelectTenant consumes a pre-login token and issues a tenant-bound token.
@@ -121,6 +139,91 @@ func (s *authAdapter) SwitchTenant(ctx context.Context, in plugincontract.Switch
 	return &plugincontract.TenantTokenOutput{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken}, nil
 }
 
+// AuthenticateBearer validates one LinaPro bearer token and returns its access snapshot.
+func (s *authAdapter) AuthenticateBearer(ctx context.Context, bearerToken string) (*plugincontract.AuthenticatedIdentity, error) {
+	if s == nil || s.authSvc == nil || s.sessionStore == nil || s.sessionTimeoutProvider == nil || s.roleSvc == nil {
+		return nil, bizerr.NewCode(internalauth.CodeAuthTokenStateUnavailable)
+	}
+	token := normalizeBearerToken(bearerToken)
+	if token == "" {
+		return nil, bizerr.NewCode(internalauth.CodeAuthTokenInvalid)
+	}
+	claims, err := s.authSvc.ParseToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	sessionTimeout, err := s.sessionTimeoutProvider.GetSessionTimeout(ctx)
+	if err != nil {
+		return nil, err
+	}
+	exists, err := s.sessionStore.TouchOrValidate(ctx, claims.TenantId, claims.TokenId, sessionTimeout)
+	if err != nil || !exists {
+		s.roleSvc.InvalidateTokenAccessContext(ctx, claims.TokenId)
+		if err != nil {
+			return nil, err
+		}
+		return nil, bizerr.NewCode(internalauth.CodeAuthTokenInvalid)
+	}
+
+	accessCtx, err := s.roleSvc.GetUserAccessContext(datascope.WithTenantScope(ctx, claims.TenantId), claims.UserId)
+	if err != nil {
+		return nil, err
+	}
+	if accessCtx == nil {
+		accessCtx = &internalrole.UserAccessContext{}
+	}
+	return &plugincontract.AuthenticatedIdentity{
+		TokenID:              claims.TokenId,
+		UserID:               claims.UserId,
+		Username:             claims.Username,
+		Status:               claims.Status,
+		TenantID:             claims.TenantId,
+		ActingUserID:         claims.ActingUserId,
+		ActingAsTenant:       claims.IsImpersonation,
+		IsImpersonation:      claims.IsImpersonation,
+		PlatformBypass:       s.platformBypass(claims.TenantId, accessCtx),
+		DataScope:            int(accessCtx.DataScope),
+		DataScopeUnsupported: accessCtx.DataScopeUnsupported,
+		UnsupportedDataScope: accessCtx.UnsupportedDataScope,
+		Permissions:          append([]string(nil), accessCtx.Permissions...),
+		IsSuperAdmin:         accessCtx.IsSuperAdmin,
+	}, nil
+}
+
+// platformBypass mirrors host tenant-bypass semantics for plugin-local auth decisions.
+func (s *authAdapter) platformBypass(tenantID int, accessCtx *internalrole.UserAccessContext) bool {
+	if tenantID != 0 || accessCtx == nil || int(accessCtx.DataScope) != 1 || accessCtx.DataScopeUnsupported {
+		return false
+	}
+	return true
+}
+
+// normalizeBearerToken accepts either a raw token or an Authorization Bearer header.
+func normalizeBearerToken(token string) string {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "bearer ") {
+		return strings.TrimSpace(trimmed[len("Bearer "):])
+	}
+	return trimmed
+}
+
+// authSessionTimeoutProvider is the config surface auth validation needs.
+type authSessionTimeoutProvider interface {
+	// GetSessionTimeout returns the runtime-effective online-session timeout.
+	GetSessionTimeout(ctx context.Context) (time.Duration, error)
+}
+
+// authRoleAccessProvider is the role access surface auth validation needs.
+type authRoleAccessProvider interface {
+	// GetUserAccessContext returns the effective permissions for a user.
+	GetUserAccessContext(ctx context.Context, userId int) (*internalrole.UserAccessContext, error)
+	// InvalidateTokenAccessContext removes cached access state for one token.
+	InvalidateTokenAccessContext(ctx context.Context, tokenID string)
+}
+
 // bizCtxAdapter bridges the internal bizctx service into the published plugin contract.
 type bizCtxAdapter struct {
 	service internalbizctx.Service
@@ -142,7 +245,11 @@ func (s *bizCtxAdapter) Current(ctx context.Context) plugincontract.CurrentConte
 				ActingUserID:    c.ActingUserId,
 				ActingAsTenant:  c.ActingAsTenant,
 				IsImpersonation: c.IsImpersonation,
-				PlatformBypass:  c.TenantId == 0,
+				PlatformBypass: c.TenantId == 0 &&
+					c.DataScope == 1 &&
+					!c.DataScopeUnsupported &&
+					!c.ActingAsTenant &&
+					!c.IsImpersonation,
 			}
 		}
 	}
