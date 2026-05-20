@@ -96,29 +96,63 @@
 - **WHEN** 铁塔设备权限接口返回该租户无权访问设备
 - **THEN** 系统 SHALL 返回 `hasAccess=false` 且不返回任何媒体策略内容
 
-### Requirement: Media 接口双通道鉴权
+### Requirement: Media 管理接口双通道鉴权
 
-系统 SHALL 仅对 media 插件注册的接口启用 LinaPro 与 Tieta 双通道鉴权，不影响 core、water 或其他模块接口。
+系统 SHALL 仅对 media 插件的管理端 `/api/v1/media/*` 接口启用 LinaPro 与 Tieta 双通道鉴权，不影响 core、water、mediaopen 或其他模块接口。
 
 #### Scenario: LinaPro 鉴权通过
 
-- **WHEN** 请求携带有效 LinaPro token 且通过宿主 Auth、Tenancy 与 Permission 校验
-- **THEN** media 接口 SHALL 按宿主用户上下文继续处理请求
+- **WHEN** `/api/v1/media/*` 请求携带有效 LinaPro token 且通过宿主 Auth、Tenancy 与 Permission 校验
+- **THEN** media 管理接口 SHALL 按宿主用户上下文继续处理请求
 
 #### Scenario: Tieta token 兜底通过
 
-- **WHEN** 请求未通过宿主 Auth、Tenancy 或 Permission 校验，但携带有效 Tieta token
-- **THEN** media 接口 SHALL 使用 media 插件内的 Tieta token 解析结果继续处理请求
+- **WHEN** `/api/v1/media/*` 请求未通过宿主 Auth、Tenancy 或 Permission 校验，但携带有效 Tieta token
+- **THEN** media 管理接口 SHALL 使用 media 插件内的 Tieta token 解析结果继续处理请求
 
 #### Scenario: Tieta mock 模式
 
-- **WHEN** `tieta.mock=true` 且请求携带任意非空 token
-- **THEN** media 接口 SHALL 在 LinaPro 鉴权未通过后允许 Tieta mock 兜底通过
+- **WHEN** `tieta.mock=true` 且 `/api/v1/media/*` 请求携带任意非空 token
+- **THEN** media 管理接口 SHALL 在 LinaPro 鉴权未通过后允许 Tieta mock 兜底通过
 
 #### Scenario: 双通道均失败
 
-- **WHEN** 请求既未通过 LinaPro 鉴权，也未通过 Tieta token 鉴权
-- **THEN** media 接口 SHALL 返回鉴权失败
+- **WHEN** `/api/v1/media/*` 请求既未通过 LinaPro 鉴权，也未通过 Tieta token 鉴权
+- **THEN** media 管理接口 SHALL 返回鉴权失败
+
+### Requirement: Mediaopen 内部接口鉴权
+
+系统 SHALL 对 mediaopen/HotGo 兼容接口采用类 HotGo `InnerApiAuth` 模式：读取 `X-Inner-Api-Key` 请求头并与配置 `innerapi.apiKey` 比对；当配置缺失时使用 HotGo 默认值 `media`；当配置显式为空时按 HotGo 兼容语义放行；该鉴权仅在 media 插件内实现，不修改 core 鉴权契约。
+
+#### Scenario: API Key 通过
+
+- **WHEN** mediaopen 请求携带 `X-Inner-Api-Key` 且其值等于 `innerapi.apiKey`
+- **THEN** 系统 SHALL 允许请求进入 mediaopen controller
+
+#### Scenario: API Key 缺失
+
+- **WHEN** 已配置 `innerapi.apiKey` 且 mediaopen 请求未携带 `X-Inner-Api-Key`
+- **THEN** 系统 SHALL 返回未授权错误
+
+#### Scenario: API Key 无效
+
+- **WHEN** 已配置 `innerapi.apiKey` 且 mediaopen 请求携带错误的 `X-Inner-Api-Key`
+- **THEN** 系统 SHALL 返回未授权错误
+
+#### Scenario: API Key 默认值
+
+- **WHEN** 未配置 `innerapi.apiKey` 且 mediaopen 请求携带 `X-Inner-Api-Key: media`
+- **THEN** 系统 SHALL 允许请求进入 mediaopen controller
+
+#### Scenario: API Key 显式关闭
+
+- **WHEN** `innerapi.apiKey` 被显式配置为空且 mediaopen 请求未携带 `X-Inner-Api-Key`
+- **THEN** 系统 SHALL 允许请求进入 mediaopen controller
+
+#### Scenario: 管理端双鉴权隔离
+
+- **WHEN** 请求访问 `/api/v1/media/*` 管理端接口
+- **THEN** 系统 SHALL 不使用 `InnerApiAuth` 替代 LinaPro/Tieta 双通道鉴权
 
 ### Requirement: 流别名管理
 

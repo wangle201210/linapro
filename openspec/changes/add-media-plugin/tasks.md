@@ -81,9 +81,27 @@
 - [x] **FB-33**: 合并上游 main 的宿主 cache 重实现，并让 media/water 复用上游 `HostServices.Cache()` 契约
 - [x] **FB-34**: Tieta 鉴权边界应收敛在 media 插件，不能扩展 core AuthService 契约
 - [x] **FB-35**: `tieta.mock=true` 时 media 管理接口仍被宿主 Auth 提前拦截，Tieta 任意 token 兜底未生效
+- [x] **FB-36**: mediaopen 相关接口应改用 HotGo 类 `InnerApiAuth` 鉴权模式，而不是管理端 LinaPro/Tieta 双通道链路
 
 ## Feedback 验证记录
 
+- [x] FB-36 对齐本机 HotGo `feat/media` 分支 `InnerApiAuth` 语义：mediaopen 使用 `X-Inner-Api-Key` 请求头与 `innerapi.apiKey` 比对，配置缺失时使用默认值 `media`，显式配置为空时兼容放行。
+- [x] FB-36 将 media 插件路由拆为两个 `/api/v1` 组：mediaopen controller 仅经过宿主通用请求中间件和插件内 `mediaInnerAPIAuthMiddleware`；管理端 `/api/v1/media/*` controller 继续经过插件内 LinaPro/Tieta 双通道鉴权链路。
+- [x] FB-36 的 `InnerApiAuth` 配置读取通过源码插件注册期注入的 `HostServices.Config()` 完成，未在请求路径自行构造配置服务，也未修改 core 鉴权契约或启动编排。
+- [x] FB-36 新增 media 插件内结构化错误码 `MEDIA_INNER_API_KEY_REQUIRED` 与 `MEDIA_INNER_API_KEY_INVALID`，调用方可见的内部 API Key 鉴权失败继续通过 `bizerr` 返回。
+- [x] FB-36 在 mediaopen 请求 DTO 中补充 `X-Inner-Api-Key` header 字段，使接口文档能显示内部 API Key 要求；鉴权仍由插件 middleware 统一执行。
+- [x] FB-36 同步更新 media 插件英文 `README.md` 与中文 `README.zh-CN.md`，记录 mediaopen/HotGo 兼容接口的 `X-Inner-Api-Key` 与 `innerapi.apiKey` 配置语义。
+- [x] FB-36 按用户要求未新增 media E2E，更新 `media_plugin_routes_test.go` 的 route-level Go 测试覆盖 mediaopen API Key 成功、缺失、错误、默认值、显式空配置放行，以及管理端继续走 LinaPro/Tieta 双通道鉴权。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMedia(Open|Management|PluginRoutes)|TestMediaBizCtxOverlay' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test lina-plugins -count=1` 于 `apps/lina-plugins` 通过；`cd apps/lina-core && go test ./internal/cmd -count=1` 通过，覆盖源码插件聚合包和宿主启动路由绑定编译门禁。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n 影响评估：FB-36 调整 media 后端鉴权链路、后端错误码、mediaopen 接口文档 DTO、README 和增量规范；media 模块仍按用户要求中文-only，不新增前端运行时语言包、manifest i18n 或 apidoc i18n JSON。
+- [x] 缓存影响评估：FB-36 不新增缓存，不改变 media 路由记忆 `HostServices.Cache()` 使用方式；`InnerApiAuth` 只读取请求头和启动配置，不持有进程内认证状态。
+- [x] 数据权限影响评估：FB-36 不新增数据表或数据操作；mediaopen 仍是 HotGo 兼容内部接口边界，管理端 `/api/v1/media/*` 继续由 LinaPro/Tieta 双通道鉴权和既有 service 数据边界保护。
+- [x] core 边界评估：`git diff -- apps/lina-core | wc -c` 输出 `0`，FB-36 未修改 core、water 或其他插件。
+- [x] `/lina-review` 审查：FB-36 未发现阻断问题；mediaopen 内部 API Key 鉴权在 media 插件内实现，配置依赖通过 `HostServices.Config()` 显式注入，管理端 media 双通道鉴权仍限于 `/api/v1/media/*`。
 - [x] FB-35 新增 `Media 接口双通道鉴权` 增量规范，明确双鉴权仅对 media 插件注册接口生效，不影响 core、water 或其他模块。
 - [x] FB-35 调整了 FB-34 中“管理接口仅复用宿主 Auth/Tenancy/Permission”的阶段性做法：当前最终边界为 media 插件内组合宿主 LinaPro 链路与 media 自有 Tieta 兜底，仍不扩展 core。
 - [x] FB-35 在 media 插件 `backend` 包内新增 media-scoped 双通道鉴权中间件：先调用宿主发布的 LinaPro `Auth`，并继续经过宿主 `Tenancy` 与 `Permission`；若宿主链未到达 media handler，则清理宿主失败响应后调用 media service 内部的 Tieta token 解析兜底。
