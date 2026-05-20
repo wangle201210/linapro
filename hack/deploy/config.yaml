@@ -74,7 +74,7 @@ upload:
   path: "/app/data/upload"
   maxSize: 20
 
-# Enable the source-plugin demo surface and public-demo protection.
+# Enable source-plugin demo dependencies for local deployment.
 plugin:
   allowForceUninstall: true
   dynamic:
@@ -94,6 +94,3 @@ plugin:
       withMockData: true
     - id: "linapro-monitor-server"
       withMockData: true
-    # linapro-ops-demo-guard protects risky actions in public demo environments.
-    - id: "linapro-ops-demo-guard"
-      withMockData: false

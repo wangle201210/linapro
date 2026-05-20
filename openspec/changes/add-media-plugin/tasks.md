@@ -84,9 +84,19 @@
 - [x] **FB-36**: mediaopen 相关接口应改用 HotGo 类 `InnerApiAuth` 鉴权模式，而不是管理端 LinaPro/Tieta 双通道链路
 - [x] **FB-37**: Tieta token 鉴权通过后应按 token 缓存 1 分钟用户信息，避免重复调用铁塔用户信息接口
 - [x] **FB-38**: 复核 cms/media/water 三个自有插件是否符合上游官方源码插件推荐设计，并修正治理差异
+- [x] **FB-39**: 通过铁塔 token 解析媒体策略只保留 HotGo 兼容 `/api/v1/strategy/userDeviceStrategyByToken` 接口，不再暴露 `/api/v1/media/strategy-authorizations`
 
 ## Feedback 验证记录
 
+- [x] FB-39 删除 mediaopen 中 `/api/v1/media/strategy-authorizations` 对应的 API DTO 和 controller 方法，并通过 `gf gen ctrl` 重新生成 `backend/api/mediaopen/mediaopen.go`，当前 mediaopen HTTP 面只保留 HotGo 兼容 `POST /api/v1/strategy/userDeviceStrategyByToken` 与 route-memory 接口。
+- [x] FB-39 保留 service 层 `ResolveStrategyByToken` 作为 `UserDeviceStrategyByToken` 内部复用逻辑，不新增 core 鉴权契约、不改 management `/api/v1/media/*` 双通道鉴权，也不修改 water 或其他插件。
+- [x] FB-39 更新 media 增量规范和中英文 README：明确策略解析只暴露 `POST /api/v1/strategy/userDeviceStrategyByToken`，并声明不再暴露 `POST /api/v1/media/strategy-authorizations`。
+- [x] FB-39 按用户要求未新增 media E2E，更新 `media_plugin_routes_test.go` route-level Go 测试覆盖旧 `/api/v1/media/strategy-authorizations` 返回 404、HotGo 兼容 `/api/v1/strategy/userDeviceStrategyByToken` 仍发布且继续走 `X-Inner-Api-Key`。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaOpenRoutes(UseInnerAPIAuth|ExposeOnlyHotGoTokenStrategyEndpoint)' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -run 'Test(UserDeviceStrategyByToken|ResolveStrategyByToken)' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-39 仅收敛 mediaopen 后端公开路由和接口文档说明，不新增前端运行时文案、manifest i18n、apidoc i18n JSON、缓存读写、数据库表或数据操作边界；HotGo 兼容接口仍沿用既有 Tieta 设备权限校验与插件内 `InnerApiAuth`。
+- [x] `/lina-review` 审查：FB-39 未发现阻断问题；确认未修改 core、未新增 media E2E，接口收敛仅发生在 media 插件内，`/api/v1/strategy/userDeviceStrategyByToken` 继续发布并使用 `X-Inner-Api-Key`。
 - [x] FB-38 对照 `AGENTS.md` 源码插件目录结构规范和上游官方 `linapro-*` 插件现状复核 `cms`、`media`、`water`：三者均保留 `plugin.yaml`、`plugin_embed.go`、`backend/plugin.go`、`backend/internal/{controller,service}`、`frontend/pages`、`manifest/sql` 和插件自有 `hack/tests`；未发现旧式 `backend/service`、根层插件 E2E 目录或需迁入 core 的实现。
 - [x] FB-38 为 `cms`、`media`、`water` 补齐插件自有 `hack/tests/config/service-dependency-baseline.json`，将 `backend/plugin.go` 中源码插件注册边界的 controller/service 构造按上游官方插件模式登记在插件本地基线中，避免回流到根 `hack/tests/config/service-dependency-baseline.json`。
 - [x] FB-38 将三个自有插件 E2E 调整为上游当前推荐的插件目录本地编号：`cms/hack/tests/e2e/TC001-cms-plugin-management.ts`、`media/hack/tests/e2e/TC001-media-plugin-smoke.ts`、`water/hack/tests/e2e/TC001-water-plugin-smoke.ts`，并同步文件内 `TC-1a/b/...` 标签。
