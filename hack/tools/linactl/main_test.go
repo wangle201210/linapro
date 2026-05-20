@@ -385,7 +385,7 @@ func TestEvaluatePostgreSQLConfigFailureIncludesRemark(t *testing.T) {
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "config.yaml"), `
 database:
   default:
-    link: "sqlite::@file(./temp/sqlite/linapro.db)"
+    link: "mysql:root:secret@tcp(127.0.0.1:3306)/linapro"
 `)
 	application := newApp(ioDiscard{}, ioDiscard{}, strings.NewReader(""))
 	application.root = root
@@ -615,7 +615,7 @@ func TestPrintStatusTableIncludesDevelopmentServiceDetails(t *testing.T) {
 		{
 			Service: "Backend",
 			Status:  "running",
-			URL:     "http://127.0.0.1:8080/",
+			URL:     "http://127.0.0.1:9120/",
 			PID:     "12345",
 			PIDFile: "temp/pids/backend.pid",
 			LogFile: "temp/lina-core.log",
@@ -749,6 +749,15 @@ func TestRunDevStartsServicesAsAsyncProcessesAndPrintsFinalStatus(t *testing.T) 
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "config.template.yaml"), "template: true\n")
+	// portcheck.Verify 在 runDev 入口校验后端 server.address 与前端 vite proxy
+	// target 是否与 defaultBackendPort 对齐，因此用例需要自带一份对齐到 9120
+	// 的最小夹具，保持单测自包含、顺序无关。
+	// portcheck.Verify runs at the start of runDev and requires the backend
+	// server.address and the frontend vite proxy target to align with the
+	// supplied backend port. The test owns minimal fixtures aligned to 9120
+	// so the test stays self-contained and order independent.
+	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "config.yaml"), "server:\n  address: \":9120\"\n")
+	writeFile(t, filepath.Join(root, "apps", "lina-vben", "apps", "web-antd", "vite.config.mts"), "proxy: { '/api': { target: 'http://localhost:9120' } }\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "metadata.yaml"), "metadata: true\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "sql", "001.sql"), "select 1;\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "i18n", "en-US", "framework.json"), "{}\n")
@@ -827,6 +836,12 @@ func TestRunDevPassesRepositoryWasmOutputWhenPluginsEnabled(t *testing.T) {
 	pluginRoot := filepath.Join(root, "apps", "lina-plugins")
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse ./apps/lina-core\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "config.template.yaml"), "template: true\n")
+	// 与上方 runDev 用例同样需要自带对齐到默认 backend 端口的最小夹具，使
+	// portcheck.Verify 在测试沙盒中通过。
+	// Self-contained fixtures aligned to defaultBackendPort so portcheck.Verify
+	// passes inside the test sandbox.
+	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "config.yaml"), "server:\n  address: \":9120\"\n")
+	writeFile(t, filepath.Join(root, "apps", "lina-vben", "apps", "web-antd", "vite.config.mts"), "proxy: { '/api': { target: 'http://localhost:9120' } }\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "config", "metadata.yaml"), "metadata: true\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "sql", "001.sql"), "select 1;\n")
 	writeFile(t, filepath.Join(root, "apps", "lina-core", "manifest", "i18n", "en-US", "framework.json"), "{}\n")
@@ -1047,7 +1062,8 @@ func TestGoWorkspaceModulesIncludesGoListOutputInErrors(t *testing.T) {
 }
 
 // TestRunTestGoSerializesPackageExecution verifies CI uses one package process
-// at a time while retaining the requested race and verbose flags.
+// at a time while retaining the requested race and verbose flags for packages
+// that actually contain Go tests.
 func TestRunTestGoSerializesPackageExecution(t *testing.T) {
 	root := t.TempDir()
 	coreDir := filepath.Join(root, "apps", "lina-core")
@@ -1064,7 +1080,11 @@ func TestRunTestGoSerializesPackageExecution(t *testing.T) {
 		switch command {
 		case "go list -m -f {{.Dir}}":
 			return exec.Command(os.Args[0], "-test.run=TestHelperPrintWorkspaceModules", "--", coreDir, aggregateDir)
-		case "go test -p=1 -race -v ./...":
+		case "go list -json ./...":
+			return exec.Command(os.Args[0], "-test.run=TestHelperPrintGoListPackages", "--")
+		case "go test -p=1 -race -v lina-core/internal/service/plugin":
+			return exec.Command(os.Args[0], "-test.run=TestHelperCommandSuccess", "--")
+		case "go test -p=1 -race -run ^$ lina-core/internal/model":
 			return exec.Command(os.Args[0], "-test.run=TestHelperCommandSuccess", "--")
 		default:
 			t.Fatalf("unexpected go command: %s", command)
@@ -1078,9 +1098,40 @@ func TestRunTestGoSerializesPackageExecution(t *testing.T) {
 	}
 
 	got := strings.Join(commands, "\n")
-	expected := "go list -m -f {{.Dir}}\ngo test -p=1 -race -v ./..."
+	expected := "go list -m -f {{.Dir}}\ngo list -json ./...\ngo test -p=1 -race -v lina-core/internal/service/plugin\ngo test -p=1 -race -run ^$ lina-core/internal/model"
 	if got != expected {
 		t.Fatalf("unexpected command sequence:\ngot:\n%s\nexpected:\n%s", got, expected)
+	}
+}
+
+// TestGoTestModulePlanForDirSeparatesTestAndCompilePackages verifies package
+// planning only sends packages with test files through the unit-test command.
+func TestGoTestModulePlanForDirSeparatesTestAndCompilePackages(t *testing.T) {
+	root := t.TempDir()
+	moduleDir := filepath.Join(root, "apps", "lina-core")
+	writeFile(t, filepath.Join(moduleDir, "go.mod"), "module lina-core\n")
+
+	application := newApp(ioDiscard{}, ioDiscard{}, strings.NewReader(""))
+	application.root = root
+	application.execCommand = func(_ context.Context, name string, args ...string) *exec.Cmd {
+		if name != "go" || strings.Join(args, " ") != "list -json ./..." {
+			t.Fatalf("unexpected package list command: %s %s", name, strings.Join(args, " "))
+		}
+		return exec.Command(os.Args[0], "-test.run=TestHelperPrintGoListPackages", "--")
+	}
+
+	plan, err := goTestModulePlanForDir(context.Background(), application, moduleDir)
+	if err != nil {
+		t.Fatalf("goTestModulePlanForDir returned error: %v", err)
+	}
+	if !samePath(t, plan.ModuleDir, moduleDir) {
+		t.Fatalf("unexpected module dir: %s", plan.ModuleDir)
+	}
+	if got := strings.Join(plan.TestPackages, ","); got != "lina-core/internal/service/plugin" {
+		t.Fatalf("unexpected test packages: %s", got)
+	}
+	if got := strings.Join(plan.CompilePackages, ","); got != "lina-core/internal/model" {
+		t.Fatalf("unexpected compile packages: %s", got)
 	}
 }
 
@@ -1486,6 +1537,17 @@ func TestHelperPrintWorkspaceModules(t *testing.T) {
 			os.Exit(1)
 		}
 	}
+	os.Exit(0)
+}
+
+// TestHelperPrintGoListPackages prints deterministic go list -json records for
+// linactl test.go planning tests.
+func TestHelperPrintGoListPackages(t *testing.T) {
+	if len(os.Args) < 2 || os.Args[len(os.Args)-1] != "--" {
+		return
+	}
+	fmt.Fprintln(os.Stdout, `{"ImportPath":"lina-core/internal/service/plugin","TestGoFiles":["plugin_test.go"]}`)
+	fmt.Fprintln(os.Stdout, `{"ImportPath":"lina-core/internal/model"}`)
 	os.Exit(0)
 }
 
