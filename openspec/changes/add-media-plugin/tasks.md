@@ -26,7 +26,7 @@
 
 ## 5. 测试与验证
 
-- [x] 5.1 新增插件自有 E2E 冒烟用例 `TC0238-media-plugin-smoke.ts`
+- [x] 5.1 新增插件自有 E2E 冒烟用例 `TC001-media-plugin-smoke.ts`
 - [x] 5.2 运行 Go 单元测试和源码插件聚合编译
 - [x] 5.3 运行前端类型检查、E2E 静态校验和 OpenSpec 严格校验
 
@@ -37,7 +37,7 @@
 - [x] `corepack pnpm -F @lina/web-antd typecheck` 通过。
 - [x] `corepack pnpm -F @lina/web-antd i18n:check` 通过；本模块未新增运行时 i18n、manifest i18n 或 apidoc i18n 资源。
 - [x] `./node_modules/.bin/tsc --noEmit --pretty false` 于 `hack/tests` 通过。
-- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC0238-media-plugin-smoke.ts --list` 能发现 1 条插件自有 E2E 用例。
+- [x] `./node_modules/.bin/playwright test apps/lina-plugins/media/hack/tests/e2e/TC001-media-plugin-smoke.ts --list` 能发现 1 条插件自有 E2E 用例。
 - [x] `openspec validate add-media-plugin --strict` 通过。
 - [x] `git diff --check` 通过。
 - [x] 插件安装 SQL 使用 `psql` 重复执行通过，并完成策略、设备绑定、租户绑定、租户设备绑定、`auto_remove=0/1` 流别名的最小写入与清理冒烟验证。
@@ -83,8 +83,19 @@
 - [x] **FB-35**: `tieta.mock=true` 时 media 管理接口仍被宿主 Auth 提前拦截，Tieta 任意 token 兜底未生效
 - [x] **FB-36**: mediaopen 相关接口应改用 HotGo 类 `InnerApiAuth` 鉴权模式，而不是管理端 LinaPro/Tieta 双通道链路
 - [x] **FB-37**: Tieta token 鉴权通过后应按 token 缓存 1 分钟用户信息，避免重复调用铁塔用户信息接口
+- [x] **FB-38**: 复核 cms/media/water 三个自有插件是否符合上游官方源码插件推荐设计，并修正治理差异
 
 ## Feedback 验证记录
+
+- [x] FB-38 对照 `AGENTS.md` 源码插件目录结构规范和上游官方 `linapro-*` 插件现状复核 `cms`、`media`、`water`：三者均保留 `plugin.yaml`、`plugin_embed.go`、`backend/plugin.go`、`backend/internal/{controller,service}`、`frontend/pages`、`manifest/sql` 和插件自有 `hack/tests`；未发现旧式 `backend/service`、根层插件 E2E 目录或需迁入 core 的实现。
+- [x] FB-38 为 `cms`、`media`、`water` 补齐插件自有 `hack/tests/config/service-dependency-baseline.json`，将 `backend/plugin.go` 中源码插件注册边界的 controller/service 构造按上游官方插件模式登记在插件本地基线中，避免回流到根 `hack/tests/config/service-dependency-baseline.json`。
+- [x] FB-38 将三个自有插件 E2E 调整为上游当前推荐的插件目录本地编号：`cms/hack/tests/e2e/TC001-cms-plugin-management.ts`、`media/hack/tests/e2e/TC001-media-plugin-smoke.ts`、`water/hack/tests/e2e/TC001-water-plugin-smoke.ts`，并同步文件内 `TC-1a/b/...` 标签。
+- [x] `node hack/tests/scripts/validate-service-dependencies.mjs` 通过，输出 `Service dependency governance passed: 31 files, 120 baseline critical constructor calls.`。
+- [x] `pnpm --dir hack/tests test:validate` 通过，输出 `Validated 237 E2E test files across 17 scopes. Smoke files: 6. Serial files: 220.`。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过。
+- [x] `pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/cms/hack/tests/e2e/TC001-cms-plugin-management.ts ../apps/lina-plugins/media/hack/tests/e2e/TC001-media-plugin-smoke.ts ../apps/lina-plugins/water/hack/tests/e2e/TC001-water-plugin-smoke.ts --list` 通过，发现 3 个文件内 9 条插件自有用例。
+- [x] i18n/缓存/数据权限影响评估：FB-38 仅调整插件治理基线、E2E 文件名和 OpenSpec 记录，不新增或修改产品运行时文案、manifest i18n、apidoc i18n、缓存读写、接口行为或数据权限边界。
+- [x] `/lina-review` 审查：FB-38 未发现阻断问题；确认本次未修改 core、Go 生产代码、API、SQL 或前端运行时页面，三个自有插件的源码插件目录、依赖治理基线和插件自有 E2E 编号均已对齐上游官方推荐设计。
 
 - [x] FB-37 在 media 插件服务层为 `AuthenticateTietaToken` 增加成功用户信息缓存：使用归一化后的 Tieta token 计算 SHA-256 逻辑 key，写入宿主 `HostServices.Cache()` 的 `tieta-user` namespace，TTL 为 1 分钟；缓存命中时直接返回用户信息。
 - [x] FB-37 只缓存铁塔用户信息接口的成功结果，Tieta 鉴权失败不缓存；设备权限 `queryDevicePerm` 仍保持实时调用，避免把设备级授权判断扩大为用户缓存。
