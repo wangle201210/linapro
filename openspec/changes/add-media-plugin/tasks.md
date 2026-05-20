@@ -85,9 +85,21 @@
 - [x] **FB-37**: Tieta token 鉴权通过后应按 token 缓存 1 分钟用户信息，避免重复调用铁塔用户信息接口
 - [x] **FB-38**: 复核 cms/media/water 三个自有插件是否符合上游官方源码插件推荐设计，并修正治理差异
 - [x] **FB-39**: 通过铁塔 token 解析媒体策略只保留 HotGo 兼容 `/api/v1/strategy/userDeviceStrategyByToken` 接口，不再暴露 `/api/v1/media/strategy-authorizations`
+- [x] **FB-40**: `make dev` 因默认后端端口与宿主 `server.address` 不一致无法启动
+- [x] **FB-41**: CMS 插件应提供 OpenResty 根域名代理示例，方便用户把 `/cms-site` 发布为独立域名根路径
 
 ## Feedback 验证记录
 
+- [x] FB-41 在 CMS 插件新增 `deploy/openresty/cms-site-root-domain.conf`，提供 1Panel/OpenResty 根域名代理示例：根路径代理到后端 `/cms-site`，旧 `/cms-site` 路径重定向到根路径，并用 `sub_filter` 将模板生成的 `/cms-site/...` 链接改写为根域名路径。
+- [x] FB-41 同步更新 CMS 插件英文 `README.md` 与中文 `README.zh-CN.md`，说明示例配置位置、域名和后端地址替换方式，以及 `openresty -t`、`openresty -s reload` 验证步骤。
+- [x] `docker run --rm -v ... openresty/openresty:1.21.4.3-0-alpine ... /usr/local/openresty/bin/openresty -t` 通过，确认新增 OpenResty 示例配置语法有效。
+- [x] i18n/缓存/数据权限影响评估：FB-41 仅新增 CMS 插件运维示例配置和中英文 README 说明，不新增运行时文案、manifest i18n、apidoc i18n、缓存读写、接口行为、数据库访问或数据权限边界。
+- [x] `/lina-review` 审查：FB-41 未发现阻断问题；确认变更收敛在 CMS 插件文档与部署示例内，不修改 core、后端生产代码、前端运行时页面或 E2E。
+- [x] FB-40 复现 `make dev` 失败：`linactl` 报告 `backend_port` 期望 `:9120`，但 `apps/lina-core/manifest/config/config.yaml` 的 `server.address` 为 `:8080`。
+- [x] FB-40 将宿主默认 manifest 配置 `server.address` 对齐为 `:9120`，与根 `Makefile` 的 `BACKEND_PORT`、前端 Vite proxy 和部署配置保持一致。
+- [x] `make dev` 通过并启动成功：后端 `http://127.0.0.1:9120/`，前端 `http://127.0.0.1:5666/`。
+- [x] i18n/缓存/数据权限影响评估：FB-40 只修正本地开发默认端口配置，不新增用户可见文案、运行时 i18n、manifest i18n、apidoc i18n、缓存读写、数据库访问或数据权限边界。
+- [x] `/lina-review` 审查：FB-40 未发现阻断问题；确认已跟踪的 `config.template.yaml` 与 packed template 均为 `:9120`，本次失败来自本机被 Git 忽略的旧 `config.yaml`，`make dev` 已验证启动成功。
 - [x] FB-39 删除 mediaopen 中 `/api/v1/media/strategy-authorizations` 对应的 API DTO 和 controller 方法，并通过 `gf gen ctrl` 重新生成 `backend/api/mediaopen/mediaopen.go`，当前 mediaopen HTTP 面只保留 HotGo 兼容 `POST /api/v1/strategy/userDeviceStrategyByToken` 与 route-memory 接口。
 - [x] FB-39 保留 service 层 `ResolveStrategyByToken` 作为 `UserDeviceStrategyByToken` 内部复用逻辑，不新增 core 鉴权契约、不改 management `/api/v1/media/*` 双通道鉴权，也不修改 water 或其他插件。
 - [x] FB-39 更新 media 增量规范和中英文 README：明确策略解析只暴露 `POST /api/v1/strategy/userDeviceStrategyByToken`，并声明不再暴露 `POST /api/v1/media/strategy-authorizations`。
