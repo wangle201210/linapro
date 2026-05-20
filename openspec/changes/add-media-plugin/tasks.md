@@ -82,8 +82,22 @@
 - [x] **FB-34**: Tieta 鉴权边界应收敛在 media 插件，不能扩展 core AuthService 契约
 - [x] **FB-35**: `tieta.mock=true` 时 media 管理接口仍被宿主 Auth 提前拦截，Tieta 任意 token 兜底未生效
 - [x] **FB-36**: mediaopen 相关接口应改用 HotGo 类 `InnerApiAuth` 鉴权模式，而不是管理端 LinaPro/Tieta 双通道链路
+- [x] **FB-37**: Tieta token 鉴权通过后应按 token 缓存 1 分钟用户信息，避免重复调用铁塔用户信息接口
 
 ## Feedback 验证记录
+
+- [x] FB-37 在 media 插件服务层为 `AuthenticateTietaToken` 增加成功用户信息缓存：使用归一化后的 Tieta token 计算 SHA-256 逻辑 key，写入宿主 `HostServices.Cache()` 的 `tieta-user` namespace，TTL 为 1 分钟；缓存命中时直接返回用户信息。
+- [x] FB-37 只缓存铁塔用户信息接口的成功结果，Tieta 鉴权失败不缓存；设备权限 `queryDevicePerm` 仍保持实时调用，避免把设备级授权判断扩大为用户缓存。
+- [x] FB-37 缓存读写失败只通过 `logger.Warningf(ctx, ...)` 记录并降级为实时调用铁塔或返回实时鉴权结果，不让缓存故障阻断 media 鉴权。
+- [x] FB-37 复用 media 插件注册期注入的宿主 cache adapter，没有新增进程内缓存、全局状态或 core 鉴权契约，单机/集群一致性跟随宿主 `kvcache` 后端。
+- [x] FB-37 新增 `TestAuthenticateTietaTokenCachesUserInfo` 单元测试，覆盖 Bearer/裸 token 归一化后复用同一缓存、铁塔用户信息接口只调用一次、cache namespace/key/TTL 正确。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -run 'Test(ParseTietaTokenUsesMediaClient|AuthenticateTietaTokenCachesUserInfo|ResolveStrategyByToken|UserDeviceStrategyByToken)' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./... -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] i18n 影响评估：FB-37 只调整 media 后端鉴权缓存逻辑和单元测试，不新增前端文案、manifest i18n 或 apidoc i18n JSON；media 模块仍按用户要求中文-only。
+- [x] 缓存影响评估：FB-37 新增的是短 TTL 鉴权加速缓存，权威数据源仍为 Tieta 用户信息接口；一致性模型为最多 1 分钟用户信息陈旧，缓存 key 使用 token 哈希避免超长 token 进入宿主 cache key；`cluster.enabled=false` 时走宿主本地/SQL cache 分支，`cluster.enabled=true` 时走宿主共享 cache/coordination 分支。
+- [x] 数据权限影响评估：FB-37 不新增数据表或 media 管理数据操作；只缓存 Tieta 用户信息，不缓存设备权限校验结果，media 管理端仍由 LinaPro/Tieta 双通道鉴权和既有 service 数据边界保护。
+- [x] `/lina-review` 审查：FB-37 未发现阻断问题；确认未修改 core、未新增进程内缓存或全局认证状态，缓存异常降级为实时鉴权，Go 编译门禁已覆盖 media 插件变更包。
 
 - [x] FB-36 对齐本机 HotGo `feat/media` 分支 `InnerApiAuth` 语义：mediaopen 使用 `X-Inner-Api-Key` 请求头与 `innerapi.apiKey` 比对，配置缺失时使用默认值 `media`，显式配置为空时兼容放行。
 - [x] FB-36 将 media 插件路由拆为两个 `/api/v1` 组：mediaopen controller 仅经过宿主通用请求中间件和插件内 `mediaInnerAPIAuthMiddleware`；管理端 `/api/v1/media/*` controller 继续经过插件内 LinaPro/Tieta 双通道鉴权链路。
