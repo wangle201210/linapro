@@ -20,6 +20,8 @@ import (
 	"testing/fstest"
 	"unicode"
 
+	"gopkg.in/yaml.v3"
+
 	"lina-core/pkg/testsupport"
 )
 
@@ -35,8 +37,8 @@ func containsCJK(value string) bool {
 	return false
 }
 
-// TestOpenAPIMetadataUsesEnglishSourceText prevents new host, source-plugin, or
-// dynamic-plugin API DTO documentation strings from using Chinese source text.
+// TestOpenAPIMetadataUsesEnglishSourceText prevents localized host and plugin
+// API DTO documentation strings from using Chinese source text.
 func TestOpenAPIMetadataUsesEnglishSourceText(t *testing.T) {
 	values := collectOpenAPISourceMetadataStrings(t)
 	var chineseValues []string
@@ -217,7 +219,7 @@ func TestOpenAPIBundlesAreSeparatedFromRuntimeI18n(t *testing.T) {
 		filepath.Join(repoRoot, "apps/lina-core/internal/packed/manifest/i18n"),
 	}
 	if testsupport.OfficialPluginsWorkspaceReady(repoRoot) {
-		scanRoots = append(scanRoots, filepath.Join(repoRoot, "apps/lina-plugins"))
+		scanRoots = append(scanRoots, openAPII18NManagedPluginRoots(t, repoRoot)...)
 	}
 	for _, root := range scanRoots {
 		if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
@@ -424,7 +426,7 @@ func collectOpenAPISourceMetadataStrings(t *testing.T) []openAPIMetadataValue {
 		filepath.Join(repoRoot, "apps/lina-core/manifest/config"),
 	}
 	if testsupport.OfficialPluginsWorkspaceReady(repoRoot) {
-		scanRoots = append(scanRoots, filepath.Join(repoRoot, "apps/lina-plugins"))
+		scanRoots = append(scanRoots, openAPII18NManagedPluginRoots(t, repoRoot)...)
 	}
 	packedConfigRoot := filepath.Join(repoRoot, "apps/lina-core/internal/packed/manifest/config")
 	if _, err := os.Stat(packedConfigRoot); err == nil {
@@ -445,7 +447,7 @@ func collectOpenAPITranslatableStructuredKeys(t *testing.T) []string {
 		filepath.Join(repoRoot, "apps/lina-core/api"),
 	}
 	if testsupport.OfficialPluginsWorkspaceReady(repoRoot) {
-		scanRoots = append(scanRoots, filepath.Join(repoRoot, "apps/lina-plugins"))
+		scanRoots = append(scanRoots, openAPII18NManagedPluginRoots(t, repoRoot)...)
 	}
 	for _, root := range scanRoots {
 		if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
@@ -875,6 +877,9 @@ func readOpenAPIPluginJSONBundles(t *testing.T, repoRoot string, locale string) 
 		}
 		pluginID := entry.Name()
 		pluginRoot := filepath.Join(pluginsRoot, pluginID)
+		if pluginDisablesOpenAPII18N(t, pluginRoot) {
+			continue
+		}
 		bundleDir := filepath.Join(pluginsRoot, pluginID, "manifest/i18n", locale, "apidoc")
 
 		dirExists := false
@@ -921,6 +926,65 @@ func pluginHasOpenAPIResources(t *testing.T, pluginRoot string) bool {
 		t.Fatalf("scan plugin API root %s failed: %v", apiRoot, err)
 	}
 	return hasAPI
+}
+
+// openAPII18NManagedPluginRoots returns source plugins that participate in
+// apidoc localization governance. Plugins may explicitly opt out in
+// plugin.yaml when they intentionally ship no i18n resources.
+func openAPII18NManagedPluginRoots(t *testing.T, repoRoot string) []string {
+	t.Helper()
+
+	pluginsRoot := testsupport.OfficialPluginsRoot(repoRoot)
+	entries, err := os.ReadDir(pluginsRoot)
+	if err != nil {
+		t.Fatalf("read plugin root %s failed: %v", pluginsRoot, err)
+	}
+
+	roots := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pluginRoot := filepath.Join(pluginsRoot, entry.Name())
+		if pluginDisablesOpenAPII18N(t, pluginRoot) {
+			continue
+		}
+		roots = append(roots, pluginRoot)
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+// pluginDisablesOpenAPII18N reports whether plugin.yaml opts out of runtime and
+// API-documentation i18n governance for Chinese-only source plugins.
+func pluginDisablesOpenAPII18N(t *testing.T, pluginRoot string) bool {
+	t.Helper()
+
+	manifestPath := filepath.Join(pluginRoot, "plugin.yaml")
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+		t.Fatalf("read plugin manifest %s failed: %v", manifestPath, err)
+	}
+
+	var manifest struct {
+		I18N *struct {
+			Enabled *bool `yaml:"enabled"`
+			APIDoc  *bool `yaml:"apidoc"`
+		} `yaml:"i18n"`
+	}
+	if err = yaml.Unmarshal(content, &manifest); err != nil {
+		t.Fatalf("parse plugin manifest %s failed: %v", manifestPath, err)
+	}
+	if manifest.I18N == nil {
+		return false
+	}
+	if manifest.I18N.Enabled != nil && !*manifest.I18N.Enabled {
+		return true
+	}
+	return manifest.I18N.APIDoc != nil && !*manifest.I18N.APIDoc
 }
 
 // assertOpenAPIEnglishBundlePlaceholder ensures English docs are driven by API

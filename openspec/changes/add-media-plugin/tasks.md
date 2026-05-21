@@ -102,9 +102,22 @@
 - [x] **FB-54**: mediaopen 查询租户启用 IP 白名单接口只允许通过 `TenantWhiteIPsByTokenReq.Token` 提交 token
 - [x] **FB-55**: mediaopen 查询租户启用 IP 白名单接口改为 `POST` 且 `token` 必传
 - [x] **FB-56**: mediaopen 接口在 apidocs 中不应显示需要宿主 JWT Bearer，且 token 参数示例不应带 `Bearer ` 前缀
+- [x] **FB-57**: plugin-full CI 的 apidoc 治理应兼容 media/water 不提供 i18n 资源的插件设计
 
 ## Feedback 验证记录
 
+- [x] FB-57 根因是宿主 apidoc 治理测试在 plugin-full 模式下一刀切扫描所有源码插件 API DTO，并要求有 API DTO 的插件必须提供 apidoc i18n bundle；media/water 按需求为中文-only 且不交付 i18n 资源，因此 CI 失败。
+- [x] FB-57 在 media/water `plugin.yaml` 中显式声明 `i18n.enabled=false` 与 `i18n.apidoc=false`，作为插件不参与运行时与接口文档 i18n 治理的权威声明；未新增任何 media/water `manifest/i18n` 资源。
+- [x] FB-57 调整宿主 apidoc 治理测试，仅对未 opt-out 的源码插件执行英文 OpenAPI 源文案和 apidoc bundle 覆盖检查；运行时 apidoc 构建、插件鉴权、media/water API 行为和前端页面均不变。
+- [x] FB-57 同时补齐 CMS 插件 `SiteItem.weixin` 与 `SiteUpdateReq.weixin` 的中文 apidoc 翻译键；CMS 本身提供 i18n 资源，继续纳入 apidoc 治理。
+- [x] `cd apps/lina-core && go test ./internal/service/apidoc -run 'TestOpenAPI(MetadataUsesEnglishSourceText|I18nBundlesCoverCurrentMetadata|BundlesAreSeparatedFromRuntimeI18n)' -count=1` 通过。
+- [x] `cd apps/lina-core && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./internal/service/apidoc -count=1` 通过。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -count=1` 通过。
+- [x] `cd apps/lina-plugins/water && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -count=1` 通过。
+- [x] `cd apps/lina-plugins/cms && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -count=1` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-57 不给 media/water 新增 i18n 资源，改为显式声明不参与 i18n；只影响测试治理范围与 CMS 已有 apidoc 翻译补缺，不新增接口、不改变缓存读写、不改变数据访问或权限边界。
+- [x] `/lina-review` 审查：FB-57 未发现阻断问题；确认 media/water 仍保持无 i18n 资源，core 修改只限 apidoc 治理测试，CMS apidoc 补缺与现有 i18n 策略一致。
 - [x] FB-56 根因确认为宿主 OpenAPI 文档有全局 `BearerAuth` 默认安全要求，mediaopen 源码插件接口未在 operation 级别显式覆盖，因此 apidocs UI 继承显示宿主 JWT Bearer；运行时路由仍只经过 media 插件 `InnerApiAuth`，不走宿主 JWT。
 - [x] FB-56 在 mediaopen 所有公开 DTO 的 `g.Meta` 增加 `access:"public"`，宿主 apidoc builder 识别该标记后对对应 operation 写入显式空 `security: []`；普通 source-plugin 路由仍继承文档级 Bearer 默认值。
 - [x] FB-56 将 `UserDeviceStrategyByTokenReq.Token` 与 `TenantWhiteIPsByTokenReq.Token` 的示例统一为 `token-value`，参数说明改为直接传 token 原值；服务层继续保留对可选 `Bearer ` 前缀的兼容剥离，但接口契约和 apidocs 不再要求或展示该前缀。
