@@ -101,9 +101,22 @@
 - [x] **FB-53**: mediaopen 增加通过用户 token 查询所属租户启用 IP 白名单列表接口
 - [x] **FB-54**: mediaopen 查询租户启用 IP 白名单接口只允许通过 `TenantWhiteIPsByTokenReq.Token` 提交 token
 - [x] **FB-55**: mediaopen 查询租户启用 IP 白名单接口改为 `POST` 且 `token` 必传
+- [x] **FB-56**: mediaopen 接口在 apidocs 中不应显示需要宿主 JWT Bearer，且 token 参数示例不应带 `Bearer ` 前缀
 
 ## Feedback 验证记录
 
+- [x] FB-56 根因确认为宿主 OpenAPI 文档有全局 `BearerAuth` 默认安全要求，mediaopen 源码插件接口未在 operation 级别显式覆盖，因此 apidocs UI 继承显示宿主 JWT Bearer；运行时路由仍只经过 media 插件 `InnerApiAuth`，不走宿主 JWT。
+- [x] FB-56 在 mediaopen 所有公开 DTO 的 `g.Meta` 增加 `access:"public"`，宿主 apidoc builder 识别该标记后对对应 operation 写入显式空 `security: []`；普通 source-plugin 路由仍继承文档级 Bearer 默认值。
+- [x] FB-56 将 `UserDeviceStrategyByTokenReq.Token` 与 `TenantWhiteIPsByTokenReq.Token` 的示例统一为 `token-value`，参数说明改为直接传 token 原值；服务层继续保留对可选 `Bearer ` 前缀的兼容剥离，但接口契约和 apidocs 不再要求或展示该前缀。
+- [x] FB-56 扩展宿主 apidoc builder 测试，断言 `access:"public"` 的 source route operation 使用空 security，并在序列化 OpenAPI JSON 中真实输出 `"security":[]`；扩展 media 插件 DTO 契约测试，覆盖所有 mediaopen DTO 标记 public access，且 token 参数文档不包含 `Bearer`。
+- [x] `cd apps/lina-core && go test ./internal/service/apidoc -run TestBuildProjectsHostAndEnabledPluginRoutes -count=1` 通过。
+- [x] `cd apps/lina-core && go test ./internal/service/apidoc -run 'TestBuildProjectsHostAndEnabledPluginRoutes|TestBuildLocalizesOpenAPIForRequestLocale' -count=1` 通过。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'Test(MediaOpenRoutesTenantWhiteIPsByTokenReturnsArray|MediaOpenRoutesTenantWhiteIPsByTokenRequiresToken|TenantWhiteIPsByTokenReqOnlyExposesRequiredToken|MediaOpenRequestDTOsDeclarePublicAccess)' -count=1` 通过。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -count=1` 与 `go test ./backend/... -count=1` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 通过。
+- [x] `cd apps/lina-core && go test ./internal/service/apidoc -count=1` 已执行但未作为通过项：当前仓库既有 apidoc i18n 治理测试仍因 media/water 插件中文 DTO 元数据与缺失插件 apidoc bundle 失败；本次已用聚焦 apidoc builder 测试覆盖 JWT security 覆盖逻辑并完成编译烟测。
+- [x] i18n/缓存/数据权限影响评估：FB-56 调整的是 OpenAPI security 元数据和 mediaopen DTO token 文档示例，不新增前端运行时文案、运行时语言包、缓存读写或数据访问路径；接口边界仍由 `InnerApiAuth` 与 token 租户解析限定。现有 media/water apidoc i18n 全量治理债务已由包级测试暴露，非本次 JWT 文档显示问题新增。
+- [x] `/lina-review` 审查：FB-56 未发现阻断问题；确认运行时 mediaopen 不依赖宿主 JWT，apidocs operation 已显式覆盖为不需要 Bearer，token 参数契约为裸 token 值，且目标自动化测试与插件后端全量测试通过。剩余风险是宿主 apidoc 包全量测试仍受既有插件 apidoc i18n 治理债务阻断。
 - [x] FB-55 将 `TenantWhiteIPsByTokenReq` 的 `g.Meta` 从 `method:"get"` 调整为 `method:"post"`，并将 `token` 字段改为请求体必填字段 `v:"required#用户 token 不能为空"`；本接口是 mediaopen token 查询入口，按反馈要求使用 `POST` 承载 token 请求体。
 - [x] FB-55 更新 `TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsArray` 使用 `POST /api/v1/tenant-whites/ips` 与 JSON body `{"token":"1"}`，新增 `TestMediaOpenRoutesTenantWhiteIPsByTokenRequiresToken` 覆盖缺少 token 时触发 GoFrame 必填校验。
 - [x] FB-55 扩展 `TestTenantWhiteIPsByTokenReqOnlyExposesRequiredToken`，同时断言 DTO 使用 `method:"post"`、暴露必填 `Token` 字段且不暴露 `Authorization` 字段。

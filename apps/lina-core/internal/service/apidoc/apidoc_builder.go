@@ -5,15 +5,23 @@ package apidoc
 
 import (
 	"context"
+	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/net/goai"
+	"github.com/gogf/gf/v2/util/gmeta"
 
 	"lina-core/pkg/logger"
+	pluginbridge "lina-core/pkg/pluginbridge/contract"
 	"lina-core/pkg/pluginhost"
 )
+
+// openAPIAccessMetaKey is the plugin route metadata key used to override the
+// document-level authentication default for public source-plugin routes.
+const openAPIAccessMetaKey = "access"
 
 // Build builds one host-managed OpenAPI document from the current route table
 // and current plugin enablement state.
@@ -183,6 +191,7 @@ func addHandlerRouteToOpenAPI(
 		return nil
 	}
 	methods := expandOpenAPIMethods(method)
+	publicAccess := handlerDeclaresPublicAccess(handler)
 	for _, item := range methods {
 		if err := document.Add(goai.AddInput{
 			Path:   path,
@@ -191,8 +200,113 @@ func addHandlerRouteToOpenAPI(
 		}); err != nil {
 			return err
 		}
+		if publicAccess {
+			clearOpenAPIOperationSecurity(document, path, item)
+		}
 	}
 	return nil
+}
+
+// handlerDeclaresPublicAccess reports whether one standard GoFrame handler
+// marks its request DTO as `access:"public"`.
+func handlerDeclaresPublicAccess(handler interface{}) bool {
+	reqObject, ok := newOpenAPIHandlerReqObject(handler)
+	if !ok {
+		return false
+	}
+	accessMode := strings.TrimSpace(gmeta.Get(reqObject, openAPIAccessMetaKey).String())
+	return strings.EqualFold(accessMode, pluginbridge.AccessPublic)
+}
+
+// newOpenAPIHandlerReqObject allocates the request DTO used for route metadata
+// inspection when the handler follows GoFrame's standard API shape.
+func newOpenAPIHandlerReqObject(handler interface{}) (interface{}, bool) {
+	reflectType := reflect.TypeOf(handler)
+	if !isOpenAPIHandlerTypeDocumentable(reflectType) {
+		return nil, false
+	}
+	return reflect.New(reflectType.In(1).Elem()).Interface(), true
+}
+
+// isOpenAPIHandlerTypeDocumentable verifies the `(context.Context, *Req) (*Res, error)`
+// shape required by GoFrame OpenAPI generation.
+func isOpenAPIHandlerTypeDocumentable(reflectType reflect.Type) bool {
+	if reflectType == nil || reflectType.Kind() != reflect.Func {
+		return false
+	}
+	if reflectType.NumIn() != 2 || reflectType.NumOut() != 2 {
+		return false
+	}
+	if !reflectType.In(0).Implements(reflect.TypeOf((*context.Context)(nil)).Elem()) {
+		return false
+	}
+	if !reflectType.Out(1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+		return false
+	}
+	return reflectType.In(1).Kind() == reflect.Pointer && reflectType.In(1).Elem().Kind() == reflect.Struct
+}
+
+// clearOpenAPIOperationSecurity sets an explicit empty security requirement on
+// one operation so it does not inherit the document-level JWT Bearer default.
+func clearOpenAPIOperationSecurity(document *goai.OpenApiV3, path string, method string) {
+	if document == nil || document.Paths == nil {
+		return
+	}
+	pathKey, pathItem, ok := findOpenAPIPathItem(document, path)
+	if !ok {
+		return
+	}
+	operation := openAPIOperationForMethod(&pathItem, method)
+	if operation == nil {
+		return
+	}
+	emptySecurity := goai.SecurityRequirements{}
+	operation.Security = &emptySecurity
+	document.Paths[pathKey] = pathItem
+}
+
+// findOpenAPIPathItem retrieves a path item using the exact key first and the
+// normalized key as a fallback for captured source-plugin routes.
+func findOpenAPIPathItem(document *goai.OpenApiV3, path string) (string, goai.Path, bool) {
+	if document == nil || document.Paths == nil {
+		return "", goai.Path{}, false
+	}
+	if pathItem, ok := document.Paths[path]; ok {
+		return path, pathItem, true
+	}
+	normalizedPath := normalizeOpenAPIPath(path)
+	pathItem, ok := document.Paths[normalizedPath]
+	return normalizedPath, pathItem, ok
+}
+
+// openAPIOperationForMethod returns the operation pointer that belongs to the
+// normalized HTTP method on a path item.
+func openAPIOperationForMethod(pathItem *goai.Path, method string) *goai.Operation {
+	if pathItem == nil {
+		return nil
+	}
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodConnect:
+		return pathItem.Connect
+	case http.MethodDelete:
+		return pathItem.Delete
+	case http.MethodGet:
+		return pathItem.Get
+	case http.MethodHead:
+		return pathItem.Head
+	case http.MethodOptions:
+		return pathItem.Options
+	case http.MethodPatch:
+		return pathItem.Patch
+	case http.MethodPost:
+		return pathItem.Post
+	case http.MethodPut:
+		return pathItem.Put
+	case http.MethodTrace:
+		return pathItem.Trace
+	default:
+		return nil
+	}
 }
 
 // buildSourceRouteKeySet builds one lookup set for source-plugin route keys.

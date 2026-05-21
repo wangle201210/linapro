@@ -84,7 +84,7 @@
 
 #### Scenario: 通过请求 token 查询租户启用 IP 白名单
 
-- **WHEN** 外部调用方调用 `POST /api/v1/tenant-whites/ips` 并通过请求体必填字段 `token` 提交用户 token 查询 IP 白名单
+- **WHEN** 外部调用方调用 `POST /api/v1/tenant-whites/ips` 并通过请求体必填字段 `token` 提交裸用户 token 查询 IP 白名单
 - **THEN** 系统 SHALL 通过 token 解析出用户所属租户
 - **AND** 系统 SHALL 查询该租户下所有启用的租户白名单记录
 - **AND** 响应 SHALL 直接返回白名单 IP 字符串数组，不分页且不包含描述、启用状态或总数包装字段
@@ -152,6 +152,12 @@
 
 - **WHEN** `innerapi.apiKey` 被显式配置为空且 mediaopen 请求未携带 `X-Inner-Api-Key`
 - **THEN** 系统 SHALL 允许请求进入 mediaopen controller
+
+#### Scenario: API 文档不声明宿主 JWT Bearer
+
+- **WHEN** 系统生成 mediaopen/HotGo 兼容接口的 OpenAPI 文档
+- **THEN** mediaopen 接口 SHALL 显式声明不需要宿主 JWT Bearer 安全要求
+- **AND** 请求体中的 `token` 参数 SHALL 以裸 token 值为文档示例和说明，不要求 `Bearer ` 前缀
 
 #### Scenario: 管理端双鉴权隔离
 

@@ -5,6 +5,8 @@ package apidoc
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +52,14 @@ type testSourceEnabledReq struct {
 
 // testSourceEnabledRes is the response DTO for the enabled source-plugin handler.
 type testSourceEnabledRes struct{}
+
+// testSourcePublicReq defines one public source-plugin DTO route used in tests.
+type testSourcePublicReq struct {
+	g.Meta `path:"/plugins/public/ping" method:"post" tags:"Source Plugin Demo" summary:"Run source plugin public ping" dc:"Run source plugin public ping information." access:"public"`
+}
+
+// testSourcePublicRes is the response DTO for the public source-plugin handler.
+type testSourcePublicRes struct{}
 
 // testSourceDisabledReq defines one disabled source-plugin DTO route used in tests.
 type testSourceDisabledReq struct {
@@ -103,6 +113,11 @@ func testSourceEnabledHandler(ctx context.Context, req *testSourceEnabledReq) (*
 	return &testSourceEnabledRes{}, nil
 }
 
+// testSourcePublicHandler is the strict-route source-plugin handler for the public case.
+func testSourcePublicHandler(ctx context.Context, req *testSourcePublicReq) (*testSourcePublicRes, error) {
+	return &testSourcePublicRes{}, nil
+}
+
 // testSourceDisabledHandler is the strict-route source-plugin handler for the disabled case.
 func testSourceDisabledHandler(ctx context.Context, req *testSourceDisabledReq) (*testSourceDisabledRes, error) {
 	return &testSourceDisabledRes{}, nil
@@ -118,6 +133,7 @@ func TestBuildProjectsHostAndEnabledPluginRoutes(t *testing.T) {
 	server.Group("/api/v1", func(group *ghttp.RouterGroup) {
 		group.Bind(testHostListHandler)
 		group.Bind(testSourceEnabledHandler)
+		group.Bind(testSourcePublicHandler)
 		group.Bind(testSourceDisabledHandler)
 	})
 	server.Start()
@@ -135,6 +151,13 @@ func TestBuildProjectsHostAndEnabledPluginRoutes(t *testing.T) {
 				Method:       "GET",
 				Path:         "/api/v1/plugins/enabled/ping",
 				Handler:      testSourceEnabledHandler,
+				Documentable: true,
+			},
+			{
+				PluginID:     "plugin-dev-source-enabled",
+				Method:       "POST",
+				Path:         "/api/v1/plugins/public/ping",
+				Handler:      testSourcePublicHandler,
 				Documentable: true,
 			},
 			{
@@ -167,11 +190,36 @@ func TestBuildProjectsHostAndEnabledPluginRoutes(t *testing.T) {
 	if _, ok := document.Paths["/api/v1/plugins/enabled/ping"]; !ok {
 		t.Fatalf("expected enabled source-plugin route to be projected")
 	}
+	if _, ok := document.Paths["/api/v1/plugins/public/ping"]; !ok {
+		t.Fatalf("expected public source-plugin route to be projected")
+	}
 	if _, ok := document.Paths["/api/v1/plugins/disabled/ping"]; ok {
 		t.Fatalf("expected disabled source-plugin route to be removed from hosted document")
 	}
 	if _, ok := document.Paths["/x/linapro-demo-dynamic/backend-summary"]; !ok {
 		t.Fatalf("expected dynamic-plugin route projection to stay available")
+	}
+
+	sourceOperation := document.Paths["/api/v1/plugins/enabled/ping"].Get
+	if sourceOperation == nil {
+		t.Fatalf("expected enabled source-plugin operation to be present")
+	}
+	if sourceOperation.Security != nil {
+		t.Fatalf("expected ordinary source-plugin route to inherit document bearer security")
+	}
+	publicOperation := document.Paths["/api/v1/plugins/public/ping"].Post
+	if publicOperation == nil {
+		t.Fatalf("expected public source-plugin operation to be present")
+	}
+	if publicOperation.Security == nil || len(*publicOperation.Security) != 0 {
+		t.Fatalf("expected public source-plugin route to clear document bearer security, got %#v", publicOperation.Security)
+	}
+	documentBytes, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("expected hosted apidoc document to marshal, got %v", err)
+	}
+	if !strings.Contains(string(documentBytes), `"security":[]`) {
+		t.Fatalf("expected marshalled public operation to contain explicit empty security override")
 	}
 }
 
