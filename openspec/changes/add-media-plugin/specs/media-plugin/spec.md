@@ -82,6 +82,14 @@
 - **AND** 外部调用方调用 `POST /route/get` 时 SHALL 返回同一设备通道的未过期路由数据，未命中时返回空字符串
 - **AND** 外部调用方调用 `POST /route/del` 时 SHALL 删除同一设备通道的路由数据，重复删除 SHALL 视为成功
 
+#### Scenario: 通过请求 token 查询租户启用 IP 白名单
+
+- **WHEN** 外部调用方调用 `POST /api/v1/tenant-whites/ips` 并通过请求体必填字段 `token` 提交用户 token 查询 IP 白名单
+- **THEN** 系统 SHALL 通过 token 解析出用户所属租户
+- **AND** 系统 SHALL 查询该租户下所有启用的租户白名单记录
+- **AND** 响应 SHALL 直接返回白名单 IP 字符串数组，不分页且不包含描述、启用状态或总数包装字段
+- **AND** 未配置启用白名单时 SHALL 返回空数组
+
 #### Scenario: 铁塔 token 租户不匹配
 
 - **WHEN** 外部调用方同时提交铁塔 token 和租户 ID，且租户 ID 与铁塔用户信息返回租户不一致

@@ -98,9 +98,33 @@
 - [x] **FB-50**: CMS 管理端需要提供一键加载示例数据按钮，清理 CMS 数据后重新加载插件自带 starter 示例数据
 - [x] **FB-51**: CMS 示例数据加载接口在登录用户上下文中返回“示例数据加载失败”
 - [x] **FB-52**: CMS 清空数据或加载示例数据成功后，管理页应重置筛选分页并自动刷新各区域数据
+- [x] **FB-53**: mediaopen 增加通过用户 token 查询所属租户启用 IP 白名单列表接口
+- [x] **FB-54**: mediaopen 查询租户启用 IP 白名单接口只允许通过 `TenantWhiteIPsByTokenReq.Token` 提交 token
+- [x] **FB-55**: mediaopen 查询租户启用 IP 白名单接口改为 `POST` 且 `token` 必传
 
 ## Feedback 验证记录
 
+- [x] FB-55 将 `TenantWhiteIPsByTokenReq` 的 `g.Meta` 从 `method:"get"` 调整为 `method:"post"`，并将 `token` 字段改为请求体必填字段 `v:"required#用户 token 不能为空"`；本接口是 mediaopen token 查询入口，按反馈要求使用 `POST` 承载 token 请求体。
+- [x] FB-55 更新 `TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsArray` 使用 `POST /api/v1/tenant-whites/ips` 与 JSON body `{"token":"1"}`，新增 `TestMediaOpenRoutesTenantWhiteIPsByTokenRequiresToken` 覆盖缺少 token 时触发 GoFrame 必填校验。
+- [x] FB-55 扩展 `TestTenantWhiteIPsByTokenReqOnlyExposesRequiredToken`，同时断言 DTO 使用 `method:"post"`、暴露必填 `Token` 字段且不暴露 `Authorization` 字段。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'Test(MediaOpenRoutesTenantWhiteIPsByTokenReturnsArray|MediaOpenRoutesTenantWhiteIPsByTokenRequiresToken|TenantWhiteIPsByTokenReqOnlyExposesRequiredToken)' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-55 仅调整 mediaopen 后端 DTO HTTP method、字段校验和测试，不新增前端文案、manifest i18n、apidoc i18n JSON、缓存读写或数据访问范围；接口仍由 `InnerApiAuth` 与必填 `token` 解析出的租户边界限定。
+- [x] `/lina-review` 审查：FB-55 未发现阻断问题；确认 POST 路由、必填 token 校验、裸数组响应形态和租户启用白名单过滤均有自动化覆盖。
+- [x] FB-54 移除 `TenantWhiteIPsByTokenReq.Authorization` 与 service input 中的 Authorization 兜底逻辑，controller 只从 `TenantWhiteIPsByTokenReq.Token` 传递用户 token；既有 media 策略解析等其他接口的 Authorization 兼容逻辑不在本次接口契约范围内，未改动。
+- [x] FB-54 更新 `TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs` 使用 `TenantWhiteIPsByTokenInput.Token`，新增 `TestTenantWhiteIPsByTokenReqOnlyExposesRequiredToken` 断言公开 DTO 暴露 `Token` 且不暴露 `Authorization`。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run TestTenantWhiteIPsByTokenReqOnlyExposesRequiredToken -count=1`、`go test ./backend/internal/service/media -run TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs -count=1` 与 `go test ./backend -run 'Test(MediaOpenRoutesTenantWhiteIPsByTokenReturnsArray|TenantWhiteIPsByTokenReqOnlyExposesRequiredToken)' -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -count=1` 与 `go test ./backend -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-54 仅收窄后端 DTO 参数和 service 入参，不新增前端文案、manifest i18n、apidoc i18n JSON、缓存读写或数据访问范围；接口仍由 `InnerApiAuth` 与 `token` 解析出的租户边界限定。
+- [x] `/lina-review` 审查：FB-54 未发现阻断问题；确认新增 DTO 契约测试覆盖了不再暴露 `Authorization` 字段，响应形态和租户白名单过滤逻辑未变化。
+- [x] FB-53 新增 mediaopen `POST /api/v1/tenant-whites/ips`，继续经过插件内 `InnerApiAuth`，通过 `TenantWhiteIPsByTokenReq.Token` 读取用户 token，解析 token 所属租户后查询该租户 `enable=1` 的 `media_tenant_white.ip`，响应直接写出 JSON 字符串数组，不分页且不返回总数字段。
+- [x] FB-53 新增 `TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs`，覆盖 token 租户解析、当前租户启用白名单过滤、禁用白名单过滤和其他租户白名单隔离。
+- [x] FB-53 新增 `TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsArray`，覆盖新 mediaopen 路由受 `X-Inner-Api-Key` 保护、跳过宿主 Auth 链，并确认真实 HTTP body 为裸 JSON 数组。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -run TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsArray -count=1` 于 `apps/lina-plugins/media` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -count=1`、`go test ./backend -count=1` 与 `go test ./backend/... -count=1` 于 `apps/lina-plugins/media` 通过；曾并发启动 `go test ./backend -count=1` 与 `go test ./backend/... -count=1` 时，因两个测试进程同时改 GoFrame 全局 DB 配置导致 `backend` 单包测试出现既有 route 测试临时失败，顺序重跑已通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-53 仅新增 mediaopen 后端 DTO、controller、service 方法和 Go 测试，不新增前端运行时文案、manifest i18n、apidoc i18n JSON 或缓存读写；白名单数据仍为 media 插件平台共享配置，接口边界由 `InnerApiAuth` 与 token 租户解析限定，只返回 token 所属租户下启用 IP，不返回其他租户数据、不分页总数或描述字段。
+- [x] `/lina-review` 审查：FB-53 未发现阻断问题；确认响应体为裸 JSON 字符串数组，错误仍走现有业务错误链路，测试覆盖 token 租户解析、启用白名单过滤、跨租户隔离和路由响应形态。
 - [x] FB-52 根因确认为清空数据和加载示例数据成功后虽然触发重新加载，但复用了当前列表筛选、分页和内容左侧选区；全量替换 CMS 数据后仍停留在旧筛选条件时，用户会看到旧空态或旧视图，误以为页面没有刷新。
 - [x] FB-52 在 CMS 管理页新增 `resetCMSViewState`，成功清空或加载示例数据后统一重置文章、留言、轮播图、友情链接的筛选分页，以及内容管理左侧选中/展开状态，再调用 `refreshAll` 全量刷新站点、栏目、文章、留言、轮播图、友情链接和仪表盘数据。
 - [x] FB-52 将成功提示调整为全量刷新完成后再显示，避免用户看到“已完成”提示但页面仍处于旧请求刷新中的短暂错觉。
