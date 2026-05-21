@@ -87,9 +87,111 @@
 - [x] **FB-39**: 通过铁塔 token 解析媒体策略只保留 HotGo 兼容 `/api/v1/strategy/userDeviceStrategyByToken` 接口，不再暴露 `/api/v1/media/strategy-authorizations`
 - [x] **FB-40**: `make dev` 因默认后端端口与宿主 `server.address` 不一致无法启动
 - [x] **FB-41**: CMS 插件应提供 OpenResty 根域名代理示例，方便用户把 `/cms-site` 发布为独立域名根路径
+- [x] **FB-42**: CMS 站点配置应增加留言展示开关，打开后 `/cms-site/message` 展示审核通过的留言和回复
+- [x] **FB-43**: CMS 站点配置的“留言是否展示”只显示文字，不显示开关控件
+- [x] **FB-44**: CMS 留言默认应展示，初始化 mock 数据应包含 5 条留言且 3 条审核通过
+- [x] **FB-45**: CMS 初始化文章内容应更真实饱满，且每篇正文纯文本不少于 300 字
+- [x] **FB-46**: CMS 插件直接安装后应默认带有饱满的 starter 站点内容，而不是只在可选 mock 数据中提供
+- [x] **FB-47**: CMS 专家智库列表的文章摘要应控制在 6 个字以内，并展示职称/头衔而非研究方向
+- [x] **FB-48**: CMS 管理端需要提供一键清空全部 CMS 业务数据，方便演示确认后清理内容并建设正式站点
+- [x] **FB-49**: CMS 管理端清空数据按钮在运行时语言包未刷新时显示 i18n key
+- [x] **FB-50**: CMS 管理端需要提供一键加载示例数据按钮，清理 CMS 数据后重新加载插件自带 starter 示例数据
+- [x] **FB-51**: CMS 示例数据加载接口在登录用户上下文中返回“示例数据加载失败”
+- [x] **FB-52**: CMS 清空数据或加载示例数据成功后，管理页应重置筛选分页并自动刷新各区域数据
 
 ## Feedback 验证记录
 
+- [x] FB-52 根因确认为清空数据和加载示例数据成功后虽然触发重新加载，但复用了当前列表筛选、分页和内容左侧选区；全量替换 CMS 数据后仍停留在旧筛选条件时，用户会看到旧空态或旧视图，误以为页面没有刷新。
+- [x] FB-52 在 CMS 管理页新增 `resetCMSViewState`，成功清空或加载示例数据后统一重置文章、留言、轮播图、友情链接的筛选分页，以及内容管理左侧选中/展开状态，再调用 `refreshAll` 全量刷新站点、栏目、文章、留言、轮播图、友情链接和仪表盘数据。
+- [x] FB-52 将成功提示调整为全量刷新完成后再显示，避免用户看到“已完成”提示但页面仍处于旧请求刷新中的短暂错觉。
+- [x] FB-52 扩展 CMS 插件 E2E 页面对象，用请求拦截模拟清空/加载接口成功，断言两个按钮都会触发站点、栏目、文章、留言、轮播图和友情链接 GET 刷新，并验证旧文章标题筛选、轮播图筛选和内容左侧选区会恢复默认；该 E2E 不对真实数据库执行清空或加载动作。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 于 `apps/lina-vben` 通过。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；本次未新增运行时语言键。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过。
+- [x] `pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/cms/hack/tests/e2e/TC001-cms-plugin-management.ts -g "TC-1b"` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-52 仅调整 CMS 插件前端页面刷新状态和插件自有 E2E 断言，不新增用户文案、manifest i18n、apidoc i18n、接口契约、数据库访问、缓存读写或数据权限边界；仍沿用既有 `cms:site:purge` 与 `cms:site:sample` 管理权限。
+- [x] `/lina-review` 审查：FB-52 未发现阻断问题；确认修复收敛在 CMS 插件前端和插件自有 E2E 页面对象内，清空/加载动作成功后会先重置视图状态并全量刷新，再显示成功提示；E2E 使用请求拦截验证刷新链路，未对真实业务库执行清空或加载。
+- [x] FB-51 根因确认为 `LoadSampleData` 在 starter SQL 重放完成后，会按当前登录用户回填 CMS 内容表与站点表的 `created_by/updated_by`；原实现使用裸 SQL `?` 占位符执行 PostgreSQL 更新，登录用户 ID 非 0 时触发 `pq: syntax error at or near ","`，导致接口返回“CMS sample data could not be loaded”。此前单元测试使用空业务上下文，用户 ID 为 0，跳过了该回填分支。
+- [x] FB-51 将维护人回填改为事务内 `tx.Model(...).Data(do.Cms*)` 更新，复用插件本地 DO 结构体，避免 PostgreSQL 占位符差异；回填范围仍限定 CMS 插件自有内容表和站点表，不修改 core。
+- [x] FB-51 扩展 `TestLoadSampleDataReplacesCMSContent`，使用带非 0 当前用户 ID 的插件业务上下文执行加载示例数据，并断言站点和文章维护人字段被正确回填，覆盖真实登录管理端请求路径。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run TestLoadSampleDataReplacesCMSContent -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend -count=1` 与 `GOWORK=off go test lina-plugin-cms/backend/... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-51 仅修复 CMS 插件服务层内部数据库更新方式和单元测试，不新增或修改用户文案、manifest i18n、apidoc i18n、接口契约、运行时缓存或数据权限边界；示例数据加载仍沿用 `cms:site:sample` 管理权限点与既有破坏性操作确认边界。
+- [x] `/lina-review` 审查：FB-51 未发现阻断问题；确认修复收敛在 CMS 插件内，真实登录用户分支已有 PostgreSQL 隔离 schema 单元测试覆盖，Go 编译门禁覆盖 CMS service、controller 与 backend 路由绑定包，未对当前本地业务库执行真实清空或加载。
+- [x] FB-50 在 CMS 插件内新增 `POST /api/v1/cms/site/sample-data` 管理接口，权限点为 `cms:site:sample`；接口在事务中清空 CMS 插件自有业务内容表和站点表，再从嵌入资源执行 `manifest/sql/003-cms-starter-content.sql` 恢复 starter 示例站点。
+- [x] FB-50 在 CMS 管理端站点资料工具栏新增带确认的`加载示例数据`按钮，调用成功后刷新站点、栏目、内容、轮播图、友情链接、留言和仪表数据；同时补充运行时语言包未刷新时的三语 fallback，避免显示 raw i18n key。
+- [x] FB-50 同步更新 `plugin.yaml`、三套 `manifest/i18n/*/{plugin,menu,error}.json`、中文/繁中 `apidoc` 资源，以及 CMS 插件中英文 README/manifest README；文档明确该操作重放内嵌 starter SQL，不依赖外部文件路径。
+- [x] FB-50 新增 `TestLoadSampleDataReplacesCMSContent`，在隔离 PostgreSQL schema 中先写入自定义栏目、文章、留言和标签，再验证加载示例数据会清理旧内容、恢复 starter 站点资料、5 条留言中 3 条审核通过、文章正文质量和专家摘要规则。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run TestLoadSampleDataReplacesCMSContent -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run 'Test(CMSInstallStarterContentIsDelivered|ClearSiteDataRemovesCMSBusinessContent|LoadSampleDataReplacesCMSContent)' -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend -count=1` 与 `GOWORK=off go test lina-plugin-cms/backend/... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 与 `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；`pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check`、CMS i18n JSON 解析和 `plugin.yaml` 解析均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-50 新增管理端按钮文案、确认提示、成功提示、权限菜单标题、错误码翻译和 CMS 站点示例数据加载接口文档翻译，已同步前端运行时语言包、manifest menu/error 和中文/繁中 apidoc；不新增运行时缓存；新增接口属于后台破坏性管理操作，沿用宿主认证、租户和权限中间件，并通过 `cms:site:sample` 独立权限点收敛访问边界。CMS 插件为 platform-only，不在本次单独引入角色数据权限过滤；清理与重放范围限定插件自有 CMS 业务表，不触碰宿主文件模块数据。
+- [x] `/lina-review` 审查：FB-50 未发现阻断问题；确认加载示例数据能力只落在 CMS 插件内，API 使用 `POST` 执行动作路径，Go 编译门禁覆盖新增服务、控制器和路由绑定，示例数据重放由隔离数据库单元测试覆盖，未对当前本地 `linapro` 业务库执行真实清空或加载。
+- [x] FB-49 根因是 CMS 插件 manifest 里已存在 `plugin.cms.actions.clearData`、`plugin.cms.messages.clearDataConfirm` 和 `plugin.cms.messages.clearDataSuccess`，但当前运行中的后端 i18n runtime messages 尚未加载这些新嵌入资源；前端 HMR 更新后会先显示 raw key。
+- [x] FB-49 在 CMS 插件管理页新增 `$te` 检测与按当前语言兜底的插件内 fallback，运行时语言包未刷新时按钮、确认弹窗和成功提示仍展示中文/繁中/英文文案；manifest i18n 保持为权威来源，后端重启或重新加载后继续使用运行时语言包。修复过程中确认 `#/locales` 未导出 `$te` 会导致 `http://127.0.0.1:5666/` 启动页模块加载失败，已改为从 `@vben/locales` 引用 `$te`，并将模板 helper 改为普通函数名 `cmsText`。
+- [x] FB-49 扩展 CMS 插件 E2E 页面对象断言，要求清空按钮展示本地化文案且不得显示 `plugin.cms.actions.clearData` raw key。
+- [x] `http://127.0.0.1:5666/` 经 Playwright 打开后正常跳转到 `/auth/login`，浏览器 console 不再出现 `The requested module '/src/locales/index.ts' does not provide an export named '$te'`。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 与 `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；`pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-49 只修复 CMS 插件前端文案兜底和测试断言，不新增接口、不修改数据库、不新增运行时缓存、不改变后台鉴权或数据权限边界；manifest 三语 key 已在 FB-48 补齐，本次仅避免运行中后端嵌入资源未刷新时前端裸露 key。
+- [x] `/lina-review` 审查：FB-49 未发现阻断问题；修复收敛在 CMS 插件前端和插件自有 E2E 页面对象内，未修改 core，且保留 manifest i18n 作为后端运行时语言包刷新后的权威翻译来源。
+- [x] FB-48 在 CMS 插件内新增 `DELETE /api/v1/cms/site/data` 管理接口，权限点为 `cms:site:purge`；接口在事务中清空 CMS 插件自有业务内容表（栏目、文章、标签、轮播图、友情链接、留言），并重建一条空白默认站点记录，避免管理页和公开接口清理后不可用。
+- [x] FB-48 在 CMS 管理端站点配置区新增带确认的`清空数据`按钮；按钮调用新增接口，清理成功后重新加载站点、栏目、内容、轮播、友情链接、留言和仪表数据。
+- [x] FB-48 同步更新 `plugin.yaml`、三套 `manifest/i18n/*/{plugin,menu}.json`、中文/繁中 `apidoc` 资源，以及 CMS 插件中英文 README/manifest README；文档明确共享上传文件属于宿主文件模块，不会被该清理操作删除。
+- [x] FB-48 新增 `TestClearSiteDataRemovesCMSBusinessContent`，在隔离 PostgreSQL schema 中加载 starter 数据后验证清空动作会移除 CMS 内容表数据、重置默认站点，并保持站点启用与留言展示开关开启；E2E 页面对象补充清空按钮可见性断言，避免端到端测试破坏真实演示数据。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run TestClearSiteDataRemovesCMSBusinessContent -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend -count=1` 与 `GOWORK=off go test lina-plugin-cms/backend/... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 与 `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过；`pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-48 新增管理端按钮文案、权限菜单标题和 CMS 站点清理接口文档翻译，已同步前端运行时语言包、manifest menu 和中文/繁中 apidoc；不新增运行时缓存；新增接口属于后台破坏性管理操作，沿用宿主认证、租户和权限中间件，并通过 `cms:site:purge` 独立权限点收敛访问边界。CMS 插件为 platform-only，不在本次单独引入角色数据权限过滤；清理范围限定插件自有 CMS 业务表，不触碰宿主文件模块数据。
+- [x] `/lina-review` 审查：FB-48 未发现阻断问题；确认清理能力只落在 CMS 插件内，API 使用 `DELETE` 资源路径，Go 编译门禁覆盖新增服务、控制器和路由绑定，清理行为由隔离数据库单元测试覆盖，未对当前本地 `linapro` 业务库执行真实清空。
+- [x] FB-47 将 CMS 安装 seed 与 mock seed 中栏目 code=`46` 的智库专家文章摘要改为职称/头衔类短文本，例如“教授”“副教授”“研究员”“高工”“超纤专家”，全部不超过 6 个字；其它栏目摘要仍保持原来的完整演示摘要。
+- [x] FB-47 调整 `003-cms-starter-content.sql` 的重复执行条件，使已有旧摘要即使已是 6 个字也会在升级/重复执行时刷新为新的头衔摘要。
+- [x] FB-47 扩展 `TestCMSInstallStarterContentIsDelivered` 与 `TestCMSMockDataArticleBodiesAreRich`，同时覆盖 starter 和 mock 两条 seed 路径下智库专家摘要不超过 6 个字，并断言关键专家摘要为“教授”“副教授”“研究员”“高工”“超纤专家”等头衔。
+- [x] 本地 `linapro` 库已重新执行 `apps/lina-plugins/cms/manifest/sql/003-cms-starter-content.sql`，当前智库专家摘要已刷新为头衔短文本，例如 `cms-102=副教授`、`cms-106=超纤专家`。
+- [x] FB-46 新增 CMS 插件安装期 `manifest/sql/003-cms-starter-content.sql`，将参考站点配置、栏目树、模板、轮播图、友情链接、103 篇 starter 文章和 5 条留言纳入正常插件安装 SQL；`mock-data/` 继续作为可选本地重置数据。
+- [x] FB-46 安装 seed 使用 `ON CONFLICT DO NOTHING`、`WHERE NOT EXISTS` 和 `updated_by=0` 保护，首次安装会填充内容，重复执行不清表、不重复插入，并尽量避免覆盖管理员后续维护过的数据。
+- [x] FB-46 新增 `TestCMSInstallStarterContentIsDelivered`，显式执行 `003-cms-starter-content.sql` 后验证默认留言开关开启、5 条留言中 3 条审核通过、公开留言接口只返回 3 条、全部 starter 文章正文纯文本不少于 300 字且摘要/封面非空，并再次执行安装 seed 验证幂等。
+- [x] FB-46 同步更新 CMS 插件中英文 README 与 manifest README，说明正常安装会加载 starter 内容，`mock-data` 只是可选校验/重置数据。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run 'TestCMSInstallStarterContentIsDelivered' -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run 'Test(ListPublicMessages|CMSMockData|CMSInstallStarterContent)' -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] 本地 `linapro` 库已执行 `apps/lina-plugins/cms/manifest/sql/003-cms-starter-content.sql`，当前 `cms-61` 正文纯文本长度为 485，且摘要与封面非空；`/cms-site?article=cms-61` 已能返回补齐后的 starter 正文片段。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-46 仅调整 CMS 插件安装 SQL、README 和服务层测试，不新增接口、不新增运行时缓存、不改变后台鉴权或角色数据权限边界；新增内容属于插件安装 seed 与文档，运行时前端语言包、manifest i18n 和 apidoc i18n 无新增键。
+- [x] `/lina-review` 审查：FB-46 未发现阻断问题；确认 starter 数据收敛在 CMS 插件资源内，未修改 core，安装 SQL 具备幂等保护并由单元测试覆盖直接安装内容、公开留言可见性和重复执行不重复插入。
+- [x] FB-45 在 CMS mock seed 中新增统一文章内容增强步骤：加载演示文章后按栏目与标题补齐摘要、SEO 描述、封面、标签、作者来源和正文，替换明显跑题/占位的标题，正文围绕研究院、材料研发、公共检测、成果转化、专家服务等场景组织。
+- [x] FB-45 新增 `TestCMSMockDataArticleBodiesAreRich`，完整加载 `001-cms-mock-data.sql` 后逐篇检查正文纯文本不少于 300 字、摘要与封面非空，并阻断 `习近平`、`123`、`<br/>` 等跑题或占位内容残留。
+- [x] FB-44 将 `show_messages` 新增列默认值与站点表单默认值改为开启，CMS mock 站点默认 `show_messages=1`，并将 mock 留言扩充为 5 条，其中 3 条审核通过且带公开回复、1 条待审核、1 条拒绝。
+- [x] FB-44 新增 `TestCMSMockDataDefaultShowsApprovedMessages`，加载完整 mock seed 后验证默认开关开启、留言总数 5、审核通过 3，公开留言接口只返回 3 条审核通过记录。
+- [x] FB-44 更新 `TestListPublicMessagesRequiresApprovalAndHonorsDisabledSwitch`，覆盖默认开启、显式关闭隐藏、再次开启后只展示审核通过留言。
+- [x] FB-44 同步更新 CMS 插件中英文 README，将留言公开列表说明从“默认隐藏”改为默认演示数据开启、可在站点配置关闭。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -run 'Test(ListPublicMessages|CMSMockData)' -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `GOWORK=off go test lina-plugin-cms/backend/internal/service/cms -count=1` 与 `GOWORK=off go test lina-plugin-cms/backend/... -count=1` 于 `apps/lina-plugins` 通过。
+- [x] `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd typecheck` 与 `PATH=/Users/wanna/Library/pnpm:$PATH pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-44/FB-45 仅调整 CMS 插件默认值、mock seed、README 和测试，不新增接口、不新增缓存、不改变后台鉴权或数据权限边界；README 文案已中英文同步，运行时 i18n/manifest i18n/apidoc i18n 无新增键。
+- [x] `/lina-review` 审查：FB-44/FB-45 未发现阻断问题；确认初始化文章正文由 mock seed 在插入后统一补强并由单元测试逐篇校验，留言默认开启和 5 条 mock 留言不会覆盖既有数据库中的管理员开关选择。
+- [x] FB-43 根因是 CMS 管理页使用 `<a-switch>`，但 `cms-management.vue` 的 Ant Design Vue import 列表未注册 `Switch as ASwitch`，导致 Vue 将其作为未知自定义标签渲染，表单项只剩 label。
+- [x] FB-43 已在 CMS 管理页补充 `Switch as ASwitch` 导入，并在 CMS 插件 E2E 页面对象中为 `cms-site-show-messages` 增加断言，要求其真实渲染为 `.ant-switch` 且具备 `role="switch"`。
+- [x] `corepack pnpm -F @lina/web-antd typecheck` 与 `corepack pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过。
+- [x] `pnpm --dir hack/tests exec tsc --noEmit --pretty false` 通过；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/cms/hack/tests/e2e/TC001-cms-plugin-management.ts --list` 能发现 2 条 CMS 插件用例。
+- [x] 本地 `make dev` 已重新加载修复后的前端；`pnpm --dir hack/tests exec playwright test ../apps/lina-plugins/cms/hack/tests/e2e/TC001-cms-plugin-management.ts -g "TC-1b"` 通过，确认“留言是否展示”开关真实可见。
+- [x] i18n/缓存/数据权限影响评估：FB-43 只修复前端组件注册和 E2E 断言，不新增用户文案、接口、数据库访问、缓存或数据权限边界。
+- [x] FB-42 在 CMS 插件站点配置新增 `show_messages` 字段与管理端 `留言是否展示` 开关；站点保存接口同步接收 `showMessages`，公开站点接口返回该开关状态。FB-44 已将默认值和演示数据调整为开启。
+- [x] FB-42 新增公开留言列表接口 `GET /api/v1/cms/public/messages`，只在站点启用且 `show_messages=1` 时返回 `status=1` 的审核通过留言，并且公开响应只暴露姓名、内容、回复和时间，不返回手机号、邮箱、IP 或 User-Agent。
+- [x] FB-42 扩展 `/cms-site/message` 模板编译能力：支持 `{message:show}`、`{cms:message limit=12}`、`[message:name]`、`[message:content]`、`[message:reply]` 等标签；开关关闭时不渲染公开留言区。
+- [x] FB-42 同步更新 CMS 插件中英文 README、manifest i18n 与中文/繁中 apidoc i18n，说明公开留言展示开关和模板标签。
+- [x] FB-42 新增公开留言服务测试与 `TestPublicFrontendMessageLoopCompiles`，覆盖开关关闭不返回留言、开关打开只返回审核通过留言、模板只渲染审核通过留言和公开回复。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1` 于 `apps/lina-plugins/cms` 通过。
+- [x] `GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test lina-plugins -count=1` 于 `apps/lina-plugins` 通过；`GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./internal/cmd -count=1` 于 `apps/lina-core` 通过。
+- [x] `corepack pnpm -F @lina/web-antd typecheck` 与 `corepack pnpm -F @lina/web-antd i18n:check` 于 `apps/lina-vben` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] 本地 `make dev` 已用当前源码重启成功：后端 `http://127.0.0.1:9120/`，前端 `http://127.0.0.1:5666/`；烟测临时插入审核通过、待审、拒绝留言后验证 `/api/v1/cms/public/site` 返回 `showMessages=1`，`/api/v1/cms/public/messages` 与 `/cms-site/message` 只展示审核通过留言和回复，关闭开关后公开留言区不渲染；烟测结束已恢复站点开关和删除临时留言。
+- [x] i18n/缓存/数据权限影响评估：FB-42 新增站点配置开关、公开留言读取接口、管理端开关文案、manifest i18n、中文/繁中 apidoc i18n 和 README；不新增缓存；公开读取接口以 CMS 站点开关和留言审核状态作为公开边界，不接入后台数据权限，后台留言管理仍沿用既有管理端鉴权与权限点。
+- [x] `/lina-review` 审查：FB-42 未发现阻断问题；审查中已将公开留言 API 的 `createdAt`、`updatedAt` 修正为 Unix 毫秒数字字段并重新验证，确认未修改 core、未修改旧 `001-cms-schema.sql`，新增 SQL 为独立幂等迁移。
 - [x] FB-41 在 CMS 插件新增 `deploy/openresty/cms-site-root-domain.conf`，提供 1Panel/OpenResty 根域名代理示例：根路径代理到后端 `/cms-site`，旧 `/cms-site` 路径重定向到根路径，并用 `sub_filter` 将模板生成的 `/cms-site/...` 链接改写为根域名路径。
 - [x] FB-41 同步更新 CMS 插件英文 `README.md` 与中文 `README.zh-CN.md`，说明示例配置位置、域名和后端地址替换方式，以及 `openresty -t`、`openresty -s reload` 验证步骤。
 - [x] `docker run --rm -v ... openresty/openresty:1.21.4.3-0-alpine ... /usr/local/openresty/bin/openresty -t` 通过，确认新增 OpenResty 示例配置语法有效。
