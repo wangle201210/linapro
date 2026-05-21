@@ -82,6 +82,21 @@ jobs:
           cache: true
           cache-dependency-path: "**/go.sum"
 
+      # Install native libraries needed by official source plugins that use cgo.
+      # 安装官方源码插件 cgo 构建所需的原生库。
+      - name: Install Plugin Native Dependencies
+        if: ${{ inputs.plugins == '1' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev \
+            libavfilter-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libx264-dev \
+            pkg-config
+
       # Initialize the PostgreSQL schema from LinaPro SQL resources.
       # 使用 LinaPro SQL 资源初始化 PostgreSQL schema。
       - name: Initialize Database Schema
