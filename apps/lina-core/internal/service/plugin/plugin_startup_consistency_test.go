@@ -113,6 +113,7 @@ func TestValidateStartupConsistencyRejectsPlatformUserMembership(t *testing.T) {
 		tenantID = 19001
 	)
 	cleanupStartupConsistencyPlugin(t, ctx, pkgtenantcap.ProviderPluginID)
+	ensureStartupConsistencyTenantMembershipTable(t, ctx)
 	cleanupStartupConsistencyUserMembership(t, ctx, username, tenantID)
 	pkgtenantcap.RegisterProvider(&startupConsistencyTenantProvider{})
 	t.Cleanup(func() { pkgtenantcap.RegisterProvider(nil) })
@@ -174,6 +175,7 @@ func TestValidateStartupConsistencyAllowsEnabledTenantPluginWithProvider(t *test
 	)
 	pkgtenantcap.RegisterProvider(&startupConsistencyTenantProvider{})
 	t.Cleanup(func() { pkgtenantcap.RegisterProvider(nil) })
+	ensureStartupConsistencyTenantMembershipTable(t, ctx)
 	cleanupStartupConsistencyPlugin(t, ctx, pluginID)
 	t.Cleanup(func() { cleanupStartupConsistencyPlugin(t, ctx, pluginID) })
 
@@ -366,6 +368,29 @@ func (s *startupConsistencyTenantCapability) EnsureUsersInTenant(context.Context
 func (s *startupConsistencyTenantCapability) ValidateUserMembershipStartupConsistency(context.Context) ([]string, error) {
 	s.calls++
 	return s.details, nil
+}
+
+// ensureStartupConsistencyTenantMembershipTable creates the plugin-owned
+// tenant membership table shape required by startup consistency unit tests.
+func ensureStartupConsistencyTenantMembershipTable(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	_, err := dao.SysUser.DB().Exec(ctx, `
+CREATE TABLE IF NOT EXISTS plugin_linapro_tenant_core_user_membership (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    "user_id" BIGINT NOT NULL,
+    "tenant_id" BIGINT NOT NULL,
+    "status" SMALLINT NOT NULL DEFAULT 1,
+    "joined_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_by" BIGINT NOT NULL DEFAULT 0,
+    "updated_by" BIGINT NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleted_at" TIMESTAMP NULL
+)`)
+	if err != nil {
+		t.Fatalf("ensure startup consistency membership table: %v", err)
+	}
 }
 
 // validateStartupConsistencyTestMemberships simulates the plugin-owned startup

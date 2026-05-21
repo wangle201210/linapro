@@ -42,7 +42,7 @@
 - [x] `git diff --check` 通过。
 - [x] 插件安装 SQL 使用 `psql` 重复执行通过，并完成策略、设备绑定、租户绑定、租户设备绑定、`auto_remove=0/1` 流别名的最小写入与清理冒烟验证。
 - [x] `PATH=/Users/wanna/Library/pnpm:$PATH node ./scripts/validate-e2e.mjs` 通过；默认 PATH 下该脚本会命中 `/usr/local/bin/pnpm` 8.6.0，因此验证时显式优先使用当前用户 pnpm。
-- [ ] 宿主 `internal/service/plugin` 相关局部测试未通过：当前本地数据库缺少既有表 `plugin_multi_tenant_user_membership`；`internal/service/menu`、`internal/controller/menu`、`internal/controller/plugin` 相关测试已通过，失败项与 media 插件实现无关。
+- [x] 宿主 `internal/service/plugin` 相关局部测试通过；已为启动一致性测试补充插件租户成员表夹具，并通过 `go test ./internal/service/plugin -count=1` 验证。
 
 ## Feedback
 

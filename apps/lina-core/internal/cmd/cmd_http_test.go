@@ -361,6 +361,9 @@ func TestDynamicPluginRootRoutesPrecedeSPAFallback(t *testing.T) {
 // route-binding tests without starting cluster, plugin, or cron lifecycles.
 func newRouteBindingTestRuntime(ctx context.Context) *httpRuntime {
 	configSvc := config.New()
+	// Route-binding tests run without distributed coordination, so keep runtime
+	// parameter lookups on the local single-node path.
+	configSvc.OverrideClusterEnabledForDialect(false)
 	clusterSvc := cluster.New(configSvc.GetCluster(ctx))
 	bizCtxSvc := bizctx.New()
 	sessionStore := session.NewDBStore()
