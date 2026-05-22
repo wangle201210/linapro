@@ -105,9 +105,15 @@
 - [x] **FB-57**: plugin-full CI 的 apidoc 治理应兼容 media/water 不提供 i18n 资源的插件设计
 - [x] **FB-58**: plugin.yaml i18n 治理配置应由框架统一 manifest 解析，使用 `disabled` 且默认参与 i18n 治理
 - [x] **FB-59**: `/api/v1/tenant-whites/ips` 响应需要返回 token 解析出的租户 ID，方便客户端按租户自行缓存
+- [x] **FB-60**: Docker 镜像发布 CI 应将多平台镜像拆成平台矩阵并行构建，再合并 manifest，以缩短 amd64/arm64 串行构建耗时
 
 ## Feedback 验证记录
 
+- [x] FB-60 根因确认为 `reusable-image-publish.yml` 在单个 job 中执行 `make image platforms=linux/amd64,linux/arm64 push=1`，其中前端构建后串行执行 amd64 与 arm64 后端构建；本次拆成 metadata、platform matrix 和 manifest publish 三段，平台 job 使用临时平台 tag 推送，最终 job 合并为原不可变 tag 并继续维护 floating tag。
+- [x] FB-60 使用 `actionlint` 校验 `.github/workflows/reusable-image-publish.yml` 通过，确认 matrix、workflow output、`fromJSON` 和 manifest 合并表达式语法有效。
+- [x] `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/reusable-image-publish.yml")'`、`openspec validate add-media-plugin --strict` 与 `git diff --check` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-60 仅调整 GitHub Actions 镜像发布编排，不新增前端或接口文档文案，不改变运行时 i18n、服务端缓存、业务数据读写或数据权限边界。
+- [x] `/lina-review` 审查：FB-60 未发现阻断问题；确认 workflow 调用方接口不变，最终公开镜像 tag 保持原样，仅新增平台临时 tag 用于合并 manifest。
 - [x] FB-59 将 `TenantWhiteIPsByTokenRes` 从裸 IP 字符串数组调整为 `{ tenantId, ips }`，其中 `tenantId` 来自 Tieta token 解析结果，`ips` 仍只包含该租户已启用的白名单 IP，接口不分页且不返回描述、启用状态或总数字段。
 - [x] FB-59 更新 `ListTenantWhiteIPsByToken` service 输出结构，controller 统一写出 tenant-scoped 响应对象；接口仍走 mediaopen `InnerApiAuth`，不引入宿主 JWT 或 media 管理端双鉴权。
 - [x] FB-59 更新路由测试 `TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsTenantScopedIPs` 与 service 测试 `TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs`，覆盖响应包含 `tenantId`、只返回当前租户启用 IP、过滤禁用和其他租户记录。

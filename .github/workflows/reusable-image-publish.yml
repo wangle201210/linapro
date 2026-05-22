@@ -68,12 +68,114 @@ env:
   TZ: "Asia/Shanghai"
 
 jobs:
-  # Builds and pushes the immutable image tag, then updates the requested floating tag.
-  # 构建并推送不可变镜像标签，然后更新调用方指定的移动标签。
-  image:
-    name: Build and publish image
+  # Computes immutable image metadata and normalizes the platform list once.
+  # 统一计算不可变镜像元数据，并规范化平台列表。
+  metadata:
+    name: Prepare image metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image-ref: ${{ steps.image.outputs.image_ref }}
+      image-name: ${{ steps.image.outputs.image_name }}
+      image-tag: ${{ steps.image.outputs.image_tag }}
+      platforms: ${{ steps.image.outputs.platforms }}
+      platforms-json: ${{ steps.image.outputs.platforms_json }}
+      registry: ${{ steps.image.outputs.registry }}
+
+    steps:
+      # Normalize registry names and compute the immutable image tag for branch, nightly, or release publishing.
+      # 归一化 registry 名称，并计算分支、nightly 或 release 发布使用的不可变镜像标签。
+      - name: Prepare Image Metadata
+        id: image
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          PLATFORMS: ${{ inputs.platforms }}
+          TAG_MODE: ${{ inputs.tag-mode }}
+          FLOATING_TAG: ${{ inputs.floating-tag }}
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          image_name="$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          registry="ghcr.io/${owner}"
+          image_ref="${registry}/${image_name}"
+
+          case "${TAG_MODE}" in
+            nightly)
+              image_tag="nightly-$(date +'%Y%m%d')"
+              ;;
+            release)
+              image_tag="${GITHUB_REF_NAME}"
+              if ! printf '%s' "${image_tag}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
+                echo "Git tag ${image_tag} cannot be used as a Docker image tag." >&2
+                exit 1
+              fi
+              ;;
+            sha)
+              image_tag="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+              ;;
+            *)
+              echo "Unsupported tag mode: ${TAG_MODE}" >&2
+              exit 1
+              ;;
+          esac
+
+          platforms_json="["
+          normalized_platforms=""
+          first_platform=1
+          IFS=',' read -r -a platform_items <<< "${PLATFORMS}"
+          for raw_platform in "${platform_items[@]}"; do
+            platform="${raw_platform#"${raw_platform%%[![:space:]]*}"}"
+            platform="${platform%"${platform##*[![:space:]]}"}"
+            if [ -z "${platform}" ]; then
+              continue
+            fi
+            if ! printf '%s' "${platform}" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+              echo "Invalid Docker platform: ${platform}" >&2
+              exit 1
+            fi
+
+            if [ "${first_platform}" -eq 1 ]; then
+              first_platform=0
+              platforms_json="${platforms_json}\"${platform}\""
+              normalized_platforms="${platform}"
+            else
+              platforms_json="${platforms_json},\"${platform}\""
+              normalized_platforms="${normalized_platforms},${platform}"
+            fi
+          done
+          platforms_json="${platforms_json}]"
+
+          if [ "${first_platform}" -eq 1 ]; then
+            echo "No Docker platforms were configured." >&2
+            exit 1
+          fi
+
+          {
+            echo "registry=${registry}"
+            echo "image_name=${image_name}"
+            echo "image_tag=${image_tag}"
+            echo "image_ref=${image_ref}"
+            echo "platforms=${normalized_platforms}"
+            echo "platforms_json=${platforms_json}"
+          } >> "${GITHUB_OUTPUT}"
+
+          if [ -n "${FLOATING_TAG}" ]; then
+            echo "Publishing ${image_ref}:${image_tag} and ${image_ref}:${FLOATING_TAG} for ${normalized_platforms}"
+          else
+            echo "Publishing ${image_ref}:${image_tag} for ${normalized_platforms}"
+          fi
+
+  # Builds and pushes each platform image independently so host binaries compile in parallel.
+  # 独立构建并推送每个平台镜像，让宿主二进制跨平台构建并行执行。
+  platform-image:
+    name: Build and publish image (${{ matrix.platform }})
+    needs:
+      - metadata
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.metadata.outputs.platforms-json) }}
 
     steps:
       # Check out repository sources and official plugin submodules for full image builds.
@@ -123,10 +225,53 @@ jobs:
       # Enable emulation for non-native target platforms.
       # 为非本机目标平台启用模拟。
       - name: Setup QEMU
+        if: ${{ matrix.platform != 'linux/amd64' }}
         uses: docker/setup-qemu-action@v3
 
-      # Create the Docker Buildx builder used for multi-platform image output.
-      # 创建用于多平台镜像输出的 Docker Buildx builder。
+      # Authenticate to GitHub Container Registry using the workflow token.
+      # 使用工作流 token 登录 GitHub Container Registry。
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Build and push a single-platform image tag. The final manifest job will merge these tags.
+      # 构建并推送单平台临时标签，最终 manifest job 会合并这些标签。
+      - name: Build and Push Platform Image
+        env:
+          IMAGE_NAME: ${{ needs.metadata.outputs.image-name }}
+          IMAGE_TAG: ${{ needs.metadata.outputs.image-tag }}
+          PLATFORM: ${{ matrix.platform }}
+          REGISTRY: ${{ needs.metadata.outputs.registry }}
+        run: |
+          platform_slug="${PLATFORM//\//-}"
+          platform_tag="${IMAGE_TAG}-${platform_slug}"
+          echo "Publishing ${REGISTRY}/${IMAGE_NAME}:${platform_tag} for ${PLATFORM}"
+
+          make image \
+            config=".github/image/config.yaml" \
+            platforms="${PLATFORM}" \
+            registry="${REGISTRY}" \
+            image="${IMAGE_NAME}" \
+            tag="${platform_tag}" \
+            plugins="${{ inputs.plugins }}" \
+            push=1
+
+  # Merges platform tags into the public immutable manifest and updates the optional floating tag.
+  # 将平台临时标签合并成公开不可变 manifest，并更新可选浮动标签。
+  publish-manifest:
+    name: Publish multi-platform manifest
+    needs:
+      - metadata
+      - platform-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # Create the Docker Buildx builder used for manifest tooling.
+      # 创建用于 manifest 工具的 Docker Buildx builder。
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -139,66 +284,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # Normalize registry names and compute the immutable image tag for branch, nightly, or release publishing.
-      # 归一化 registry 名称，并计算分支、nightly 或 release 发布使用的不可变镜像标签。
-      - name: Prepare Image Metadata
-        id: image
+      # Publish the immutable manifest list from platform-specific image tags.
+      # 基于平台临时标签发布不可变 manifest list。
+      - name: Publish Immutable Manifest
         env:
-          IMAGE_NAME: ${{ inputs.image-name }}
-          PLATFORMS: ${{ inputs.platforms }}
-          TAG_MODE: ${{ inputs.tag-mode }}
-          FLOATING_TAG: ${{ inputs.floating-tag }}
+          IMAGE_REF: ${{ needs.metadata.outputs.image-ref }}
+          IMAGE_TAG: ${{ needs.metadata.outputs.image-tag }}
+          PLATFORMS: ${{ needs.metadata.outputs.platforms }}
         run: |
-          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          image_name="$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
-          registry="ghcr.io/${owner}"
-          image_ref="${registry}/${image_name}"
+          refs=()
+          IFS=',' read -r -a platform_items <<< "${PLATFORMS}"
+          for platform in "${platform_items[@]}"; do
+            platform_slug="${platform//\//-}"
+            refs+=("${IMAGE_REF}:${IMAGE_TAG}-${platform_slug}")
+          done
 
-          case "${TAG_MODE}" in
-            nightly)
-              image_tag="nightly-$(date +'%Y%m%d')"
-              ;;
-            release)
-              image_tag="${GITHUB_REF_NAME}"
-              if ! printf '%s' "${image_tag}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
-                echo "Git tag ${image_tag} cannot be used as a Docker image tag." >&2
-                exit 1
-              fi
-              ;;
-            sha)
-              image_tag="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
-              ;;
-            *)
-              echo "Unsupported tag mode: ${TAG_MODE}" >&2
-              exit 1
-              ;;
-          esac
-
-          {
-            echo "registry=${registry}"
-            echo "image_name=${image_name}"
-            echo "image_tag=${image_tag}"
-            echo "image_ref=${image_ref}"
-          } >> "${GITHUB_OUTPUT}"
-
-          if [ -n "${FLOATING_TAG}" ]; then
-            echo "Publishing ${image_ref}:${image_tag} and ${image_ref}:${FLOATING_TAG} for ${PLATFORMS}"
-          else
-            echo "Publishing ${image_ref}:${image_tag} for ${PLATFORMS}"
-          fi
-
-      # Build and push the multi-platform image through the project image target.
-      # 通过项目镜像目标构建并推送多平台镜像。
-      - name: Build and Push Multi-Platform Image
-        run: |
-          make image \
-            config=".github/image/config.yaml" \
-            platforms="${{ inputs.platforms }}" \
-            registry="${{ steps.image.outputs.registry }}" \
-            image="${{ steps.image.outputs.image_name }}" \
-            tag="${{ steps.image.outputs.image_tag }}" \
-            plugins="${{ inputs.plugins }}" \
-            push=1
+          docker buildx imagetools create \
+            --tag "${IMAGE_REF}:${IMAGE_TAG}" \
+            "${refs[@]}"
 
       # Point the moving tag at the just-published immutable image tag.
       # 将移动标签指向刚发布的不可变镜像标签。
@@ -206,18 +309,18 @@ jobs:
         if: ${{ inputs.floating-tag != '' }}
         run: |
           docker buildx imagetools create \
-            --tag "${{ steps.image.outputs.image_ref }}:${{ inputs.floating-tag }}" \
-            "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}"
+            --tag "${{ needs.metadata.outputs.image-ref }}:${{ inputs.floating-tag }}" \
+            "${{ needs.metadata.outputs.image-ref }}:${{ needs.metadata.outputs.image-tag }}"
 
       # Inspect the immutable manifest so platform metadata is visible in logs.
       # 检查不可变 manifest，让平台元数据出现在日志中。
       - name: Inspect Published Manifest
         run: |
-          docker buildx imagetools inspect "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}"
+          docker buildx imagetools inspect "${{ needs.metadata.outputs.image-ref }}:${{ needs.metadata.outputs.image-tag }}"
 
       # Optionally inspect the moving manifest, used by release to verify latest.
       # 可选检查移动 manifest，release 用它验证 latest。
       - name: Inspect Floating Manifest
         if: ${{ inputs.inspect-floating-tag && inputs.floating-tag != '' }}
         run: |
-          docker buildx imagetools inspect "${{ steps.image.outputs.image_ref }}:${{ inputs.floating-tag }}"
+          docker buildx imagetools inspect "${{ needs.metadata.outputs.image-ref }}:${{ inputs.floating-tag }}"
