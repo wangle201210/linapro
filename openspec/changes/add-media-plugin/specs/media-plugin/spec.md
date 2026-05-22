@@ -87,8 +87,9 @@
 - **WHEN** 外部调用方调用 `POST /api/v1/tenant-whites/ips` 并通过请求体必填字段 `token` 提交裸用户 token 查询 IP 白名单
 - **THEN** 系统 SHALL 通过 token 解析出用户所属租户
 - **AND** 系统 SHALL 查询该租户下所有启用的租户白名单记录
-- **AND** 响应 SHALL 直接返回白名单 IP 字符串数组，不分页且不包含描述、启用状态或总数包装字段
-- **AND** 未配置启用白名单时 SHALL 返回空数组
+- **AND** 响应 SHALL 返回解析出的 `tenantId` 与白名单 `ips` 字符串数组，方便客户端按租户自行缓存
+- **AND** 响应 SHALL 不分页且不包含描述、启用状态或总数字段
+- **AND** 未配置启用白名单时 SHALL 返回空 `ips` 数组
 
 #### Scenario: 铁塔 token 租户不匹配
 

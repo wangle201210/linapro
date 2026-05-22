@@ -104,9 +104,19 @@
 - [x] **FB-56**: mediaopen 接口在 apidocs 中不应显示需要宿主 JWT Bearer，且 token 参数示例不应带 `Bearer ` 前缀
 - [x] **FB-57**: plugin-full CI 的 apidoc 治理应兼容 media/water 不提供 i18n 资源的插件设计
 - [x] **FB-58**: plugin.yaml i18n 治理配置应由框架统一 manifest 解析，使用 `disabled` 且默认参与 i18n 治理
+- [x] **FB-59**: `/api/v1/tenant-whites/ips` 响应需要返回 token 解析出的租户 ID，方便客户端按租户自行缓存
 
 ## Feedback 验证记录
 
+- [x] FB-59 将 `TenantWhiteIPsByTokenRes` 从裸 IP 字符串数组调整为 `{ tenantId, ips }`，其中 `tenantId` 来自 Tieta token 解析结果，`ips` 仍只包含该租户已启用的白名单 IP，接口不分页且不返回描述、启用状态或总数字段。
+- [x] FB-59 更新 `ListTenantWhiteIPsByToken` service 输出结构，controller 统一写出 tenant-scoped 响应对象；接口仍走 mediaopen `InnerApiAuth`，不引入宿主 JWT 或 media 管理端双鉴权。
+- [x] FB-59 更新路由测试 `TestMediaOpenRoutesTenantWhiteIPsByTokenReturnsTenantScopedIPs` 与 service 测试 `TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs`，覆盖响应包含 `tenantId`、只返回当前租户启用 IP、过滤禁用和其他租户记录。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -run TestListTenantWhiteIPsByTokenReturnsEnabledTenantIPs -count=1` 通过。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'Test(MediaOpenRoutesTenantWhiteIPsByTokenReturnsTenantScopedIPs|MediaOpenRoutesTenantWhiteIPsByTokenRequiresToken|TenantWhiteIPsByTokenReqOnlyExposesRequiredToken|MediaOpenRequestDTOsDeclarePublicAccess)' -count=1` 通过。
+- [x] `cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -count=1` 与 `go test ./backend -count=1` 通过。
+- [x] `openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 通过。
+- [x] i18n/缓存/数据权限影响评估：FB-59 属于 media 插件接口响应字段调整，media 按需求不新增 i18n 资源；服务端不新增缓存，新增 `tenantId` 仅作为客户端缓存 scope；数据边界仍由 token 解析出的租户限定，未扩大跨租户可见范围。
+- [x] `/lina-review` 审查：FB-59 未发现阻断问题；确认只修改 media 插件和 add-media-plugin 规范记录，未改 core，接口响应契约、service 输出、路由响应和测试覆盖一致。
 - [x] FB-57 根因是宿主 apidoc 治理测试在 plugin-full 模式下一刀切扫描所有源码插件 API DTO，并要求有 API DTO 的插件必须提供 apidoc i18n bundle；media/water 按需求为中文-only 且不交付 i18n 资源，因此 CI 失败。
 - [x] FB-57 在 media/water `plugin.yaml` 中显式声明 `i18n.disabled: true`，作为插件不参与运行时与接口文档 i18n 治理的权威声明；未新增任何 media/water `manifest/i18n` 资源。
 - [x] FB-57 调整宿主 apidoc 治理测试，仅对未 opt-out 的源码插件执行英文 OpenAPI 源文案和 apidoc bundle 覆盖检查；运行时 apidoc 构建、插件鉴权、media/water API 行为和前端页面均不变。
