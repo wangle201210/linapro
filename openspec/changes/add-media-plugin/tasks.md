@@ -103,11 +103,12 @@
 - [x] **FB-55**: mediaopen 查询租户启用 IP 白名单接口改为 `POST` 且 `token` 必传
 - [x] **FB-56**: mediaopen 接口在 apidocs 中不应显示需要宿主 JWT Bearer，且 token 参数示例不应带 `Bearer ` 前缀
 - [x] **FB-57**: plugin-full CI 的 apidoc 治理应兼容 media/water 不提供 i18n 资源的插件设计
+- [x] **FB-58**: plugin.yaml i18n 治理配置应由框架统一 manifest 解析，使用 `disabled` 且默认参与 i18n 治理
 
 ## Feedback 验证记录
 
 - [x] FB-57 根因是宿主 apidoc 治理测试在 plugin-full 模式下一刀切扫描所有源码插件 API DTO，并要求有 API DTO 的插件必须提供 apidoc i18n bundle；media/water 按需求为中文-only 且不交付 i18n 资源，因此 CI 失败。
-- [x] FB-57 在 media/water `plugin.yaml` 中显式声明 `i18n.enabled=false` 与 `i18n.apidoc=false`，作为插件不参与运行时与接口文档 i18n 治理的权威声明；未新增任何 media/water `manifest/i18n` 资源。
+- [x] FB-57 在 media/water `plugin.yaml` 中显式声明 `i18n.disabled: true`，作为插件不参与运行时与接口文档 i18n 治理的权威声明；未新增任何 media/water `manifest/i18n` 资源。
 - [x] FB-57 调整宿主 apidoc 治理测试，仅对未 opt-out 的源码插件执行英文 OpenAPI 源文案和 apidoc bundle 覆盖检查；运行时 apidoc 构建、插件鉴权、media/water API 行为和前端页面均不变。
 - [x] FB-57 同时补齐 CMS 插件 `SiteItem.weixin` 与 `SiteUpdateReq.weixin` 的中文 apidoc 翻译键；CMS 本身提供 i18n 资源，继续纳入 apidoc 治理。
 - [x] `cd apps/lina-core && go test ./internal/service/apidoc -run 'TestOpenAPI(MetadataUsesEnglishSourceText|I18nBundlesCoverCurrentMetadata|BundlesAreSeparatedFromRuntimeI18n)' -count=1` 通过。
@@ -671,3 +672,13 @@
 - [x] FB-16 审查确认节点、设备节点、租户流配置为三组独立 REST 资源，页面按钮、前端 client、Controller、Service 与 SQL 表结构一一对应，未混入策略绑定接口。
 - [x] FB-16 审查确认新增表仍为平台共享配置，不引入 `host_tenant_id`；节点删除前由服务层检查设备节点和租户流配置引用，数据库外键使用 `ON UPDATE CASCADE ON DELETE RESTRICT` 兜底。
 - [x] FB-16 审查确认新增案例数据使用稳定业务键和 `NOT EXISTS` 判断保持幂等，未显式写入自增 `id`。
+- [x] FB-58 将插件 `i18n.disabled` 纳入框架级 `plugin.yaml` manifest 契约，替换测试中临时解析 `i18n.enabled/apidoc` 的实现；默认未配置时继续要求 i18n 治理，只有 `disabled: true` 时跳过 media/water 的 i18n/apidoc 检测。
+- [x] FB-58 将 `I18NPolicy` 放入源码插件 `catalog.Manifest`；只保留 catalog service 内已有 `LoadManifestFromYAML` 解析入口，并通过 `plugin.ScanRegisteredSourceManifests` 复用源码插件 manifest 扫描结果；不再新增 `pkg/pluginmanifest`、包级 `catalog.LoadManifestFromYAML`、`plugin.LoadManifestFromYAML` 或 i18n 专用读取 helper。
+- [x] FB-58 新增单元测试覆盖：缺省配置默认参与治理、`disabled: true` 才跳过治理、`disabled: false` 仍参与治理，以及 catalog service `LoadManifestFromYAML` 能解析框架级 i18n policy。
+- [x] FB-58 验证通过：`go test ./internal/service/plugin/internal/catalog ./internal/service/plugin ./internal/service/apidoc ./pkg/pluginbridge/artifact ./internal/cmd -count=1`、`go test ./internal/service/plugin/internal/runtime -count=1`、`GOWORK=temp/go.work.plugins GOFLAGS='-tags=official_plugins' go test ./internal/service/apidoc -run 'TestOpenAPI(MetadataUsesEnglishSourceText|I18nBundlesCoverCurrentMetadata|BundlesAreSeparatedFromRuntimeI18n)' -count=1`。
+- [x] FB-58 治理验证通过：`git diff --check && git -C apps/lina-plugins diff --check`、`openspec validate add-media-plugin --strict`。
+- [x] i18n 影响评估：本次不新增 media/water 翻译资源，而是把“中文-only 插件显式退出 i18n 治理”的配置纳入框架级 manifest 契约；未配置或 `disabled: false` 的插件仍默认要求 i18n/apidoc i18n。
+- [x] 缓存影响评估：本次仅扩展源码插件清单解析与测试治理选择，不新增运行时缓存或失效路径，不影响跨实例缓存一致性。
+- [x] FB-59 收敛 FB-58 实现复杂度：不再为 apidoc i18n 治理把源码插件 manifest 扫描挂到 `RegistryQueryService`，测试不构造完整 plugin service，仅通过薄 facade 复用 catalog scanner；同时撤回动态插件 `ArtifactManifest` 与 release snapshot 的 i18n policy 扩展，影响面限定为源码插件 `catalog.Manifest`。
+- [x] FB-59 验证通过：`go test ./internal/service/plugin/internal/catalog ./internal/service/plugin ./internal/service/apidoc ./pkg/pluginbridge/artifact ./internal/cmd -count=1`、`go test ./internal/service/plugin/internal/runtime -count=1`、`GOWORK=temp/go.work.plugins GOFLAGS='-tags=official_plugins' go test ./internal/service/apidoc -run 'TestOpenAPI(MetadataUsesEnglishSourceText|I18nBundlesCoverCurrentMetadata|BundlesAreSeparatedFromRuntimeI18n)' -count=1`、`git diff --check`、`git -C apps/lina-plugins diff --check`。
+- [x] FB-59 `/lina-review` 审查通过：未修改 API 端点、Controller 构造、路由绑定、数据库访问、缓存失效或数据权限边界；`catalog.New(nil)` 仅用于无状态源码插件 manifest 扫描，不持有缓存、会话、订阅或集群协调状态。

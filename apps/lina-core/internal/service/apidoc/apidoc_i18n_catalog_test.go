@@ -20,8 +20,7 @@ import (
 	"testing/fstest"
 	"unicode"
 
-	"gopkg.in/yaml.v3"
-
+	pluginsvc "lina-core/internal/service/plugin"
 	"lina-core/pkg/testsupport"
 )
 
@@ -102,10 +101,13 @@ func TestOpenAPII18nBundlesCoverCurrentMetadata(t *testing.T) {
 		"core.api.user.v1.ListReq.fields.pageNum.dc",
 	)
 	if testsupport.OfficialPluginsWorkspaceReady(repoRoot) {
-		requiredKeys = append(requiredKeys,
-			"plugins.linapro_monitor_loginlog.api.loginlog.v1.ListReq.meta.tags",
-			"plugins.linapro_demo_dynamic.paths.get.backend_summary.meta.summary",
-		)
+		managedPluginIDs := openAPII18NManagedPluginIDSet(t)
+		if _, ok := managedPluginIDs["linapro-monitor-loginlog"]; ok {
+			requiredKeys = append(requiredKeys, "plugins.linapro_monitor_loginlog.api.loginlog.v1.ListReq.meta.tags")
+		}
+		if _, ok := managedPluginIDs["linapro-demo-dynamic"]; ok {
+			requiredKeys = append(requiredKeys, "plugins.linapro_demo_dynamic.paths.get.backend_summary.meta.summary")
+		}
 	}
 
 	for _, locale := range discoverOpenAPINonEnglishLocales(t, repoRoot) {
@@ -871,15 +873,16 @@ func readOpenAPIPluginJSONBundles(t *testing.T, repoRoot string, locale string) 
 	if err != nil {
 		t.Fatalf("read plugin root %s failed: %v", pluginsRoot, err)
 	}
+	managedPluginIDs := openAPII18NManagedPluginIDSet(t)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		pluginID := entry.Name()
-		pluginRoot := filepath.Join(pluginsRoot, pluginID)
-		if pluginDisablesOpenAPII18N(t, pluginRoot) {
+		if _, ok := managedPluginIDs[pluginID]; !ok {
 			continue
 		}
+		pluginRoot := filepath.Join(pluginsRoot, pluginID)
 		bundleDir := filepath.Join(pluginsRoot, pluginID, "manifest/i18n", locale, "apidoc")
 
 		dirExists := false
@@ -928,9 +931,9 @@ func pluginHasOpenAPIResources(t *testing.T, pluginRoot string) bool {
 	return hasAPI
 }
 
-// openAPII18NManagedPluginRoots returns source plugins that participate in
-// apidoc localization governance. Plugins may explicitly opt out in
-// plugin.yaml when they intentionally ship no i18n resources.
+// openAPII18NManagedPluginRoots returns source plugin roots that participate in
+// apidoc localization governance. The decision uses source plugin manifests
+// parsed by the unified plugin catalog scanner.
 func openAPII18NManagedPluginRoots(t *testing.T, repoRoot string) []string {
 	t.Helper()
 
@@ -940,51 +943,41 @@ func openAPII18NManagedPluginRoots(t *testing.T, repoRoot string) []string {
 		t.Fatalf("read plugin root %s failed: %v", pluginsRoot, err)
 	}
 
+	managedPluginIDs := openAPII18NManagedPluginIDSet(t)
 	roots := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		pluginRoot := filepath.Join(pluginsRoot, entry.Name())
-		if pluginDisablesOpenAPII18N(t, pluginRoot) {
+		if _, ok := managedPluginIDs[entry.Name()]; !ok {
 			continue
 		}
-		roots = append(roots, pluginRoot)
+		roots = append(roots, filepath.Join(pluginsRoot, entry.Name()))
 	}
 	sort.Strings(roots)
 	return roots
 }
 
-// pluginDisablesOpenAPII18N reports whether plugin.yaml opts out of runtime and
-// API-documentation i18n governance for Chinese-only source plugins.
-func pluginDisablesOpenAPII18N(t *testing.T, pluginRoot string) bool {
+// openAPII18NManagedPluginIDSet returns the source plugins that still
+// participate in i18n/apidoc governance after manifest policy is applied.
+func openAPII18NManagedPluginIDSet(t *testing.T) map[string]struct{} {
 	t.Helper()
 
-	manifestPath := filepath.Join(pluginRoot, "plugin.yaml")
-	content, err := os.ReadFile(manifestPath)
+	manifests, err := pluginsvc.ScanRegisteredSourceManifests()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false
+		t.Fatalf("scan source plugin manifests for apidoc i18n governance failed: %v", err)
+	}
+	managedPluginIDs := make(map[string]struct{}, len(manifests))
+	for _, manifest := range manifests {
+		if manifest == nil || strings.TrimSpace(manifest.ID) == "" {
+			continue
 		}
-		t.Fatalf("read plugin manifest %s failed: %v", manifestPath, err)
+		if manifest.I18N != nil && manifest.I18N.Disabled != nil && *manifest.I18N.Disabled {
+			continue
+		}
+		managedPluginIDs[manifest.ID] = struct{}{}
 	}
-
-	var manifest struct {
-		I18N *struct {
-			Enabled *bool `yaml:"enabled"`
-			APIDoc  *bool `yaml:"apidoc"`
-		} `yaml:"i18n"`
-	}
-	if err = yaml.Unmarshal(content, &manifest); err != nil {
-		t.Fatalf("parse plugin manifest %s failed: %v", manifestPath, err)
-	}
-	if manifest.I18N == nil {
-		return false
-	}
-	if manifest.I18N.Enabled != nil && !*manifest.I18N.Enabled {
-		return true
-	}
-	return manifest.I18N.APIDoc != nil && !*manifest.I18N.APIDoc
+	return managedPluginIDs
 }
 
 // assertOpenAPIEnglishBundlePlaceholder ensures English docs are driven by API
