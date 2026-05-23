@@ -106,8 +106,17 @@
 - [x] **FB-58**: plugin.yaml i18n 治理配置应由框架统一 manifest 解析，使用 `disabled` 且默认参与 i18n 治理
 - [x] **FB-59**: `/api/v1/tenant-whites/ips` 响应需要返回 token 解析出的租户 ID，方便客户端按租户自行缓存
 - [x] **FB-60**: Docker 镜像发布 CI 应将多平台镜像拆成平台矩阵并行构建，再合并 manifest，以缩短 amd64/arm64 串行构建耗时
+- [x] **FB-61**: mediaopen 需要支持按流别名查询别名配置、查询全量节点数据，并收窄 `userDeviceStrategyByToken` 响应字段
 
 ## Feedback 验证记录
+
+- [x] FB-61 实现 mediaopen `GET /api/v1/stream-aliases/by-alias` 和 `GET /api/v1/nodes/all`，继续走插件内 `InnerApiAuth`；前者按 `alias` 返回完整别名配置，后者按 `nodeNum` 升序返回全量节点列表且不分页。
+- [x] FB-61 将 `UserDeviceStrategyByTokenRes` 收窄为 `userInfo` 与 `strategy`，移除顶层 `hasAccess` 和 `strategyId`；service 仍保留内部权限判断，只有有设备权限且匹配到策略时才填充 `strategy`。
+- [x] FB-61 新增/更新 route-level Go 测试和 service 测试，覆盖流别名查询、全量节点不分页、mediaopen DTO public access、策略响应字段删除和无设备权限时空策略。
+- [x] FB-61 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/internal/service/media -run 'TestUserDeviceStrategyByToken(ReturnsStrategyContent|ReturnsEmptyStrategyWithoutAccess)' -count=1`、`go test ./backend -run 'TestMediaOpenRoutes(GetStreamAliasByAliasReturnsConfig|ListAllNodesReturnsUnpagedData|UserDeviceStrategyResponseOmitsAccessFlags|TenantWhiteIPsByTokenReturnsTenantScopedIPs|TenantWhiteIPsByTokenRequiresToken)|TestMediaOpenRequestDTOsDeclarePublicAccess' -count=1`、`go test ./backend/internal/controller/mediaopen ./backend/internal/service/media ./backend -count=1`、`go test ./... -count=1` 均通过。
+- [x] FB-61 治理验证通过：`openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check`。
+- [x] i18n/缓存/数据权限影响评估：FB-61 属于 media 插件公开内部接口契约调整，media 按需求不新增 i18n 资源；本次不新增服务端缓存；新增别名/节点只读接口暴露 media 平台共享配置，边界由 `InnerApiAuth` 保护，不接入管理端数据权限。
+- [x] `/lina-review` 审查通过：未发现阻断问题；新增只读接口使用 GET 与资源路径，新增公开 DTO 的时间点字段使用 Unix 毫秒，Controller/Service 依赖仍由启动期注入的同一 `mediaSvc` 承担，未修改 core。
 
 - [x] FB-60 根因确认为 `reusable-image-publish.yml` 在单个 job 中执行 `make image platforms=linux/amd64,linux/arm64 push=1`，其中前端构建后串行执行 amd64 与 arm64 后端构建；本次拆成 metadata、platform matrix 和 manifest publish 三段，平台 job 使用临时平台 tag 推送，最终 job 合并为原不可变 tag 并继续维护 floating tag。
 - [x] FB-60 使用 `actionlint` 校验 `.github/workflows/reusable-image-publish.yml` 通过，确认 matrix、workflow output、`fromJSON` 和 manifest 合并表达式语法有效。

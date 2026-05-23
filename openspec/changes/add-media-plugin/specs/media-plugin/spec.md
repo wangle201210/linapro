@@ -71,9 +71,25 @@
 
 - **WHEN** 外部调用方调用 `POST /api/v1/strategy/userDeviceStrategyByToken` 并提交铁塔 token 与设备国标 ID
 - **THEN** 系统 SHALL 复用铁塔 token 鉴权、租户设备权限校验和 media 本地策略优先级解析
-- **AND** 响应 SHALL 返回 `userInfo`、`hasAccess`、`strategyId` 和策略对象
+- **AND** 响应 SHALL 返回 `userInfo` 和策略对象，不返回顶层 `hasAccess` 或 `strategyId`
+- **AND** 只有通过租户设备权限且匹配到策略时，响应 SHALL 返回非空 `strategy`；无权限或无匹配策略时 `strategy` SHALL 为空
 - **AND** 策略对象 SHALL 使用单一 `strategyContent` 字段承载 `media_strategy.strategy` 的 YAML 内容，不拆分为 `store`、`snap`、`pull`、`push` 或 `transcoding`
 - **AND** 系统 SHALL NOT 暴露额外的 `POST /api/v1/media/strategy-authorizations` 策略解析接口
+
+#### Scenario: mediaopen 查询流别名配置
+
+- **WHEN** 外部调用方调用 `GET /api/v1/stream-aliases/by-alias` 并提交流别名
+- **THEN** 系统 SHALL 返回该流别名对应的 `id`、`alias`、`autoRemove`、`streamPath`、`deviceId`、`channelId` 和 `createTime`
+- **AND** `createTime` SHALL 使用 Unix 毫秒时间戳
+- **AND** 接口 SHALL 继续经过 mediaopen `InnerApiAuth`，不走管理端 LinaPro/Tieta 双通道鉴权
+
+#### Scenario: mediaopen 查询全量节点数据
+
+- **WHEN** 外部调用方调用 `GET /api/v1/nodes/all`
+- **THEN** 系统 SHALL 按 `nodeNum` 升序返回全部媒体节点配置
+- **AND** 节点时间点字段 SHALL 使用 Unix 毫秒时间戳
+- **AND** 响应 SHALL 不分页且不返回总数字段
+- **AND** 接口 SHALL 继续经过 mediaopen `InnerApiAuth`，不走管理端 LinaPro/Tieta 双通道鉴权
 
 #### Scenario: 通过 HotGo 兼容接口维护路由记忆
 
