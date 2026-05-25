@@ -107,8 +107,26 @@
 - [x] **FB-59**: `/api/v1/tenant-whites/ips` 响应需要返回 token 解析出的租户 ID，方便客户端按租户自行缓存
 - [x] **FB-60**: Docker 镜像发布 CI 应将多平台镜像拆成平台矩阵并行构建，再合并 manifest，以缩短 amd64/arm64 串行构建耗时
 - [x] **FB-61**: mediaopen 需要支持按流别名查询别名配置、查询全量节点数据，并收窄 `userDeviceStrategyByToken` 响应字段
+- [x] **FB-62**: media 插件需要提供独立接口文档 JSON，只输出 media 管理和 mediaopen 接口
+- [x] **FB-63**: media 插件需要提供类似 `/stoplight/apidocs.html` 的独立接口文档展示页面
 
 ## Feedback 验证记录
+
+- [x] FB-63 在 media 插件内新增 `GET /api/v1/media/apidocs.html`，页面复用宿主已有 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源，并固定加载插件自有 `/api/v1/media/openapi.json`；未修改 `apps/lina-core` 文档服务或全量 `/stoplight/apidocs.html`。
+- [x] FB-63 页面支持通过 URL Query String 中的 `token` 预填 `BearerAuth`、通过 `innerApiKey` 或 `apiKey` 预填 `InnerApiKeyAuth`，便于 Stoplight Try It 调试 media 管理端和 mediaopen 接口。
+- [x] FB-63 新增 `TestMediaPluginAPIDocsPageLoadsMediaDocument`，真实请求插件文档页面，断言页面加载 media 独立 OpenAPI JSON、Stoplight 静态资源和两套安全方案预填逻辑，并确认未加载宿主全量 `/api.json`。
+- [x] FB-63 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPluginOpenAPI(DocumentOnlyContainsMediaRoutes|PageLoadsMediaDocument)|TestMediaPluginAPIDocsPageLoadsMediaDocument' -count=1`、`go test ./backend/internal/apidoc ./backend -count=1`、`go test ./backend/... -count=1` 均通过。
+- [x] FB-63 治理验证通过：`openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-63 仅新增 media 插件内只读 HTML 文档入口，不新增宿主前端语言包、manifest i18n 或 apidoc i18n 资源；media 插件未显式启用 `i18n.enabled: true`，按单语言插件处理；页面和 OpenAPI 文档均不读写业务数据、不新增缓存、不改变 media 管理端或 mediaopen 的运行时鉴权和数据权限边界。
+- [x] 开发工具与脚本影响评估：FB-63 未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口。
+- [x] `/lina-review` 审查：FB-63 未发现阻断问题；确认新增页面路由保持在 media 插件边界内，未修改 `apps/lina-core`，且路由测试、插件后端全量测试和 OpenSpec 校验均通过。
+
+- [x] FB-62 在 media 插件内新增 `GET /api/v1/media/openapi.json`，由插件自有 `backend/internal/apidoc` 使用 GoFrame `goai` 从 media 管理端和 mediaopen 控制器生成 OpenAPI JSON；未修改 `apps/lina-core` 的全量 `/api.json` 或宿主 apidoc 服务。
+- [x] FB-62 文档只包含 media 管理端 `/api/v1/media/*` 与 mediaopen/HotGo 兼容接口；media 管理端继承 `BearerAuth`，mediaopen 接口显式声明 `InnerApiKeyAuth` 的 `X-Inner-Api-Key` header 鉴权。
+- [x] FB-62 新增 `TestMediaPluginOpenAPIDocumentOnlyContainsMediaRoutes`，真实请求插件文档接口，断言包含 media 管理和 mediaopen 路径、排除 water/core 路径，并验证安全方案声明。
+- [x] FB-62 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run TestMediaPluginOpenAPIDocumentOnlyContainsMediaRoutes -count=1`、`go test ./backend/internal/apidoc ./backend -count=1`、`go test ./backend/... -count=1` 均通过。
+- [x] FB-62 治理验证通过：`openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check`。
+- [x] i18n/缓存/数据权限影响评估：FB-62 仅新增 media 插件内接口文档 JSON 生成与只读文档接口，不新增运行时前端文案、manifest i18n 或 apidoc i18n 资源；文档实时从 DTO 元数据生成，不新增缓存；不读写业务数据、不改变 media 管理端或 mediaopen 的运行时鉴权和数据权限边界。
 
 - [x] FB-61 实现 mediaopen `GET /api/v1/stream-aliases/by-alias` 和 `GET /api/v1/nodes/all`，继续走插件内 `InnerApiAuth`；前者按 `alias` 返回完整别名配置，后者按 `nodeNum` 升序返回全量节点列表且不分页。
 - [x] FB-61 将 `UserDeviceStrategyByTokenRes` 收窄为 `userInfo` 与 `strategy`，移除顶层 `hasAccess` 和 `strategyId`；service 仍保留内部权限判断，只有有设备权限且匹配到策略时才填充 `strategy`。

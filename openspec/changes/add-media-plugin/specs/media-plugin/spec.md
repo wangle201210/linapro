@@ -181,6 +181,27 @@
 - **WHEN** 请求访问 `/api/v1/media/*` 管理端接口
 - **THEN** 系统 SHALL 不使用 `InnerApiAuth` 替代 LinaPro/Tieta 双通道鉴权
 
+### Requirement: Media 插件独立接口文档
+
+系统 SHALL 在 media 插件内提供独立 OpenAPI JSON 接口和 Stoplight 展示页面，用于只查看 media 管理端和 mediaopen/HotGo 兼容接口文档，不修改宿主 `lina-core` 的全量 `/api.json` 或 `/stoplight/apidocs.html` 生成逻辑。
+
+#### Scenario: 获取 media 独立接口文档
+
+- **WHEN** 调用方请求 `GET /api/v1/media/openapi.json`
+- **THEN** 系统 SHALL 返回 OpenAPI JSON 文档
+- **AND** 文档 SHALL 只包含 media 插件管理端 `/api/v1/media/*` 接口和 mediaopen/HotGo 兼容接口
+- **AND** 文档 SHALL NOT 包含 lina-core、water、cms 或其他插件接口
+- **AND** mediaopen/HotGo 兼容接口 SHALL 声明 `X-Inner-Api-Key` 鉴权
+- **AND** media 管理端接口 SHALL 继承 Bearer 鉴权说明
+
+#### Scenario: 展示 media 独立接口文档页面
+
+- **WHEN** 调用方请求 `GET /api/v1/media/apidocs.html`
+- **THEN** 系统 SHALL 返回基于 Stoplight Elements 的 HTML 文档页面
+- **AND** 页面 SHALL 加载 `/api/v1/media/openapi.json` 作为接口描述来源
+- **AND** 页面 SHALL 支持通过 URL Query String 中的 `token` 和 `innerApiKey` 预填 Stoplight Try It 鉴权值
+- **AND** 页面 SHALL NOT 加载宿主全量 `/api.json`
+
 ### Requirement: 流别名管理
 
 系统 SHALL 按用户截图中的 `media_stream_alias` 表结构提供流别名分页查询、详情、新增、修改和删除能力。
