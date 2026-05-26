@@ -202,6 +202,12 @@
 - **AND** 页面 SHALL 支持通过 URL Query String 中的 `token` 和 `innerApiKey` 预填 Stoplight Try It 鉴权值
 - **AND** 页面 SHALL NOT 加载宿主全量 `/api.json`
 
+#### Scenario: media 插件禁用宿主全量 Stoplight 页面
+
+- **WHEN** media 插件已启用且调用方请求 `GET /stoplight/apidocs.html`
+- **THEN** 系统 SHALL 返回 HTTP 404
+- **AND** 调用方 SHALL 使用 `GET /api/v1/media/apidocs.html` 查看 media 独立接口文档页面
+
 ### Requirement: 流别名管理
 
 系统 SHALL 按用户截图中的 `media_stream_alias` 表结构提供流别名分页查询、详情、新增、修改和删除能力。

@@ -109,8 +109,18 @@
 - [x] **FB-61**: mediaopen 需要支持按流别名查询别名配置、查询全量节点数据，并收窄 `userDeviceStrategyByToken` 响应字段
 - [x] **FB-62**: media 插件需要提供独立接口文档 JSON，只输出 media 管理和 mediaopen 接口
 - [x] **FB-63**: media 插件需要提供类似 `/stoplight/apidocs.html` 的独立接口文档展示页面
+- [x] **FB-64**: media 插件启用时应让宿主全量 `/stoplight/apidocs.html` 返回 404
 
 ## Feedback 验证记录
+
+- [x] FB-64 在 media 插件内通过 `GlobalMiddlewares` 注册精确路径拦截，media 插件启用时 `GET /stoplight/apidocs.html` 返回 HTTP 404；未修改 `apps/lina-core` 或宿主前端静态文件。
+- [x] FB-64 保留 `/api/v1/media/apidocs.html` 作为 media 独立文档页面，并继续允许页面使用 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源。
+- [x] FB-64 新增 `TestMediaPluginBlocksHostAPIDocsPage`，真实请求 `/stoplight/apidocs.html` 断言 404，并请求 `/api/v1/media/apidocs.html` 断言 media 独立页面仍可访问。
+- [x] FB-64 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPlugin(APIDocsPageLoadsMediaDocument|BlocksHostAPIDocsPage|OpenAPIDocumentOnlyContainsMediaRoutes)' -count=1`、`go test ./backend/internal/apidoc ./backend -count=1`、`go test ./backend/... -count=1` 均通过。
+- [x] FB-64 治理验证通过：`openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
+- [x] i18n/缓存/数据权限影响评估：FB-64 仅新增 media 插件启用状态下的只读页面拦截，不新增前端运行时文案、manifest i18n 或 apidoc i18n 资源；不新增缓存；不读写业务数据、不改变 media 管理端或 mediaopen 的运行时鉴权和数据权限边界。该拦截会使宿主全量接口文档页面在 media 插件启用时不可访问，调用方应使用 media 独立文档页面。
+- [x] 开发工具与脚本影响评估：FB-64 未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口。
+- [x] `/lina-review` 审查：FB-64 未发现阻断问题；确认变更收敛在 media 插件内，未修改 `apps/lina-core`，且路由测试、插件后端全量测试和 OpenSpec 校验均通过。
 
 - [x] FB-63 在 media 插件内新增 `GET /api/v1/media/apidocs.html`，页面复用宿主已有 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源，并固定加载插件自有 `/api/v1/media/openapi.json`；未修改 `apps/lina-core` 文档服务或全量 `/stoplight/apidocs.html`。
 - [x] FB-63 页面支持通过 URL Query String 中的 `token` 预填 `BearerAuth`、通过 `innerApiKey` 或 `apiKey` 预填 `InnerApiKeyAuth`，便于 Stoplight Try It 调试 media 管理端和 mediaopen 接口。
