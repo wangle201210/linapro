@@ -15,8 +15,8 @@ import (
 	"github.com/gogf/gf/v2/util/gmeta"
 
 	"lina-core/pkg/logger"
-	pluginbridge "lina-core/pkg/pluginbridge/contract"
-	"lina-core/pkg/pluginhost"
+	pluginbridge "lina-core/pkg/plugin/pluginbridge/protocol"
+	"lina-core/pkg/plugin/pluginhost"
 )
 
 // openAPIAccessMetaKey is the plugin route metadata key used to override the
