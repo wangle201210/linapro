@@ -19,7 +19,13 @@ import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { useTenantStore } from '#/store/tenant';
 
-const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
+const defaultApiURL = '/api/v1';
+const { apiURL: configuredApiURL } = useAppConfig(
+  import.meta.env,
+  import.meta.env.PROD,
+);
+const apiURL = normalizeApiBaseURL(configuredApiURL);
+const pluginApiOrigin = resolvePluginApiOrigin(apiURL);
 
 type RuntimeErrorResponse = {
   error?: string;
@@ -37,6 +43,11 @@ type RefreshTokenEnvelope = RuntimeErrorResponse & {
 };
 
 const refreshRequestClient = new RequestClient({ baseURL: apiURL });
+
+function normalizeApiBaseURL(baseURL: unknown) {
+  const normalized = typeof baseURL === 'string' ? baseURL.trim() : '';
+  return normalized || defaultApiURL;
+}
 
 function resolveRequestLocale() {
   if (typeof document === 'undefined') {
@@ -88,23 +99,28 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       throw new Error('Missing refresh token');
     }
 
-    const response = await refreshRequestClient.instance.post<RefreshTokenEnvelope>(
-      '/auth/refresh',
-      { refreshToken },
-      {
-        headers: {
-          'Accept-Language': resolveRequestLocale(),
+    const response =
+      await refreshRequestClient.instance.post<RefreshTokenEnvelope>(
+        '/auth/refresh',
+        { refreshToken },
+        {
+          headers: {
+            'Accept-Language': resolveRequestLocale(),
+          },
         },
-      },
-    );
+      );
     const responseData = response.data;
     const nextAccessToken = responseData?.data?.accessToken;
     if (responseData?.code !== 0 || !nextAccessToken) {
-      throw new Error(resolveRuntimeErrorMessage(responseData) || 'Refresh token failed');
+      throw new Error(
+        resolveRuntimeErrorMessage(responseData) || 'Refresh token failed',
+      );
     }
 
     accessStore.setAccessToken(nextAccessToken);
-    accessStore.setRefreshToken(responseData.data?.refreshToken || refreshToken);
+    accessStore.setRefreshToken(
+      responseData.data?.refreshToken || refreshToken,
+    );
     return nextAccessToken;
   }
 
@@ -158,6 +174,23 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   );
 
   return client;
+}
+
+function resolvePluginApiOrigin(baseURL: string) {
+  const normalized = baseURL.trim();
+  if (normalized.startsWith('/')) {
+    return typeof window === 'undefined' ? '' : window.location.origin;
+  }
+  if (!normalized) {
+    return '';
+  }
+  return normalized.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+}
+
+export function pluginApiPath(pluginId: string, pathName: string) {
+  const normalizedPluginID = pluginId.trim().replace(/^\/+|\/+$/g, '');
+  const normalizedPath = pathName.replace(/^\/+/, '');
+  return `${pluginApiOrigin}/x/${normalizedPluginID}/api/v1/${normalizedPath}`;
 }
 
 export const requestClient = createRequestClient(apiURL, {

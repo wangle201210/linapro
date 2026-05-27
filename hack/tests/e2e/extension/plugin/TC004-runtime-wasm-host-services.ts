@@ -62,6 +62,11 @@ function uploadedArtifactPath(pluginID: string) {
   return path.join(runtimeStorageDir(), `${pluginID}.wasm`);
 }
 
+function pluginApiPath(pluginID: string, pathName: string) {
+  const normalizedPath = pathName.startsWith("/") ? pathName : `/${pathName}`;
+  return `/x/${pluginID}/api/v1${normalizedPath}`;
+}
+
 function writeTestFile(filePath: string, content: string) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, content);
@@ -396,7 +401,7 @@ hostServices:
 import "github.com/gogf/gf/v2/frame/g"
 
 type HostServicesReq struct {
-	g.Meta \`path:"/host-services" method:"get" tags:"动态插件 E2E" summary:"核心 host service 演示" dc:"验证 runtime、storage、network、data 四类核心宿主服务在动态插件路由内的成功调用" access:"login" permission:"${successPluginID}:host-services:view" operLog:"other"\`
+	g.Meta \`path:"/api/v1/host-services" method:"get" tags:"动态插件 E2E" summary:"核心 host service 演示" dc:"验证 runtime、storage、network、data 四类核心宿主服务在动态插件路由内的成功调用" access:"login" permission:"${successPluginID}:host-services:view" operLog:"other"\`
 }
 `,
   );
@@ -666,15 +671,15 @@ hostServices:
 import "github.com/gogf/gf/v2/frame/g"
 
 type DeniedMethodReq struct {
-	g.Meta \`path:"/denied-method" method:"get" tags:"动态插件 E2E" summary:"未授权 method 调用" dc:"验证插件调用未声明的 host service method 会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-method:view" operLog:"other"\`
+	g.Meta \`path:"/api/v1/denied-method" method:"get" tags:"动态插件 E2E" summary:"未授权 method 调用" dc:"验证插件调用未声明的 host service method 会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-method:view" operLog:"other"\`
 }
 
 type DeniedResourceReq struct {
-	g.Meta \`path:"/denied-resource" method:"get" tags:"动态插件 E2E" summary:"未授权资源标识调用" dc:"验证插件调用未授权资源标识时会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-resource:view" operLog:"other"\`
+	g.Meta \`path:"/api/v1/denied-resource" method:"get" tags:"动态插件 E2E" summary:"未授权资源标识调用" dc:"验证插件调用未授权资源标识时会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-resource:view" operLog:"other"\`
 }
 
 type DeniedServiceReq struct {
-	g.Meta \`path:"/denied-service" method:"get" tags:"动态插件 E2E" summary:"未授权 service 调用" dc:"验证插件调用未声明的 host service capability 会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-service:view" operLog:"other"\`
+	g.Meta \`path:"/api/v1/denied-service" method:"get" tags:"动态插件 E2E" summary:"未授权 service 调用" dc:"验证插件调用未声明的 host service capability 会被宿主拒绝" access:"login" permission:"${deniedPluginID}:denied-service:view" operLog:"other"\`
 }
 `,
   );
@@ -963,7 +968,7 @@ test.describe("TC-4 Runtime Wasm Host Services", () => {
     await installPlugin(adminApi!, successPluginID);
     await setPluginEnabled(adminApi!, successPluginID, true);
 
-    const response = await adminApi!.get(`/x/${successPluginID}/host-services`);
+    const response = await adminApi!.get(pluginApiPath(successPluginID, "/host-services"));
     const responseText = await response.text();
     expect(
       response.status(),
@@ -1012,7 +1017,7 @@ test.describe("TC-4 Runtime Wasm Host Services", () => {
     await setPluginEnabled(adminApi!, deniedPluginID, true);
 
     const deniedMethodResponse = await adminApi!.get(
-      `/x/${deniedPluginID}/denied-method`,
+      pluginApiPath(deniedPluginID, "/denied-method"),
     );
     expect(deniedMethodResponse.status()).toBe(500);
     await expectApiFailure(
@@ -1022,7 +1027,7 @@ test.describe("TC-4 Runtime Wasm Host Services", () => {
     );
 
     const deniedResourceResponse = await adminApi!.get(
-      `/x/${deniedPluginID}/denied-resource`,
+      pluginApiPath(deniedPluginID, "/denied-resource"),
     );
     expect(deniedResourceResponse.status()).toBe(500);
     await expectApiFailure(
@@ -1032,7 +1037,7 @@ test.describe("TC-4 Runtime Wasm Host Services", () => {
     );
 
     const deniedServiceResponse = await adminApi!.get(
-      `/x/${deniedPluginID}/denied-service`,
+      pluginApiPath(deniedPluginID, "/denied-service"),
     );
     expect(deniedServiceResponse.status()).toBe(500);
     await expectApiFailure(

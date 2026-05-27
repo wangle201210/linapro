@@ -107,7 +107,7 @@ func TestOpenAPII18nBundlesCoverCurrentMetadata(t *testing.T) {
 			requiredKeys = append(requiredKeys, "plugins.linapro_monitor_loginlog.api.loginlog.v1.ListReq.meta.tags")
 		}
 		if _, ok := managedPluginIDs["linapro-demo-dynamic"]; ok {
-			requiredKeys = append(requiredKeys, "plugins.linapro_demo_dynamic.paths.get.backend_summary.meta.summary")
+			requiredKeys = append(requiredKeys, "plugins.linapro_demo_dynamic.paths.get.api.v1.backend_summary.meta.summary")
 		}
 	}
 

@@ -156,6 +156,13 @@ var productionPanicPolicy = panicAuditPolicy{
 			Reason:   "test override helpers receive already-validated entries; a normalization failure indicates broken test fixtures and must surface immediately",
 		},
 		{
+			Path:     "apps/lina-core/internal/service/config/config_workspace.go",
+			Function: "mustNormalizeWorkspaceBasePath",
+			Count:    7,
+			Category: panicCategoryStaticConfig,
+			Reason:   "invalid static workspace basePath would make frontend fallback route binding ambiguous, so startup must fail before serving HTTP traffic",
+		},
+		{
 			Path:     "apps/lina-core/internal/service/config/config_runtime_params_revision.go",
 			Function: "configureRuntimeParamCacheDomain",
 			Count:    1,

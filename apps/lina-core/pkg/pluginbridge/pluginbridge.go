@@ -88,6 +88,7 @@ type (
 	GuestControllerRouteDispatcher      = guest.GuestControllerRouteDispatcher
 	GuestControllerHandlerKind          = guest.GuestControllerHandlerKind
 	GuestControllerHandlerMetadata      = guest.GuestControllerHandlerMetadata
+	DynamicRouteRegistrar               = guest.DynamicRouteRegistrar
 	GuestHandler                        = guest.GuestHandler
 	GuestRuntime                        = guest.GuestRuntime
 	ErrorCase                           = guest.ErrorCase
@@ -422,6 +423,8 @@ var (
 	QueryFlag                             = guest.QueryFlag
 	NewErrorCase                          = guest.NewErrorCase
 	NewErrorClassifier                    = guest.NewErrorClassifier
+	NewGuestControllerContext             = guest.NewGuestControllerContext
+	BuildGuestControllerResponse          = guest.BuildGuestControllerResponse
 	RequestEnvelopeFromContext            = guest.RequestEnvelopeFromContext
 	SetResponseHeader                     = guest.SetResponseHeader
 	SetResponseStatusCode                 = guest.SetResponseStatusCode

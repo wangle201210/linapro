@@ -51,32 +51,34 @@ type RuntimeBuildOutput struct {
 }
 
 type pluginManifest struct {
-	ID                  string          `yaml:"id"`
-	Name                string          `yaml:"name"`
-	Version             string          `yaml:"version"`
-	Type                string          `yaml:"type"`
-	ScopeNature         string          `yaml:"scope_nature"`
-	SupportsMultiTenant *bool           `yaml:"supports_multi_tenant"`
-	DefaultInstallMode  string          `yaml:"default_install_mode"`
-	Description         string          `yaml:"description"`
-	Dependencies        *dependencySpec `yaml:"dependencies"`
-	Menus               []*menuSpec     `yaml:"menus"`
+	ID                  string             `yaml:"id"`
+	Name                string             `yaml:"name"`
+	Version             string             `yaml:"version"`
+	Type                string             `yaml:"type"`
+	ScopeNature         string             `yaml:"scope_nature"`
+	SupportsMultiTenant *bool              `yaml:"supports_multi_tenant"`
+	DefaultInstallMode  string             `yaml:"default_install_mode"`
+	Description         string             `yaml:"description"`
+	Dependencies        *dependencySpec    `yaml:"dependencies"`
+	Menus               []*menuSpec        `yaml:"menus"`
+	PublicAssets        []*publicAssetSpec `yaml:"public_assets"`
 	// Capabilities is kept only to reject deprecated author-side manifest input.
 	Capabilities []string                        `yaml:"capabilities"`
 	HostServices []*pluginbridge.HostServiceSpec `yaml:"hostServices"`
 }
 
 type dynamicArtifactManifest struct {
-	ID                  string          `json:"id" yaml:"id"`
-	Name                string          `json:"name" yaml:"name"`
-	Version             string          `json:"version" yaml:"version"`
-	Type                string          `json:"type" yaml:"type"`
-	ScopeNature         string          `json:"scopeNature,omitempty" yaml:"scopeNature,omitempty"`
-	SupportsMultiTenant *bool           `json:"supportsMultiTenant,omitempty" yaml:"supportsMultiTenant,omitempty"`
-	DefaultInstallMode  string          `json:"defaultInstallMode,omitempty" yaml:"defaultInstallMode,omitempty"`
-	Description         string          `json:"description,omitempty" yaml:"description,omitempty"`
-	Dependencies        *dependencySpec `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
-	Menus               []*menuSpec     `json:"menus,omitempty" yaml:"menus,omitempty"`
+	ID                  string             `json:"id" yaml:"id"`
+	Name                string             `json:"name" yaml:"name"`
+	Version             string             `json:"version" yaml:"version"`
+	Type                string             `json:"type" yaml:"type"`
+	ScopeNature         string             `json:"scopeNature,omitempty" yaml:"scopeNature,omitempty"`
+	SupportsMultiTenant *bool              `json:"supportsMultiTenant,omitempty" yaml:"supportsMultiTenant,omitempty"`
+	DefaultInstallMode  string             `json:"defaultInstallMode,omitempty" yaml:"defaultInstallMode,omitempty"`
+	Description         string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Dependencies        *dependencySpec    `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
+	Menus               []*menuSpec        `json:"menus,omitempty" yaml:"menus,omitempty"`
+	PublicAssets        []*publicAssetSpec `json:"public_assets,omitempty" yaml:"public_assets,omitempty"`
 }
 
 type dynamicArtifactMetadata = pluginbridge.RuntimeArtifactMetadata
@@ -105,6 +107,12 @@ type frontendAsset struct {
 	Path          string `json:"path" yaml:"path"`
 	ContentBase64 string `json:"contentBase64" yaml:"contentBase64"`
 	ContentType   string `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+}
+
+type publicAssetSpec struct {
+	Source string `json:"source" yaml:"source"`
+	Mount  string `json:"mount,omitempty" yaml:"mount,omitempty"`
+	Index  string `json:"index,omitempty" yaml:"index,omitempty"`
 }
 
 type i18nAsset struct {
@@ -196,6 +204,68 @@ type hookSpec struct {
 }
 
 type lifecycleSpec = pluginbridge.LifecycleContract
+
+// wasmDispatcherSpec describes one generated guest dispatcher file used only
+// while compiling the dynamic plugin runtime module.
+type wasmDispatcherSpec struct {
+	PluginID        string
+	APIControllers  []*wasmAPIControllerSpec
+	Routes          []*wasmRouteHandlerSpec
+	LifecycleRoutes []*wasmLifecycleHandlerSpec
+	EnvelopeRoutes  []*wasmEnvelopeHandlerSpec
+}
+
+// wasmAPIControllerSpec records one backend API interface/controller pair
+// referenced by generated typed route handlers.
+type wasmAPIControllerSpec struct {
+	ImportAlias       string
+	PackagePath       string
+	InterfaceAlias    string
+	InterfacePath     string
+	Constructor       string
+	ConcreteType      string
+	InterfaceName     string
+	InterfaceTypeExpr string
+}
+
+// wasmRouteHandlerSpec records one DTO route contract and its typed
+// controller method.
+type wasmRouteHandlerSpec struct {
+	RequestType     string
+	Method          string
+	Path            string
+	APIPackage      string
+	ControllerAlias string
+	ControllerType  string
+	MethodName      string
+	DTOImportAlias  string
+	RequestTypeExpr string
+	Fields          []*wasmDTOFieldSpec
+}
+
+// wasmDTOFieldSpec describes one JSON-tagged request DTO field. GoType is set
+// only for fields that generated code can hydrate from path or query values.
+type wasmDTOFieldSpec struct {
+	GoName   string
+	JSONName string
+	GoType   string
+	Required bool
+}
+
+// wasmLifecycleHandlerSpec records one lifecycle callback method discovered
+// from backend controller sources.
+type wasmLifecycleHandlerSpec struct {
+	RequestType string
+	MethodName  string
+}
+
+// wasmEnvelopeHandlerSpec records one envelope-style callback that is not
+// declared through API DTO route contracts.
+type wasmEnvelopeHandlerSpec struct {
+	RequestType  string
+	InternalPath string
+	MethodName   string
+}
 
 type resourceSpec struct {
 	Key            string                 `json:"key" yaml:"key"`

@@ -554,7 +554,7 @@ func TestEnsurePackedPublicPlaceholderCreatesGitkeep(t *testing.T) {
 	}
 }
 
-func TestRunWasmResolvesExplicitRelativeOutputFromCurrentDirectory(t *testing.T) {
+func TestRunWasmResolvesExplicitRelativeOutputFromRepositoryRoot(t *testing.T) {
 	root := t.TempDir()
 	pluginRoot := filepath.Join(root, "apps", "lina-plugins")
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n")
@@ -582,17 +582,21 @@ func TestRunWasmResolvesExplicitRelativeOutputFromCurrentDirectory(t *testing.T)
 
 	if err = runWasm(context.Background(), application, commandInput{
 		Params: map[string]string{
-			"out": "../../temp/output",
+			"out": "temp/output",
 			"p":   "linapro-demo-dynamic",
 		},
 	}); err != nil {
 		t.Fatalf("runWasm returned error: %v", err)
 	}
 
-	expected := filepath.Clean(filepath.Join(workDir, "../../temp/output"))
+	expected := filepath.Join(root, "temp", "output")
 	artifactPath := filepath.Join(expected, "linapro-demo-dynamic.wasm")
 	if !fileutil.FileExists(artifactPath) {
 		t.Fatalf("expected wasm artifact at %s", artifactPath)
+	}
+	workspaceArtifactPath := filepath.Join(workDir, "temp", "output", "linapro-demo-dynamic.wasm")
+	if fileutil.FileExists(workspaceArtifactPath) {
+		t.Fatalf("wasm artifact should not be written under plugin workspace: %s", workspaceArtifactPath)
 	}
 }
 
@@ -882,9 +886,18 @@ func TestRunDevStartsServicesAsAsyncProcessesAndPrintsFinalStatus(t *testing.T) 
 	var stdout bytes.Buffer
 	application := newApp(&stdout, ioDiscard{}, strings.NewReader(""))
 	application.root = root
-	application.execCommand = func(_ context.Context, name string, args ...string) *exec.Cmd {
+	application.execCommand = func(runCtx context.Context, name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) >= 1 && args[0] == "build" {
 			return exec.Command("true")
+		}
+		if strings.Contains(name, "vite") {
+			serviceEnv, _ := runCtx.Value(devservice.RunnerContextServiceEnvKey).([]string)
+			if got := toolutil.EnvValue(serviceEnv, "LINAPRO_FRONTEND_DEV_SERVER_URL"); got != "" {
+				t.Fatalf("frontend process must not receive backend proxy env, got %q", got)
+			}
+		} else if serviceEnv, _ := runCtx.Value(devservice.RunnerContextServiceEnvKey).([]string); toolutil.EnvValue(serviceEnv, "LINAPRO_FRONTEND_DEV_SERVER_URL") != "http://127.0.0.1:5666" {
+			got := toolutil.EnvValue(serviceEnv, "LINAPRO_FRONTEND_DEV_SERVER_URL")
+			t.Fatalf("backend process must receive frontend dev server URL, got %q", got)
 		}
 		return exec.Command(os.Args[0], "-test.run=TestHelperLongRunningProcess", "--")
 	}

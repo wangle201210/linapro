@@ -60,6 +60,8 @@ describe('public frontend runtime settings', () => {
       json: async () => ({
         data: {
           app: {
+            logo: '/logo.webp',
+            logoDark: '/logo-dark.webp',
             name: 'LinaPro Dark',
           },
           auth: {
@@ -84,6 +86,9 @@ describe('public frontend runtime settings', () => {
           },
           ui: {
             themeMode: 'dark',
+          },
+          workspace: {
+            basePath: '/admin',
           },
         },
       }),
@@ -112,15 +117,21 @@ describe('public frontend runtime settings', () => {
     expect(publicFrontendSettings.auth.panelLayout).toBe('panel-right');
     expect(publicFrontendSettings.user.defaultAvatar).toBe('/avatar.webp');
     expect(publicFrontendSettings.ui.themeMode).toBe('dark');
+    expect(publicFrontendSettings.workspace.basePath).toBe('/admin');
     expect(settings?.auth.panelLayout).toBe('panel-right');
     expect(settings?.user.defaultAvatar).toBe('/avatar.webp');
     expect(settings?.ui.themeMode).toBe('dark');
+    expect(settings?.workspace.basePath).toBe('/admin');
     expect(updatePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
         app: expect.objectContaining({
           authPageLayout: 'panel-right',
-          defaultAvatar: '/avatar.webp',
+          defaultAvatar: '/admin/avatar.webp',
           name: 'LinaPro Dark',
+        }),
+        logo: expect.objectContaining({
+          source: '/admin/logo.webp',
+          sourceDark: '/admin/logo-dark.webp',
         }),
         theme: expect.objectContaining({
           builtinType: 'default',
@@ -194,10 +205,109 @@ describe('public frontend runtime settings', () => {
       expect.objectContaining({
         app: expect.objectContaining({
           authPageLayout: 'panel-right',
-          defaultAvatar: '/avatar.webp',
+          defaultAvatar: '/admin/avatar.webp',
         }),
       }),
       { markUserThemePreference: false },
+    );
+  });
+
+  it('normalizes the startup workspace base path exposed to the router', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      json: async () => ({
+        data: {
+          app: {},
+          auth: {},
+          cron: {},
+          ui: {},
+          workspace: {
+            basePath: '///console///',
+          },
+        },
+      }),
+      ok: true,
+    } as Response);
+
+    const {
+      normalizeWorkspaceBasePath,
+      publicFrontendSettings,
+      resolveWorkspaceRouterBase,
+      syncPublicFrontendSettings,
+    } = await import('./public-frontend');
+    const settings = await syncPublicFrontendSettings();
+
+    expect(settings?.workspace.basePath).toBe('/console');
+    expect(publicFrontendSettings.workspace.basePath).toBe('/console');
+    expect(resolveWorkspaceRouterBase()).toBe('/console/');
+    expect(normalizeWorkspaceBasePath('/')).toBe('/');
+    expect(normalizeWorkspaceBasePath('/x')).toBe('/admin');
+    expect(normalizeWorkspaceBasePath('/x-assets/plugin')).toBe('/admin');
+  });
+
+  it('allows a root workspace base path for a dedicated admin domain', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      json: async () => ({
+        data: {
+          app: {},
+          auth: {},
+          cron: {},
+          ui: {},
+          workspace: {
+            basePath: '/',
+          },
+        },
+      }),
+      ok: true,
+    } as Response);
+
+    const {
+      publicFrontendSettings,
+      resolveWorkspaceRouterBase,
+      syncPublicFrontendSettings,
+    } = await import('./public-frontend');
+    const settings = await syncPublicFrontendSettings();
+
+    expect(settings?.workspace.basePath).toBe('/');
+    expect(publicFrontendSettings.workspace.basePath).toBe('/');
+    expect(resolveWorkspaceRouterBase()).toBe('/');
+  });
+
+  it('resolves workspace static assets under the configured workspace base path', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      json: async () => ({
+        data: {
+          app: {},
+          auth: {},
+          cron: {},
+          ui: {},
+          workspace: {
+            basePath: '/admin',
+          },
+        },
+      }),
+      ok: true,
+    } as Response);
+
+    const { resolveWorkspaceAssetURL, syncPublicFrontendSettings } =
+      await import('./public-frontend');
+    await syncPublicFrontendSettings();
+
+    expect(resolveWorkspaceAssetURL('/logo.webp')).toBe('/admin/logo.webp');
+    expect(resolveWorkspaceAssetURL('stoplight/apidocs.html?lang=zh-CN')).toBe(
+      '/admin/stoplight/apidocs.html?lang=zh-CN',
+    );
+    expect(resolveWorkspaceAssetURL('/admin/logo.webp')).toBe(
+      '/admin/logo.webp',
+    );
+    expect(resolveWorkspaceAssetURL('/api.json?lang=zh-CN')).toBe(
+      '/api.json?lang=zh-CN',
+    );
+    expect(resolveWorkspaceAssetURL('/api/v1/user')).toBe('/api/v1/user');
+    expect(resolveWorkspaceAssetURL('/x-assets/plugin/v0.1.0/app.js')).toBe(
+      '/x-assets/plugin/v0.1.0/app.js',
+    );
+    expect(resolveWorkspaceAssetURL('https://cdn.example.com/logo.webp')).toBe(
+      'https://cdn.example.com/logo.webp',
     );
   });
 });
