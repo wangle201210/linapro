@@ -110,8 +110,59 @@
 - [x] **FB-62**: media 插件需要提供独立接口文档 JSON，只输出 media 管理和 mediaopen 接口
 - [x] **FB-63**: media 插件需要提供类似 `/stoplight/apidocs.html` 的独立接口文档展示页面
 - [x] **FB-64**: media 插件启用时应让宿主全量 `/stoplight/apidocs.html` 返回 404
+- [x] **FB-65**: water 插件不应复制或直接访问 media 插件的 DAO/DO/Entity，应通过 media 拥有的稳定契约解析水印策略
+- [x] **FB-66**: media、water、cms 公开 API 响应时间字段应统一返回 Unix 毫秒时间戳，并补齐 DTO 示例标签
+- [x] **FB-67**: mediaopen 兼容接口的查询、删除语义应对齐当前 RESTful 规则，避免查询/删除继续只暴露 POST 动词路径
+- [x] **FB-68**: CMS 插件 i18n 资源与 `plugin.yaml` 治理开关不一致，应明确启用或收敛为单语言资源边界
+- [x] **FB-69**: CMS starter 内容不应作为正常安装 Seed DML，应回收为可选 mock/sample 数据并保留运行时加载能力
+- [x] **FB-70**: CMS 后端大文件应按职责拆分，避免 `cms.go` 与 `cms_public_frontend.go` 继续承载过宽实现
+- [x] **FB-71**: 当前项目实际启动流程无法启动，需要复现并修复启动期阻断
+- [x] **FB-72**: media 自有 E2E 中宿主静态入口 `#/media` 未加载媒体管理页面
+- [x] **FB-73**: water 自有 E2E 中 `/api/v1/water/preview` 使用测试图片触发水印库 JPEG 解码失败
 
 ## Feedback 验证记录
+
+- [x] FB-72 根因是 `TC-1d` 自建浏览器上下文后没有使用宿主 E2E 固件的 workspace path 导航逻辑，登录后直接设置 `window.location.hash = "#/media"` 会停留在当前工作台分析页，未触发 `/media` 插件动态页加载；已改为使用 `workspacePath("/media")` 进入真实工作台路由。
+- [x] FB-72 验证通过：`cd hack/tests && E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 E2E_HOST_BASE_URL=http://127.0.0.1:5666 pnpm test:module -- plugin:media --output=/Users/wanna/mine/github/wangle201210/linapro/temp/validation-logs/media-playwright-results-fb72-20260527`，5 passed。
+- [x] FB-73 根因有两层：water 服务文档和前端允许 `data:image/png`，但服务层直接把 PNG 原始字节传给 HotGo 迁移的 `process_jpg_watermark` JPEG-only C 入口；PNG 转成 JPEG 后，小图输入又因 adapter 使用 `inputSize * 2` 作为输出缓冲，水印后高质量 JPEG 输出超过缓冲并返回 `AVERROR(ENOSPC)`。
+- [x] FB-73 在 water 服务层把任意可解码输入图片归一化为 JPEG 后再调用 HotGo C 水印库，接口响应继续按原契约返回 PNG data URL；同时将 cgo adapter 输出缓冲改为按输入大小、像素尺寸、2MB 下限和 50MB 上限估算，避免小图水印输出空间不足。
+- [x] FB-73 新增/更新单元测试：`TestEnsureJPEGBytesConvertsPNG` 覆盖 PNG 输入归一化为 JPEG，`TestWatermarkOutputBufferSizeHandlesTinyInputs` 覆盖小图输出缓冲下限。
+- [x] FB-73 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./water/backend/internal/library/watermark ./water/backend/internal/service/water -count=1`。
+- [x] FB-73 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend/... ./water/backend/... -count=1`。
+- [x] FB-73 验证通过：`make dev` 重启后，`cd hack/tests && E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 E2E_HOST_BASE_URL=http://127.0.0.1:5666 pnpm test:module -- plugin:water --output=/Users/wanna/mine/github/wangle201210/linapro/temp/validation-logs/water-playwright-results-fb73-rerun-20260527`，2 passed。
+- [x] FB-72~FB-73 治理验证通过：`pnpm --dir hack/tests exec tsc --noEmit --pretty false`、`openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] FB-72~FB-73 i18n/缓存/数据权限影响评估：本次只调整插件 E2E 导航和 water 图片处理内部执行链路，不新增或修改用户可见文案、manifest i18n、apidoc i18n JSON、缓存读写、缓存失效策略、数据查询范围或后台/公开接口鉴权边界。media/water 仍按未启用插件 i18n 的单语言插件处理。
+- [x] FB-72~FB-73 开发工具与脚本影响评估：未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口；`make dev` 仅用于重启本地服务加载后端新二进制。
+
+- [x] 子 agent 验证记录：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend/... ./water/backend/... -count=1` 通过，日志保留在 `temp/validation-logs/media-water-go-test-20260527.log`。
+- [x] 子 agent 验证记录：`cd hack/tests && E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 E2E_HOST_BASE_URL=http://127.0.0.1:5666 pnpm test:module -- plugin:media --output=/Users/wanna/mine/github/wangle201210/linapro/temp/validation-logs/media-playwright-results-20260527` 失败，4 passed / 1 failed，失败用例为 `TC-1d: 宿主静态入口可加载媒体管理页面`。
+- [x] 子 agent 验证记录：`cd hack/tests && E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 E2E_HOST_BASE_URL=http://127.0.0.1:5666 pnpm test:module -- plugin:water --output=/Users/wanna/mine/github/wangle201210/linapro/temp/validation-logs/water-playwright-results-20260527` 失败，1 passed / 1 failed，失败用例为 `TC-1a: water APIs render watermark from media_* strategy tables`。
+
+- [x] FB-71 复现 `make dev` 启动失败，先后定位三个阻断：CMS `plugin.yaml` 的 `i18n.locales` 使用旧字符串数组结构、water `plugin.yaml` 的 `dependencies.plugins` 使用宿主不支持的 `required/install` 字段、`temp/output/plugin-demo-dynamic.wasm` 旧动态插件产物残留导致运行时 artifact 扫描失败。
+- [x] FB-71 将 CMS 插件清单调整为当前宿主要求的 `i18n.locales[].locale/nativeName` 对象结构，并保持 CMS 已启用 i18n 时的英文源内容语言与 `en-US` 默认语言一致；将 water 插件依赖声明收敛为仅包含 `id` 与 `version`，符合宿主 source/runtime manifest 统一 schema。
+- [x] FB-71 清理本地旧动态 WASM 临时产物 `temp/output/plugin-demo-dynamic.wasm`；当前源码构建产物为 `temp/output/linapro-demo-dynamic.wasm`，旧文件不属于源码插件清单，但宿主会扫描动态插件 artifact 目录下所有 `.wasm`。
+- [x] FB-71 验证通过：`make dev` 成功启动，后端 ready `http://127.0.0.1:9120/`，前端 ready `http://127.0.0.1:5666/`。
+- [x] FB-71 验证通过：`curl -i http://127.0.0.1:9120/api/v1/auth/login ... {"username":"admin","password":"admin123"}` 返回 HTTP 200 与 `code:0`，当前未复现“登录 IP 已被禁止”。
+- [x] FB-71 验证通过：`cd apps/lina-core && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./internal/cmd -count=1`。
+- [x] FB-71 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./water/backend/... ./cms/backend/... -count=1`。
+- [x] FB-71 治理验证通过：water 插件依赖清单只包含 `id/version`，`openspec validate add-media-plugin --strict` 通过。
+- [x] FB-71 i18n/缓存/数据权限影响评估：本次只修复插件清单 schema 与本地动态产物污染；CMS 插件 i18n 继续显式启用并按插件自身 `plugin.yaml` 治理，media/water 未启用插件 i18n；不新增缓存、不改变缓存失效策略；不新增数据读写接口、不改变后台管理或 mediaopen 的鉴权和数据权限边界。
+- [x] FB-71 开发工具与脚本影响评估：未修改 `make dev`、`linactl` 或脚本入口；本次清理的是当前工作区旧临时 artifact，不引入新的平台专属开发路径。已按反馈流程读取 `.agents/rules/plugin.md`、`.agents/rules/i18n.md`、`.agents/rules/testing.md` 与 `.agents/rules/dev-tooling.md`。
+
+- [x] FB-65 在 media 插件新增 `backend/provider/strategy` 稳定 provider 契约，由 media 内部 service 负责查询策略；water 仅依赖该 provider，不再复制或直接访问 media 的 DAO/DO/Entity，并删除 water 插件中复制的 media DAO/DO/Entity 与生成配置。
+- [x] FB-65 将 water 服务构造改为显式接收 media 策略 resolver，异步队列通过注入的 `processSnapshot` 回调处理任务，避免队列内部隐式构造 service 图；`media` 与 `water` 仍通过插件注册期的 host `BizCtx`、`Cache` 共享运行期能力。
+- [x] FB-66 将 media、water、cms 公开 API 响应 DTO 的时间点字段统一调整为 `int64` 或 `*int64` Unix 毫秒时间戳，并补齐/修正文档 `dc` 与 `eg` 示例；内部 entity/service 仍可使用 `gtime.Time`，在 controller 或 service 投影边界转换。
+- [x] FB-67 将 mediaopen 路由记忆接口调整为 `PUT /api/v1/route-memories/{deviceCode}/{channelCode}`、`GET /api/v1/route-memories/{deviceCode}/{channelCode}`、`DELETE /api/v1/route-memories/{deviceCode}/{channelCode}`，将 token 查询类接口调整为 `GET /api/v1/strategies/user-device` 与 `GET /api/v1/tenant-whites/ips`，并更新 route-level 测试和独立 OpenAPI 断言。
+- [x] FB-68 明确 CMS 插件启用 `i18n.enabled: true`，并在 `plugin.yaml` 声明默认语言 `en-US` 以及 `en-US`、`zh-CN`、`zh-TW`；CMS 插件清单和 API DTO 源文本保持英文，中文/繁中 manifest 与 `apidoc` 资源同步补齐时间字段的 Unix 毫秒单位说明。media/water 未显式启用插件 i18n，继续按单语言插件处理。
+- [x] FB-69 将 CMS starter 内容从安装 SQL `manifest/sql/003-cms-starter-content.sql` 回收为可选 mock 数据 `manifest/sql/mock-data/002-cms-starter-content.sql`，运行时加载示例数据继续从嵌入资源路径读取；README 与 manifest README 已同步说明正常安装只交付 schema/governance 资源。
+- [x] FB-70 将 CMS service 主文件拆分为 `cms_types.go`、`cms_site.go`、`cms_category.go`、`cms_article.go`、`cms_message.go`、`cms_assets.go`、`cms_helpers.go` 等职责文件，并将公开前端渲染拆分为 view/template/model/helpers 文件；本次按用户要求未处理 CMS 静态资源目录/public_assets 问题。
+- [x] 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend/... ./water/backend/... ./cms/backend/... -count=1`。
+- [x] 验证通过：`cd apps/lina-plugins/water && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend/... -count=1`。
+- [x] 治理验证通过：CMS apidoc i18n JSON 解析与时间字段 Unix 毫秒单位扫描通过，`openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
+- [x] 静态扫描通过：未发现旧 `HostServices()`、旧 `lina-core/pkg/pluginhost`/`pluginservice` 导入、water 复制的 media DAO/DO/Entity 依赖、公开 API DTO 暴露 `gtime.Time/time.Time`，也未发现旧 CMS `003-cms-starter-content` 路径残留。
+- [x] i18n/缓存/数据权限影响评估：FB-65~FB-70 涉及插件后端契约、API 文档、插件清单、SQL 资源归类和文件组织。CMS 显式启用插件 i18n 并同步 apidoc 资源；media/water 未启用插件 i18n，按单语言插件处理。本次未新增缓存，water/media 仍复用宿主注入的 cache 契约；不新增后台管理数据操作接口，mediaopen 公开接口边界仍由 `InnerApiAuth` 与 token 租户解析保护，CMS starter 数据回收为 mock/sample 不扩大后台数据权限边界。
+- [x] 开发工具与脚本影响评估：FB-65~FB-70 未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口；验证命令仅使用现有 Go/OpenSpec/Node 工具。
+- [x] `/lina-review` 审查：FB-65~FB-70 未发现阻塞问题；审查中已修正 CMS 拆分文件的机械化注释和 CMS `plugin.yaml` 源语言/默认语言不一致问题，并重新通过三插件后端测试、OpenSpec、diff 检查和 i18n JSON/YAML 校验。
 
 - [x] FB-64 在 media 插件内通过 `GlobalMiddlewares` 注册精确路径拦截，media 插件启用时 `GET /stoplight/apidocs.html` 返回 HTTP 404；未修改 `apps/lina-core` 或宿主前端静态文件。
 - [x] FB-64 保留 `/api/v1/media/apidocs.html` 作为 media 独立文档页面，并继续允许页面使用 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源。
