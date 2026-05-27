@@ -119,6 +119,7 @@
 - [x] **FB-71**: 当前项目实际启动流程无法启动，需要复现并修复启动期阻断
 - [x] **FB-72**: media 自有 E2E 中宿主静态入口 `#/media` 未加载媒体管理页面
 - [x] **FB-73**: water 自有 E2E 中 `/api/v1/water/preview` 使用测试图片触发水印库 JPEG 解码失败
+- [x] **FB-74**: media 独立接口文档页引用不存在的 `/stoplight` 静态资源导致本地页面空白
 
 ## Feedback 验证记录
 
@@ -133,6 +134,14 @@
 - [x] FB-72~FB-73 治理验证通过：`pnpm --dir hack/tests exec tsc --noEmit --pretty false`、`openspec validate add-media-plugin --strict`、`git diff --check`、`git -C apps/lina-plugins diff --check` 均通过。
 - [x] FB-72~FB-73 i18n/缓存/数据权限影响评估：本次只调整插件 E2E 导航和 water 图片处理内部执行链路，不新增或修改用户可见文案、manifest i18n、apidoc i18n JSON、缓存读写、缓存失效策略、数据查询范围或后台/公开接口鉴权边界。media/water 仍按未启用插件 i18n 的单语言插件处理。
 - [x] FB-72~FB-73 开发工具与脚本影响评估：未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口；`make dev` 仅用于重启本地服务加载后端新二进制。
+- [x] FB-74 根因是 media 独立文档页引用根路径 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js`，但当前本地宿主实际把 Stoplight 静态资源挂载在 `/admin/stoplight/*`；media 插件对 `/stoplight/apidocs.html` 的精确 404 拦截没有拦截 `/admin/stoplight/*`，空白页来自资源路径写错。
+- [x] FB-74 已将 media 独立文档页改为引用 `/admin/stoplight/styles.min.css` 与 `/admin/stoplight/web-components.min.js`，同时保持 `/stoplight/apidocs.html` 返回 404、`/api/v1/media/apidocs.html` 和 `/api/v1/media/openapi.json` 可用。
+- [x] FB-74 新增/更新自动化测试：后端 `TestMediaPluginAPIDocsPageLoadsMediaDocument` 断言页面引用 `/admin/stoplight` 且不回退到根路径 `/stoplight` 静态资源；media 自有 E2E 新增 `TC-1e`，真实浏览器打开 `/api/v1/media/apidocs.html` 并等待 Stoplight 内容渲染。
+- [x] FB-74 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend -run 'TestMediaPlugin(APIDocsPageLoadsMediaDocument|BlocksHostAPIDocsPage|OpenAPIDocumentOnlyContainsMediaRoutes)' -count=1`。
+- [x] FB-74 验证通过：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend/... -count=1`。
+- [x] FB-74 本地验证通过：`make dev` 重新启动后，`GET http://127.0.0.1:9120/api/v1/media/apidocs.html` 返回 200 且 HTML 引用 `/admin/stoplight/*`；`GET /admin/stoplight/web-components.min.js`、`GET /admin/stoplight/styles.min.css`、`GET /api/v1/media/openapi.json` 均返回 200；`GET /stoplight/apidocs.html` 仍返回 404。
+- [x] FB-74 i18n/缓存/数据权限影响评估：本次仅调整 media 插件文档页静态资源路径和测试，不新增或修改用户业务文案、manifest i18n、apidoc i18n JSON、缓存读写、缓存失效策略、业务数据查询或接口鉴权边界。media 插件仍按未启用插件 i18n 的中文-only 单语言插件处理。
+- [x] FB-74 开发工具与脚本影响评估：未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口；`make dev` 仅用于让本地服务加载新的后端模板。
 
 - [x] 子 agent 验证记录：`cd apps/lina-plugins && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./media/backend/... ./water/backend/... -count=1` 通过，日志保留在 `temp/validation-logs/media-water-go-test-20260527.log`。
 - [x] 子 agent 验证记录：`cd hack/tests && E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 E2E_HOST_BASE_URL=http://127.0.0.1:5666 pnpm test:module -- plugin:media --output=/Users/wanna/mine/github/wangle201210/linapro/temp/validation-logs/media-playwright-results-20260527` 失败，4 passed / 1 failed，失败用例为 `TC-1d: 宿主静态入口可加载媒体管理页面`。
@@ -165,7 +174,7 @@
 - [x] `/lina-review` 审查：FB-65~FB-70 未发现阻塞问题；审查中已修正 CMS 拆分文件的机械化注释和 CMS `plugin.yaml` 源语言/默认语言不一致问题，并重新通过三插件后端测试、OpenSpec、diff 检查和 i18n JSON/YAML 校验。
 
 - [x] FB-64 在 media 插件内通过 `GlobalMiddlewares` 注册精确路径拦截，media 插件启用时 `GET /stoplight/apidocs.html` 返回 HTTP 404；未修改 `apps/lina-core` 或宿主前端静态文件。
-- [x] FB-64 保留 `/api/v1/media/apidocs.html` 作为 media 独立文档页面，并继续允许页面使用 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源。
+- [x] FB-64 保留 `/api/v1/media/apidocs.html` 作为 media 独立文档页面，并继续允许页面使用宿主已挂载的 Stoplight 静态资源。
 - [x] FB-64 新增 `TestMediaPluginBlocksHostAPIDocsPage`，真实请求 `/stoplight/apidocs.html` 断言 404，并请求 `/api/v1/media/apidocs.html` 断言 media 独立页面仍可访问。
 - [x] FB-64 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPlugin(APIDocsPageLoadsMediaDocument|BlocksHostAPIDocsPage|OpenAPIDocumentOnlyContainsMediaRoutes)' -count=1`、`go test ./backend/internal/apidoc ./backend -count=1`、`go test ./backend/... -count=1` 均通过。
 - [x] FB-64 治理验证通过：`openspec validate add-media-plugin --strict`、`git diff --check` 与 `git -C apps/lina-plugins diff --check` 均通过。
@@ -173,7 +182,7 @@
 - [x] 开发工具与脚本影响评估：FB-64 未新增或修改开发、构建、测试、代码生成、服务启停或 CI 脚本入口。
 - [x] `/lina-review` 审查：FB-64 未发现阻断问题；确认变更收敛在 media 插件内，未修改 `apps/lina-core`，且路由测试、插件后端全量测试和 OpenSpec 校验均通过。
 
-- [x] FB-63 在 media 插件内新增 `GET /api/v1/media/apidocs.html`，页面复用宿主已有 `/stoplight/styles.min.css` 与 `/stoplight/web-components.min.js` 静态资源，并固定加载插件自有 `/api/v1/media/openapi.json`；未修改 `apps/lina-core` 文档服务或全量 `/stoplight/apidocs.html`。
+- [x] FB-63 在 media 插件内新增 `GET /api/v1/media/apidocs.html`，页面复用宿主已有 Stoplight 静态资源，并固定加载插件自有 `/api/v1/media/openapi.json`；未修改 `apps/lina-core` 文档服务或全量 `/stoplight/apidocs.html`。
 - [x] FB-63 页面支持通过 URL Query String 中的 `token` 预填 `BearerAuth`、通过 `innerApiKey` 或 `apiKey` 预填 `InnerApiKeyAuth`，便于 Stoplight Try It 调试 media 管理端和 mediaopen 接口。
 - [x] FB-63 新增 `TestMediaPluginAPIDocsPageLoadsMediaDocument`，真实请求插件文档页面，断言页面加载 media 独立 OpenAPI JSON、Stoplight 静态资源和两套安全方案预填逻辑，并确认未加载宿主全量 `/api.json`。
 - [x] FB-63 验证通过：`cd apps/lina-plugins/media && GOWORK=/Users/wanna/mine/github/wangle201210/linapro/temp/go.work.plugins go test ./backend -run 'TestMediaPluginOpenAPI(DocumentOnlyContainsMediaRoutes|PageLoadsMediaDocument)|TestMediaPluginAPIDocsPageLoadsMediaDocument' -count=1`、`go test ./backend/internal/apidoc ./backend -count=1`、`go test ./backend/... -count=1` 均通过。
