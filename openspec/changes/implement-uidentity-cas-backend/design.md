@@ -1,0 +1,69 @@
+## Context
+
+源项目`uidentity/admin`是 GoAdmin/Gin/GORM 实现，包含默认后台系统管理能力和统一身份业务能力。LinaPro 已经内建或以官方插件提供用户、角色、菜单、字典、配置、组织、登录日志、在线用户和定时任务等通用能力，因此本次只迁移统一身份域业务后端，不复制页面和不重复实现宿主管理工作台。
+
+本次设计遵守核心宿主边界：`apps/lina-core`继续提供框架级认证、权限、租户、插件生命周期和通用模块接口；统一身份域以源码插件`linapro-uidentity-cas`落地，插件自有数据、API 和服务均位于`apps/lina-plugins/linapro-uidentity-cas/`。
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- 完整承接源项目统一身份后端功能：账号、详情、单位、容器、分组、应用、授权、黑名单、密码策略、短信记录、认证日志、OAuth token、变更日志、CAS 登录、密码自助变更和统计聚合。
+- 使用插件同构后端结构：`backend/api/`、`backend/plugin.go`、`backend/internal/controller/`、`backend/internal/service/`、`backend/internal/dao/`、`backend/internal/model/`。
+- 使用插件自有 PostgreSQL SQL 和 DAO/DO/Entity 生成物，不依赖宿主私有 DAO/DO/Entity。
+- 高频列表、批量详情、日志和统计接口采用数据库侧过滤、分页、聚合和批量装配，避免`N+1`查询。
+- RESTful API 方法语义、时间字段 Unix 毫秒响应、`g.Meta`/`dc`/`eg`/`permission`标签和`bizerr`错误治理满足项目规则。
+
+**Non-Goals:**
+
+- 不实现或修改前端页面、路由页面组件、表格或表单。
+- 不迁移源项目默认系统管理页面能力，包括`sys_user`、`sys_role`、`sys_menu`、`sys_dict`、`sys_config`、`sys_post`、`sys_dept`等已由 LinaPro 宿主或官方插件提供的通用能力。
+- 不在本阶段接入真实 LDAP 目录写入。与 LDAP 相关的源项目行为先抽象为可配置外部同步边界；默认实现保持本地权威数据和明确错误/跳过语义。
+
+## Decisions
+
+### 新建源码插件而不是修改`lina-core`
+
+统一身份、CAS 和 OAuth 是业务域能力，不属于框架核心宿主的默认通用契约。将能力放入`linapro-uidentity-cas`源码插件可以复用宿主认证、权限、租户和插件生命周期，同时避免把应用、分组、黑名单、授权等业务展示结构写进`lina-core`。
+
+备选方案是直接修改`lina-core`用户认证模块。该方案会把具体身份域数据模型和 CAS/OAuth 业务接口变成核心宿主契约，降低框架复用性，因此不采用。
+
+### 插件自有表使用稳定前缀和集合化查询
+
+插件表统一使用`plugin_linapro_uidentity_cas_*`前缀。列表接口在数据库侧完成过滤、排序、分页和租户边界，关联名称通过批量查询和内存映射装配；统计接口通过聚合查询一次性获取各维度结果。
+
+备选方案是沿用源项目原表名。该方案容易与宿主或其他插件表冲突，也不符合插件数据归属规则，因此不采用。
+
+### 账号域保留独立账号模型
+
+源项目统一身份账号不是 LinaPro 宿主登录用户的简单扩展，包含工号、单位、容器、账号详情、分组、密码强度、授权和外部应用登录等业务字段。插件保留独立账号模型，并通过必要字段与宿主当前用户上下文做审计关联。
+
+备选方案是扩展宿主`sys_user`。该方案会把统一身份域字段写入核心用户模型，并增加默认用户管理接口的复杂度，因此不采用。
+
+### CAS/OAuth 运行时采用插件内服务
+
+CAS ticket 校验、应用状态/白名单/黑名单判断、登录日志记录和 OAuth token 存储由插件服务完成。外部 CAS validate URL 作为插件配置或运行参数读取，缺失时返回结构化配置错误。默认不在插件内创建新的宿主认证 token，避免绕过宿主认证边界。
+
+备选方案是把 CAS 登录直接接入宿主`auth`服务签发 LinaPro JWT。本阶段需求是迁移`uidentity/admin`后端能力且不做页面，直接签发宿主 token 会改变宿主登录语义，需要单独 OpenSpec 设计，因此暂不纳入。
+
+## Risks / Trade-offs
+
+- [Risk] 源项目功能范围大，单次实现容易失控。→ 按可提交切片推进：插件骨架与 schema、基础 CRUD、认证运行时、统计日志、验证和审查。
+- [Risk] 外部 LDAP/CAS 环境不可用导致测试不稳定。→ CAS validate 通过接口化 HTTP client 或测试替身覆盖；LDAP 写入本阶段作为可配置外部边界，不要求集成环境。
+- [Risk] 日志和统计接口容易产生`N+1`查询。→ 设计中要求列表先分页，再批量装配账号/应用/容器/单位/分组投影；统计使用聚合查询和映射。
+- [Risk] 插件启用`i18n`后文案资源维护量增加。→ 插件清单明确启用状态；若启用，API 源文本使用英文并维护插件自身`manifest/i18n`资源。
+
+## Migration Plan
+
+1. 新建`linapro-uidentity-cas`源码插件骨架、`plugin.yaml`、嵌入入口和空后端注册。
+2. 新增插件 SQL schema、卸载 SQL、DAO/DO/Entity 生成物或按当前仓库插件范式维护生成结果。
+3. 实现基础管理 API 和 service，优先覆盖账号、应用、分组、单位、容器、密码策略、黑名单、授权和日志列表。
+4. 实现 CAS/OAuth 运行时服务、密码强度校验、自助改密和统计聚合。
+5. 运行 OpenSpec、SQL、Go 编译和单元测试门禁，完成阶段提交。
+
+回滚策略：源码插件可以通过插件生命周期卸载 SQL 删除插件自有表；若尚未启用插件，可直接移除插件目录和`go.mod`引用。
+
+## Open Questions
+
+- 是否需要把 CAS 登录成功接入宿主`auth`签发 LinaPro JWT？当前实现默认保持插件业务登录结果，不修改宿主认证语义。
+- 是否需要真实 LDAP 写入能力？当前先保留外部同步边界，避免引入未配置环境导致默认流程不可用。
