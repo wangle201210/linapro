@@ -39,9 +39,12 @@
 - [x] **FB-1**: 源项目`uidentity/admin`服务端功能未全量迁入插件，当前实现只覆盖管理 CRUD、基础 CAS ticket 校验和统计
 - [x] **FB-2**: 插件缺少旧 admin 的 CAS 服务端票据链、Token 链路、账号激活和用户自助后端接口
 - [x] **FB-3**: 插件缺少旧 admin 的 OAuth 授权码流程、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类后端能力
+- [x] **FB-4**: 二次核对发现旧 admin 的`account/unlockPassword`密码错误次数解锁后端能力未在插件内落地
 
 ## Feedback Impact Notes
 
+- FB-4 根因记录：旧实现的`account/unlockPassword`不属于页面能力，它清理 CAS 密码登录中按`cas:pwd:errnum:<number>`累计的短期密码错误次数；插件已实现账号状态、管理员改密和运行时密码校验，但未保存密码错误次数状态，也没有按账号列表解锁的后端入口。本轮补齐时仅修改`linapro-uidentity-cas`插件，使用插件自有 token 表承载短期错误次数状态，不修改`apps/lina-core`核心框架。
+- FB-4 已完成：新增受宿主认证、租户和权限中间件治理的`POST /uidentity/accounts/password-unlocks`，按当前租户可见账号列表批量清理插件 token 表中的`cas:pwd:errnum:<number>`短期错误次数状态；CAS 密码登录、runtime token、OAuth 授权码密码校验和 UnionID 账号密码绑定统一接入错误次数检查，错误达到旧项目同等阈值后返回结构化`UIDENTITY_PASSWORD_FAILURES_LOCKED`。i18n：插件未启用`i18n.enabled`，新增 API 文档源文本和错误码暂不补插件翻译资源；缓存一致性：新增短期状态以插件 OAuth token 表为权威源并依赖`expired_at`失效，不引入进程内缓存；数据权限：管理员解锁接口进入宿主认证、租户和权限中间件，解锁前按账号表租户可见性批量过滤；SQL/DAO：复用既有 token 表和唯一 code 索引，无新增 SQL 或 DAO；API/后端 Go：新增 RESTful DTO、controller、service 接口和实现，运行`make ctrl p=linapro-uidentity-cas`同步 GoFrame 控制器接口生成；开发工具跨平台：仅使用既有 Makefile 入口，无脚本变更；测试：新增纯函数单测覆盖旧 key 前缀、空账号过滤、去重和数量截断。验证补充运行`GOWORK=off go test ./... -count=1`（插件独立模块）、`GOWORK=off go test ./... -count=1`（`apps/lina-plugins`聚合模块）、`openspec validate implement-uidentity-cas-backend --strict`、主仓库和插件子仓库`git diff --check`。
 - FB-1 已完成：本轮以源项目`/Users/wanna/mine/ecoding/uidentity/admin/app/**/router/*.go`实际路由为入口，重新审计旧后端能力与插件当前注册路由、资源定义、SQL 表和 service 实现。统一身份域后端能力已由`linapro-uidentity-cas`插件承载；默认系统管理、代码生成、页面/重定向壳和全局监控暴露明确不属于 CAS 插件后端迁移目标。
 - FB-2 已完成：CAS TGT/ST 服务端票据链、运行时 token、账号激活、UnionID 绑定和用户自助后端接口均落在`linapro-uidentity-cas`插件内，未修改`apps/lina-core`核心框架；i18n 未启用插件资源治理，缓存无新增状态，数据权限继续通过宿主`TenantFilter`接入。
 - 验证记录：已运行`GOWORK=off go test ./... -count=1`（插件独立模块）、`GOWORK=off go test ./... -count=1`（`apps/lina-plugins`聚合模块）、`openspec validate implement-uidentity-cas-backend --strict`、主仓库和插件子仓库`git diff --check`。
