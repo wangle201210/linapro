@@ -32,4 +32,16 @@
 - [x] 6.1 运行`openspec validate implement-uidentity-cas-backend --strict`
 - [x] 6.2 运行插件和受影响宿主包 Go 编译/单元测试门禁
 - [x] 6.3 运行`git diff --check`和插件子仓库静态检查
-- [ ] 6.4 在合适阶段提交主仓库和插件仓库代码
+- [x] 6.4 在合适阶段提交主仓库和插件仓库代码
+
+## Feedback
+
+- [ ] **FB-1**: 源项目`uidentity/admin`服务端功能未全量迁入插件，当前实现只覆盖管理 CRUD、基础 CAS ticket 校验和统计
+- [x] **FB-2**: 插件缺少旧 admin 的 CAS 服务端票据链、Token 链路、账号激活和用户自助后端接口
+- [ ] **FB-3**: 插件缺少旧 admin 的 OAuth 授权码流程、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类后端能力
+
+## Feedback Impact Notes
+
+- FB-1/FB-3 仍未完成：旧 admin 的 OAuth 授权码完整流程、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类后端能力还需要继续迁入插件。
+- FB-2 已完成：CAS TGT/ST 服务端票据链、运行时 token、账号激活、UnionID 绑定和用户自助后端接口均落在`linapro-uidentity-cas`插件内，未修改`apps/lina-core`核心框架；i18n 未启用插件资源治理，缓存无新增状态，数据权限继续通过宿主`TenantFilter`接入。
+- 验证记录：已运行`GOWORK=off go test ./... -count=1`（插件独立模块）、`GOWORK=off go test ./... -count=1`（`apps/lina-plugins`聚合模块）、`openspec validate implement-uidentity-cas-backend --strict`、主仓库和插件子仓库`git diff --check`。

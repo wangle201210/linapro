@@ -9,6 +9,7 @@
 **Goals:**
 
 - 完整承接源项目统一身份后端功能：账号、详情、单位、容器、分组、应用、授权、黑名单、密码策略、短信记录、认证日志、OAuth token、变更日志、CAS 登录、密码自助变更和统计聚合。
+- 兼容迁入旧 admin 运行时后端能力：CAS 服务端票据链、Token 链路、账号激活、用户自助、OAuth 授权码、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类接口。
 - 使用插件同构后端结构：`backend/api/`、`backend/plugin.go`、`backend/internal/controller/`、`backend/internal/service/`、`backend/internal/dao/`、`backend/internal/model/`。
 - 使用插件自有 PostgreSQL SQL 和 DAO/DO/Entity 生成物，不依赖宿主私有 DAO/DO/Entity。
 - 高频列表、批量详情、日志和统计接口采用数据库侧过滤、分页、聚合和批量装配，避免`N+1`查询。
@@ -17,8 +18,8 @@
 **Non-Goals:**
 
 - 不实现或修改前端页面、路由页面组件、表格或表单。
-- 不迁移源项目默认系统管理页面能力，包括`sys_user`、`sys_role`、`sys_menu`、`sys_dict`、`sys_config`、`sys_post`、`sys_dept`等已由 LinaPro 宿主或官方插件提供的通用能力。
-- 不在本阶段接入真实 LDAP 目录写入。与 LDAP 相关的源项目行为先抽象为可配置外部同步边界；默认实现保持本地权威数据和明确错误/跳过语义。
+- 不把源项目默认系统管理页面能力写入`lina-core`。若旧 admin 后端入口属于`sys_user`、`sys_role`、`sys_menu`、`sys_dict`、`sys_config`、`sys_post`、`sys_dept`等通用能力，只在插件内提供兼容资源或委托边界，不污染宿主核心模型。
+- 不把真实 LDAP、外部文件存储或外部监控后端作为默认必需依赖。相关能力在插件内抽象为可配置外部同步或执行边界；未配置时返回结构化错误或使用本地插件数据完成可验证的默认流程。
 
 ## Decisions
 
@@ -45,6 +46,12 @@
 CAS ticket 校验、应用状态/白名单/黑名单判断、登录日志记录和 OAuth token 存储由插件服务完成。外部 CAS validate URL 作为插件配置或运行参数读取，缺失时返回结构化配置错误。默认不在插件内创建新的宿主认证 token，避免绕过宿主认证边界。
 
 备选方案是把 CAS 登录直接接入宿主`auth`服务签发 LinaPro JWT。本阶段需求是迁移`uidentity/admin`后端能力且不做页面，直接签发宿主 token 会改变宿主登录语义，需要单独 OpenSpec 设计，因此暂不纳入。
+
+### 旧 admin 运行时兼容接口仍由插件承载
+
+反馈确认当前实现范围不足，旧 admin 的 CAS 服务端票据、Token、激活、用户自助、OAuth 授权码、账号导入、LDAP、短信、文件、作业和监控类服务端能力需要继续迁入。兼容入口使用插件命名空间下的 RESTful 资源路径表达，不要求复刻 Gin 旧路径中的动词式 URL；需要保留旧语义的字段通过 DTO 显式描述。
+
+账号、应用、授权、黑名单和日志仍以插件自有表为权威数据源。CAS TGT/ST、访问 token、激活 challenge 和授权码优先复用插件 OAuth token 表，通过类型化 payload 区分用途，避免新增短期状态表；读取和验证按 ticket/token 单点索引查询，不进入列表逐项查询链路。账号导入采用批量检查和批量写入，LDAP 同步默认作为外部目录边界保留结构化错误，不引入宿主核心依赖。
 
 ## Risks / Trade-offs
 
