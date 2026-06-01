@@ -45,3 +45,4 @@
 - FB-1/FB-3 仍未完成：旧 admin 的 OAuth 授权码完整流程、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类后端能力还需要继续迁入插件。
 - FB-2 已完成：CAS TGT/ST 服务端票据链、运行时 token、账号激活、UnionID 绑定和用户自助后端接口均落在`linapro-uidentity-cas`插件内，未修改`apps/lina-core`核心框架；i18n 未启用插件资源治理，缓存无新增状态，数据权限继续通过宿主`TenantFilter`接入。
 - 验证记录：已运行`GOWORK=off go test ./... -count=1`（插件独立模块）、`GOWORK=off go test ./... -count=1`（`apps/lina-plugins`聚合模块）、`openspec validate implement-uidentity-cas-backend --strict`、主仓库和插件子仓库`git diff --check`。
+- 继续迁移记录：本轮补齐 FB-3 中账号导入检查/导入和短信发送子能力，导入按`number`在插件账号表内幂等新增/更新，短信发送使用插件 SMS 表和本地频控记录验证码；仍未完成 OAuth 授权码完整流程、LDAP 同步边界、文件上传、作业和监控类后端能力。验证补充运行`GOWORK=off go test ./... -count=1`（插件独立模块），新增纯函数单测覆盖导入空行、生日日期归一化和短信类型校验。
