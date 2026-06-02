@@ -5,6 +5,7 @@ package plugin
 
 import (
 	"context"
+	"time"
 
 	"lina-core/internal/service/apidoc"
 	"lina-core/internal/service/auth"
@@ -31,11 +32,22 @@ type HostAPIDocResolver interface {
 	FindRouteTitleOperationKeys(ctx context.Context, keyword string) []string
 }
 
-// HostAuthSessionRevoker defines the session revocation slice required by
-// source-plugin session adapters.
-type HostAuthSessionRevoker interface {
+// HostAuthService defines the auth/session slice required by source-plugin
+// adapters. It is implemented by the shared startup auth service.
+type HostAuthService interface {
+	// ParseToken parses an access token and returns host claims.
+	ParseToken(ctx context.Context, tokenString string) (*auth.Claims, error)
+	// SessionStore returns the shared online-session store for validation.
+	SessionStore() session.Store
 	// RevokeSession writes a shared revoke marker and removes one online session by token ID.
 	RevokeSession(ctx context.Context, tokenID string) error
+}
+
+// HostSessionTimeoutProvider defines the runtime session-timeout lookup used
+// by source-plugin auth adapters.
+type HostSessionTimeoutProvider interface {
+	// GetSessionTimeout returns the runtime-effective online-session timeout.
+	GetSessionTimeout(ctx context.Context) (time.Duration, error)
 }
 
 // HostTenantTokenIssuer defines the tenant-token handoff slice required by
@@ -84,9 +96,10 @@ type HostNotifyPublisher interface {
 // orchestration; this facade does not create replacement runtime services.
 func NewHostServices(
 	apiDocSvc HostAPIDocResolver,
-	authSvc HostAuthSessionRevoker,
+	authSvc HostAuthService,
 	authTokenIssuer HostTenantTokenIssuer,
 	bizCtxSvc HostBizContextProvider,
+	sessionTimeoutSvc HostSessionTimeoutProvider,
 	hostConfigSvc contract.HostConfigService,
 	scopeSvc datascope.Service,
 	i18nSvc HostRuntimeI18nService,
@@ -103,6 +116,7 @@ func NewHostServices(
 		authSvc,
 		authTokenIssuer,
 		bizCtxSvc,
+		sessionTimeoutSvc,
 		hostConfigSvc,
 		scopeSvc,
 		i18nSvc,

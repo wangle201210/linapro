@@ -14,10 +14,12 @@ import (
 	"lina-core/internal/service/apidoc"
 	"lina-core/internal/service/auth"
 	internalbizctx "lina-core/internal/service/bizctx"
+	"lina-core/internal/service/datascope"
 	i18nsvc "lina-core/internal/service/i18n"
 	"lina-core/internal/service/notify"
 	internalsession "lina-core/internal/service/session"
 	plugincontract "lina-core/pkg/plugin/capability/contract"
+	tenantcapsvc "lina-core/pkg/plugin/capability/tenantcap"
 )
 
 // TestAPIDocAdapterConvertsRouteTextDTOs verifies plugin apidoc calls are
@@ -110,6 +112,66 @@ func TestAuthAdapterUsesTenantTokenIssuer(t *testing.T) {
 	}
 	if issuer.revokedImpersonationBearer != "Bearer impersonation-token" || issuer.revokedImpersonationTenantID != 33 {
 		t.Fatalf("expected impersonation revoke call, issuer=%#v", issuer)
+	}
+}
+
+// TestAuthAdapterAuthenticateBearerValidatesSession verifies compatibility
+// middleware can ask host auth to validate one bearer token without seeing JWT
+// signing internals.
+func TestAuthAdapterAuthenticateBearerValidatesSession(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeSessionStore{active: true}
+	authSvc := &fakeAuthService{
+		store: store,
+		claims: &auth.Claims{
+			TokenId:         "token-1",
+			UserId:          100,
+			Username:        "admin",
+			Status:          1,
+			TenantId:        7,
+			ClientType:      auth.ClientTypeWeb,
+			IsImpersonation: true,
+			ActingUserId:    99,
+		},
+	}
+	timeoutSvc := fakeSessionTimeoutProvider{timeout: 2 * time.Hour}
+	svc := newAuthAdapter(authSvc, nil, timeoutSvc)
+
+	out, err := svc.AuthenticateBearer(ctx, "Bearer access-token")
+	if err != nil {
+		t.Fatalf("authenticate bearer: %v", err)
+	}
+	if authSvc.parsedToken != "access-token" {
+		t.Fatalf("expected stripped access token, got %q", authSvc.parsedToken)
+	}
+	if store.touchedTokenID != "token-1" || store.touchedTenantID != 7 || store.touchedTimeout != 2*time.Hour {
+		t.Fatalf("expected session validation, got token=%q tenant=%d timeout=%s", store.touchedTokenID, store.touchedTenantID, store.touchedTimeout)
+	}
+	if out.TokenID != "token-1" ||
+		out.ClientType != auth.ClientTypeWeb.String() ||
+		out.Current.UserID != 100 ||
+		out.Current.ActingUserID != 99 ||
+		out.Current.TenantID != 7 ||
+		!out.Current.IsImpersonation ||
+		!out.Current.ActingAsTenant {
+		t.Fatalf("unexpected authenticated context: %#v", out)
+	}
+}
+
+// TestBizCtxAdapterPrefersInjectedCurrentContext verifies plugin-short-circuit
+// routes can inject a host-authenticated context projection before using
+// tenant-filter helpers.
+func TestBizCtxAdapterPrefersInjectedCurrentContext(t *testing.T) {
+	adapter := newBizCtxAdapter(internalbizctx.New())
+	ctx := plugincontract.WithCurrentContext(context.Background(), plugincontract.CurrentContext{
+		UserID:         707,
+		TenantID:       0,
+		PlatformBypass: true,
+	})
+
+	current := adapter.Current(ctx)
+	if current.UserID != 707 || !current.PlatformBypass {
+		t.Fatalf("expected injected plugin context, got %#v", current)
 	}
 }
 
@@ -337,6 +399,99 @@ type fakeTenantTokenIssuer struct {
 	impersonationTenantID        int
 	revokedImpersonationBearer   string
 	revokedImpersonationTenantID int
+}
+
+// fakeAuthService records token parsing and exposes a test session store.
+type fakeAuthService struct {
+	store       internalsession.Store
+	claims      *auth.Claims
+	parsedToken string
+}
+
+// ParseToken records the stripped token and returns configured claims.
+func (f *fakeAuthService) ParseToken(_ context.Context, tokenString string) (*auth.Claims, error) {
+	f.parsedToken = tokenString
+	return f.claims, nil
+}
+
+// SessionStore returns the configured fake session store.
+func (f *fakeAuthService) SessionStore() internalsession.Store {
+	return f.store
+}
+
+// RevokeSession is unused by auth adapter authentication tests.
+func (f *fakeAuthService) RevokeSession(context.Context, string) error {
+	return nil
+}
+
+// fakeSessionTimeoutProvider returns a deterministic session timeout.
+type fakeSessionTimeoutProvider struct {
+	timeout time.Duration
+}
+
+// GetSessionTimeout returns the configured timeout.
+func (f fakeSessionTimeoutProvider) GetSessionTimeout(context.Context) (time.Duration, error) {
+	return f.timeout, nil
+}
+
+// fakeSessionStore records TouchOrValidate calls for auth adapter tests.
+type fakeSessionStore struct {
+	active          bool
+	touchedTenantID int
+	touchedTokenID  string
+	touchedTimeout  time.Duration
+}
+
+// Set is unused by auth adapter tests.
+func (f *fakeSessionStore) Set(context.Context, *internalsession.Session) error { return nil }
+
+// Get is unused by auth adapter tests.
+func (f *fakeSessionStore) Get(context.Context, string) (*internalsession.Session, error) {
+	return nil, nil
+}
+
+// Delete is unused by auth adapter tests.
+func (f *fakeSessionStore) Delete(context.Context, string) error { return nil }
+
+// DeleteByUserId is unused by auth adapter tests.
+func (f *fakeSessionStore) DeleteByUserId(context.Context, int, int) error { return nil }
+
+// List is unused by auth adapter tests.
+func (f *fakeSessionStore) List(context.Context, *internalsession.ListFilter) ([]*internalsession.Session, error) {
+	return nil, nil
+}
+
+// ListPage is unused by auth adapter tests.
+func (f *fakeSessionStore) ListPage(context.Context, *internalsession.ListFilter, int, int) (*internalsession.ListResult, error) {
+	return nil, nil
+}
+
+// ListPageScoped is unused by auth adapter tests.
+func (f *fakeSessionStore) ListPageScoped(
+	context.Context,
+	*internalsession.ListFilter,
+	int,
+	int,
+	datascope.Service,
+	tenantcapsvc.ScopeService,
+) (*internalsession.ListResult, error) {
+	return nil, nil
+}
+
+// Count is unused by auth adapter tests.
+func (f *fakeSessionStore) Count(context.Context) (int, error) { return 0, nil }
+
+// TouchOrValidate records the token validation inputs.
+func (f *fakeSessionStore) TouchOrValidate(_ context.Context, tenantID int, tokenID string, timeout time.Duration) (bool, error) {
+	f.touchedTenantID = tenantID
+	f.touchedTokenID = tokenID
+	f.touchedTimeout = timeout
+	return f.active, nil
+}
+
+// CleanupInactive is unused by auth adapter tests.
+func (f *fakeSessionStore) CleanupInactive(context.Context, time.Duration) (int64, error) {
+	return 0, nil
 }
 
 // IssueTenantToken records one pre-login token exchange.

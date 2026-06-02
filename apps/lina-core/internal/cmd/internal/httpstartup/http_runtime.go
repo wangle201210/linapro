@@ -247,6 +247,7 @@ func newHTTPRuntime(ctx context.Context, configSvc config.Service) (*httpRuntime
 		authSvc,
 		authTokenSvc,
 		bizCtxSvc,
+		configSvc,
 		hostConfigSvc,
 		scopeSvc,
 		i18nSvc,
