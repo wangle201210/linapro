@@ -11,9 +11,9 @@
 - **且** 受保护路由使用宿主认证、租户和权限中间件
 - **且** 插件业务数据只写入插件自有表
 
-### Requirement: 插件必须维护统一身份域数据模型
+### Requirement: 插件必须维护旧 admin 数据模型
 
-系统 SHALL 在插件 schema 中维护账号、账号详情、单位、容器、分组、应用、账号分组、账号应用授权、账号应用黑名单、分组应用黑名单、密码策略、短信记录、CAS 登录日志、OAuth 日志、OAuth token 和账号变更日志。所有表名 SHALL 使用`plugin_linapro_uidentity_cas_`前缀，并包含必要租户、审计、软删除、索引和唯一约束。
+系统 SHALL 在插件 schema 中维护旧`uidentity/admin`账号、账号详情、单位、容器、分组、应用、账号分组、账号应用授权、账号应用黑名单、分组应用黑名单、密码策略、短信记录、CAS 登录日志、OAuth 日志、OAuth token、账号变更日志、账号激活日志和非 job 系统管理表。所有表名 SHALL 使用`plugin_linapro_uidentity_cas_`前缀，但去掉前缀后的表后缀和字段名 SHALL 与旧 MySQL/GORM 模型保持一致；本项目 SHALL 按全局级数据语义承载旧表，不新增旧项目不存在的租户列。
 
 #### Scenario: 重复执行插件安装 SQL
 
@@ -71,7 +71,7 @@
 
 ### Requirement: 旧 admin 运行时后端能力必须由插件兼容承载
 
-系统 SHALL 在`linapro-uidentity-cas`插件内继续承载旧`uidentity/admin`服务端运行时能力，包括 CAS 服务端票据链、Token 链路、账号激活、用户自助、OAuth 授权码、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、作业和监控类接口。兼容 API SHALL 使用插件命名空间下的 RESTful 资源路径表达，并保持插件自有数据表和宿主核心边界隔离。
+系统 SHALL 在`linapro-uidentity-cas`插件内继续承载旧`uidentity/admin`服务端运行时能力，包括 CAS 服务端票据链、Token 链路、账号激活、用户自助、OAuth 授权码、账号导入检查/导入、LDAP 同步边界、短信发送、文件上传、旧系统管理兼容接口和监控类接口。兼容 API SHALL 使用旧项目实际 HTTP 方法、路径、请求参数、响应 envelope、`msg`和字段名，使旧前端能够仅切换接口基址；job 路由按用户补充 SHALL 不作为本插件兼容目标。插件 SHALL 保持自有数据表和宿主核心边界隔离，不因旧前端契约修改`lina-core`核心模型。
 
 #### Scenario: 账号密码登录签发 CAS 票据
 
