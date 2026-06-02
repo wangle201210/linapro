@@ -46,9 +46,15 @@
 - [x] **FB-8**: 再次复核发现旧 admin 的`account_active_log`激活、微信换绑和`BindUnionID`审计日志未在插件内落地
 - [x] **FB-9**: 再次复核发现旧 admin 的`ChangeContainer`本地账户容器迁移动作未在插件 cron 执行器内落地
 - [x] **FB-10**: 再次复核发现旧 admin 的账号与账号详情模型 hook 自动写入`account_change_log`未在插件内落地
+- [x] **FB-11**: 能力清单审计发现旧 admin 账号创建/更新请求中的`groupIds`同步维护`account_group`关系未在插件账号资源写入中落地
+- [x] **FB-12**: 再次检查要求建立旧 admin 服务端能力清单、逐项映射插件实现/测试/排除理由，并执行至少两轮反向审计记录
 
 ## Feedback Impact Notes
 
+- FB-12 根因记录：前序“完成”记录主要按旧路由和插件已知能力做总审计，未把旧项目服务端能力、插件实现、测试证据和排除理由做成可逐项复查的清单，也未显式记录两轮反向审计，导致无法证明`/Users/wanna/mine/ecoding/uidentity/admin`服务端能力已经完整覆盖。
+- FB-12 已完成：新增`server-capability-audit.md`，以旧项目 Go 文件清单、router 注册、service/model 副作用、jobs registry、插件 REST 路由、通用资源和 cron 执行器为证据，逐项记录统一身份域管理资源、CAS/OAuth/runtime token、账号激活、用户自助、短信、导入、上传、配置、监控快照、作业和审计日志的插件映射；同时明确排除 GoAdmin 默认系统管理、页面/重定向壳、开发工具、全局 Prometheus 和未配置 Oracle/LDAP 外部执行器的理由。第一轮反向审计从旧项目能力映射到插件，第二轮反向审计从插件路由/资源/副作用回查旧项目和外部边界；除 FB-11 已修补缺口外未发现新的统一身份服务端缺口。
+- FB-11 根因记录：旧`dto.AccountInsertReq.Generate`会把`groupIds`生成为 GORM `Groups`关联，旧`Account.Update`会显式增删`account_group`关系；插件迁移时只提供了独立`account-groups`通用资源和账号列表`groupIds`筛选，账号创建/更新请求本身未同步维护`account_group`关系，属于旧 admin 服务端写入副作用遗漏。
+- FB-11 已完成：新增插件 service 层`uidentity_account_groups.go`，账号创建前按当前租户预校验`groupIds`，创建成功后同步写入`account_group`；账号更新在账号审计更新成功后替换账号分组关系，支持去重、忽略非正数、传空数组清空关系，并在不存在或跨租户组 ID 时拒绝且不破坏原有关联。本轮未新增 HTTP 路由、SQL、DAO 或缓存；数据权限通过`TenantFilter`校验组和删除当前租户关系；i18n 无新增资源；核心框架`apps/lina-core`未修改。新增`TestAccountResourceSyncsGroupIDs`覆盖创建同步、更新替换、非法组拒绝且保留旧关系、空数组清空关系。验证运行`GOWORK=off go test ./backend/internal/service/uidentity -run 'TestAccountResourceSyncsGroupIDs|TestResourceAccountAuditLifecycle' -count=1`、`GOWORK=off go test ./... -count=1`（插件独立模块）、`GOWORK=off go test ./... -count=1`（`apps/lina-plugins`聚合模块）、`openspec validate implement-uidentity-cas-backend --strict`、主仓库和插件子仓库`git diff --check`。
 - FB-10 根因记录：旧`app/admin/models/account.go`和`app/admin/models/account_details.go`依赖 GORM model hook 在账号、账号详情创建、更新和删除时自动写入`account_change_log`；插件迁移后只有`account-change-logs`通用资源和表结构，通用资源 CRUD、账号导入、管理员改密、账号激活、UnionID 绑定与微信换绑等服务端写路径不会触发旧 hook 的审计副作用。本轮修复限定在`linapro-uidentity-cas`插件内，不修改`apps/lina-core`核心框架。
 - FB-10 已完成：新增插件 service 层账号审计 helper，账号和账号详情的创建、更新、删除显式写入`account_change_log`，账号自动创建详情行也写入详情创建日志；账号导入、账号投影写入、管理员重置密码、激活、登录态微信换绑和 UnionID 迁移绑定等直接写表路径统一改为审计 helper 或批量审计写入。账号审计记录中显式移除`passwordHash`，外部回调类路径使用 token 内租户或显式租户 helper 保持跨登录态安全边界。SQL/DAO：复用既有变更日志表、索引和生成代码，无新增 SQL 或 DAO；数据权限：后台接口继续经宿主`TenantFilter`约束，公开回调只按不可猜测的一次性 state/token 定位账号并使用 token 内租户写入插件自有表；缓存一致性：无新增缓存；DI：无新增运行期依赖；i18n：插件未启用`i18n.enabled`，无新增用户可见文案资源；测试新增`TestResourceAccountAuditLifecycle`覆盖账号和账号详情创建、更新、删除审计及密码 hash 脱敏。验证补充运行`GOWORK=off go test ./... -count=1`（插件独立模块）。
 - FB-8 根因记录：旧`app/cas/service/active.go`在激活微信扫码绑定和微信换绑成功后写入`account_active_log`，旧`app/cas/service/user.go`的`BindUnionID`会先解绑占用同一`unionId`的其他账号，再绑定当前账号并写入`type=1`审计日志。插件上一轮已覆盖激活、微信扫码绑定和 UnionID 绑定接口，但把`account_active_log`误判为页面/附属日志，且`BindUnionID`仍按冲突拒绝处理，与旧行为不一致。本轮修复限定在`linapro-uidentity-cas`插件内，不修改`apps/lina-core`核心框架。
