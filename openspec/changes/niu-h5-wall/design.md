@@ -27,7 +27,7 @@ C6 交付对外传播的 H5 数字纪念墙(见程序级设计 C6)。复用 C3 �
 ```
 public_assets:
   - source: frontend/wall
-    mount: /wall
+    mount: wall          # 必须为相对路径(宿主校验拒绝以 / 开头的绝对路径)
     index: index.html
 ```
 H5 页 `fetch` 公开 API(`/x/sicau-niu/api/v1/plugins/sicau-niu/wall/*`)渲染首发墙/精选/统计,并提供**扫码/链接回跳小程序**入口(小程序跳转 URL/scheme 由配置或占位)。该静态页独立于 `frontend/pages`(admin Vue),不进入 vben 构建。
