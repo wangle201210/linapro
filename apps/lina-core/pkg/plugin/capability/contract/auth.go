@@ -11,11 +11,6 @@ import (
 
 // AuthService defines tenant token operations published to source plugins.
 type AuthService interface {
-	// AuthenticateBearer validates one Authorization bearer token using the
-	// host auth/session policy and returns a plugin-visible context snapshot.
-	// The method does not grant plugins access to JWT signing, host user
-	// records, permission caches, or mutable host business context internals.
-	AuthenticateBearer(ctx context.Context, bearerToken string) (*AuthenticatedContext, error)
 	// SelectTenant consumes a pre-login token and issues a tenant-bound token.
 	SelectTenant(ctx context.Context, in SelectTenantInput) (*TenantTokenOutput, error)
 	// SwitchTenant validates membership, revokes the current token, and issues a new token.
@@ -29,20 +24,6 @@ type AuthService interface {
 	// RevokeImpersonationToken validates that bearerToken is an impersonation
 	// access token for the optional tenant boundary and revokes the host session.
 	RevokeImpersonationToken(ctx context.Context, in ImpersonationTokenRevokeInput) error
-}
-
-// AuthenticatedContext contains the stable plugin-visible identity metadata
-// resolved from one host access token.
-type AuthenticatedContext struct {
-	// Current is the business-context projection plugins may inject into a
-	// derived context when they need to serve a protected compatibility route.
-	Current CurrentContext
-	// TokenID is the validated host online-session identifier.
-	TokenID string
-	// ClientType is the user-session client type stored in the token.
-	ClientType string
-	// Status is the authenticated host user status from the token claims.
-	Status int
 }
 
 // SelectTenantInput defines input for a pre-token tenant selection.

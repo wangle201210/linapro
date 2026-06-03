@@ -4,7 +4,6 @@ package hostservices
 
 import (
 	"context"
-	"time"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 
@@ -37,22 +36,11 @@ type APIDocResolver interface {
 	FindRouteTitleOperationKeys(ctx context.Context, keyword string) []string
 }
 
-// AuthService defines the auth/session slice required by source-plugin
-// adapters. It is implemented by the shared startup auth service.
-type AuthService interface {
-	// ParseToken parses an access token and returns host claims.
-	ParseToken(ctx context.Context, tokenString string) (*auth.Claims, error)
-	// SessionStore returns the shared online-session store for validation.
-	SessionStore() session.Store
+// AuthSessionRevoker defines the session revocation slice required by
+// source-plugin session adapters.
+type AuthSessionRevoker interface {
 	// RevokeSession writes a shared revoke marker and removes one online session by token ID.
 	RevokeSession(ctx context.Context, tokenID string) error
-}
-
-// SessionTimeoutProvider defines the runtime session-timeout lookup used by
-// the source-plugin auth adapter.
-type SessionTimeoutProvider interface {
-	// GetSessionTimeout returns the runtime-effective online-session timeout.
-	GetSessionTimeout(ctx context.Context) (time.Duration, error)
 }
 
 // TenantTokenIssuer defines the tenant-token handoff slice required by
@@ -146,10 +134,9 @@ var _ capability.Services = (*scopedDirectory)(nil)
 // New creates source-plugin host service adapters from runtime-owned services.
 func New(
 	apiDocSvc APIDocResolver,
-	authSvc AuthService,
+	authSvc AuthSessionRevoker,
 	authTokenIssuer TenantTokenIssuer,
 	bizCtxSvc BizContextProvider,
-	sessionTimeoutSvc SessionTimeoutProvider,
 	hostConfigSvc contract.HostConfigService,
 	scopeSvc datascope.Service,
 	i18nSvc RuntimeI18nService,
@@ -171,7 +158,7 @@ func New(
 	}
 	return &directory{
 		apiDoc:       newAPIDocAdapter(apiDocSvc),
-		auth:         newAuthAdapter(authSvc, authTokenIssuer, sessionTimeoutSvc),
+		auth:         newAuthAdapter(authTokenIssuer),
 		bizCtx:       bizCtxAdapter,
 		cache:        kvCacheSvc,
 		config:       capabilityconfig.NewFactory("", ""),

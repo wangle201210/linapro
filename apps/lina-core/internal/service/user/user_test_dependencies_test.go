@@ -55,7 +55,6 @@ func newUserTestService(tenantRuntimes ...tenantcapsvc.ProviderRuntime) Service 
 		authSvc,
 		nil,
 		bizCtxSvc,
-		configSvc,
 		hostConfigSvc,
 		scopeSvc,
 		i18nSvc,

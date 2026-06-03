@@ -81,70 +81,12 @@ func (s *apiDocAdapter) FindRouteTitleOperationKeys(ctx context.Context, keyword
 
 // authAdapter bridges the internal auth service into the published plugin contract.
 type authAdapter struct {
-	service           AuthService
-	tokenIssuer       TenantTokenIssuer
-	sessionTimeoutSvc SessionTimeoutProvider
+	tokenIssuer TenantTokenIssuer
 }
 
 // newAuthAdapter creates the source-plugin auth service adapter.
-func newAuthAdapter(
-	service AuthService,
-	tokenIssuer TenantTokenIssuer,
-	sessionTimeoutSvc SessionTimeoutProvider,
-) plugincontract.AuthService {
-	return &authAdapter{
-		service:           service,
-		tokenIssuer:       tokenIssuer,
-		sessionTimeoutSvc: sessionTimeoutSvc,
-	}
-}
-
-// AuthenticateBearer validates one host bearer token and projects current
-// identity metadata for source-plugin compatibility routes.
-func (s *authAdapter) AuthenticateBearer(
-	ctx context.Context,
-	bearerToken string,
-) (*plugincontract.AuthenticatedContext, error) {
-	if s == nil || s.service == nil || s.sessionTimeoutSvc == nil {
-		return nil, bizerr.NewCode(CodePluginHostAuthTokenStateUnavailable)
-	}
-	tokenString := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(bearerToken), "Bearer "))
-	if tokenString == "" || tokenString == strings.TrimSpace(bearerToken) {
-		return nil, bizerr.NewCode(CodePluginHostAuthTokenInvalid)
-	}
-	claims, err := s.service.ParseToken(ctx, tokenString)
-	if err != nil {
-		return nil, err
-	}
-	sessionTimeout, err := s.sessionTimeoutSvc.GetSessionTimeout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	store := s.service.SessionStore()
-	if store == nil {
-		return nil, bizerr.NewCode(CodePluginHostAuthTokenStateUnavailable)
-	}
-	active, err := store.TouchOrValidate(ctx, claims.TenantId, claims.TokenId, sessionTimeout)
-	if err != nil {
-		return nil, err
-	}
-	if !active {
-		return nil, bizerr.NewCode(CodePluginHostAuthTokenInvalid)
-	}
-	return &plugincontract.AuthenticatedContext{
-		Current: plugincontract.CurrentContext{
-			UserID:          claims.UserId,
-			Username:        claims.Username,
-			TenantID:        claims.TenantId,
-			ActingUserID:    claims.ActingUserId,
-			ActingAsTenant:  claims.IsImpersonation,
-			IsImpersonation: claims.IsImpersonation,
-			PlatformBypass:  claims.TenantId == 0 && !claims.IsImpersonation,
-		},
-		TokenID:    claims.TokenId,
-		ClientType: claims.ClientType.String(),
-		Status:     claims.Status,
-	}, nil
+func newAuthAdapter(tokenIssuer TenantTokenIssuer) plugincontract.AuthService {
+	return &authAdapter{tokenIssuer: tokenIssuer}
 }
 
 // SelectTenant consumes a pre-login token and issues a tenant-bound token.
@@ -242,9 +184,6 @@ func newBizCtxAdapter(service BizContextProvider) plugincontract.BizCtxService {
 
 // Current returns a read-only snapshot of the request context fields.
 func (s *bizCtxAdapter) Current(ctx context.Context) plugincontract.CurrentContext {
-	if current := plugincontract.CurrentFromContext(ctx); current.UserID > 0 || current.TenantID > 0 || current.PlatformBypass {
-		return current
-	}
 	if s != nil && s.service != nil && ctx != nil {
 		return s.service.Current(ctx)
 	}
@@ -368,7 +307,7 @@ func (s *routeAdapter) DynamicRouteMetadata(request *ghttp.Request) *plugincontr
 
 // sessionAdapter bridges host auth/session services into the published plugin contract.
 type sessionAdapter struct {
-	authSvc      AuthService
+	authSvc      AuthSessionRevoker
 	scopeSvc     datascope.Service
 	sessionStore session.Store
 	tenantSvc    tenantcapsvc.RuntimeService
@@ -376,7 +315,7 @@ type sessionAdapter struct {
 
 // newSessionAdapter creates the source-plugin session service adapter.
 func newSessionAdapter(
-	authSvc AuthService,
+	authSvc AuthSessionRevoker,
 	scopeSvc datascope.Service,
 	sessionStore session.Store,
 	tenantSvc tenantcapsvc.RuntimeService,
