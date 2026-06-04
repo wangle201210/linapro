@@ -1,3 +1,4 @@
 [submodule "apps/lina-plugins"]
 	path = apps/lina-plugins
-	url = git@github.com:linaproai/official-plugins.git
+	url = git@github.com:wangle201210/official-plugins.git
+	branch = feat/wanna
