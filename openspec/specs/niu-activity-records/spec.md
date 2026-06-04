@@ -1,0 +1,28 @@
+# niu-activity-records Specification
+
+## Purpose
+TBD - created by archiving change niu-activity-records. Update Purpose after archive.
+## Requirements
+### Requirement: 活动记录只读分页查询
+系统 SHALL 向运营提供管理端鉴权的活动行为记录只读查询,覆盖喂草、偷草、送草、签到、激活与草账户流水六类;每类支持按玩家(及牛,适用时)筛选、数据库侧分页与按时间倒序返回,且 MUST 批量装配玩家昵称与牛名称以避免 N+1。响应时间点字段 MUST 返回 Unix 毫秒。
+
+#### Scenario: 查询喂草记录并按牛筛选
+- **WHEN** 具备 `sicau-niu:record:list` 权限的运营按某头牛查询喂草记录
+- **THEN** 系统返回该牛的喂草记录分页(含玩家昵称、牛名、原始量/实际效果、是否铁牛加成、时间)与总数
+
+#### Scenario: 查询偷草记录
+- **WHEN** 运营查询偷草记录
+- **THEN** 系统返回偷草记录分页(含发起人/被偷玩家昵称、草量、日期)与总数
+
+#### Scenario: 查询送草/签到/激活/草账户流水记录
+- **WHEN** 运营查询送草、签到、激活或草账户流水记录
+- **THEN** 系统分别返回对应记录的分页(含装配的玩家昵称、牛名等)与总数
+
+#### Scenario: 分页有界
+- **WHEN** 运营请求任一记录列表
+- **THEN** 系统在数据库侧分页返回当前页(默认每页 10、上限 100)与匹配总数,不全量载入内存
+
+#### Scenario: 无数据时返回空页
+- **WHEN** 某类记录在筛选条件下无匹配
+- **THEN** 系统返回空列表与总数 0
+

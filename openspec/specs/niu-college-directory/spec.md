@@ -1,0 +1,42 @@
+# niu-college-directory Specification
+
+## Purpose
+TBD - created by archiving change niu-identity. Update Purpose after archive.
+## Requirements
+### Requirement: 院系字典运营维护
+系统 SHALL 在运营后台提供院系字典的增删改查，院系名称唯一，受宿主统一权限校验。院系作为可增长业务数据由插件自有表维护，由运营手动录入。
+
+#### Scenario: 新增院系
+- **WHEN** 运营携带 `sicau-niu:college:create` 权限提交未占用的院系名称
+- **THEN** 系统创建院系记录并可用于玩家身份选择
+
+#### Scenario: 院系名称重复
+- **WHEN** 运营提交的院系名称已存在
+- **THEN** 系统返回 `bizerr` 业务错误，不创建重复院系
+
+#### Scenario: 修改与分页查询院系
+- **WHEN** 运营携带相应权限修改院系名称/排序，或分页查询院系列表
+- **THEN** 系统按请求更新或返回有分页边界的院系列表，时间字段为 Unix 毫秒
+
+#### Scenario: 无权限访问被拒绝
+- **WHEN** 调用方不具备对应 `sicau-niu:college:*` 权限
+- **THEN** 系统由统一权限中间件拒绝访问
+
+### Requirement: 院系删除引用保护
+系统 SHALL 在删除院系前校验其是否被玩家引用，被引用院系不可删除，避免产生悬空引用。
+
+#### Scenario: 删除未被引用院系
+- **WHEN** 运营删除一个未被任何玩家选用的院系
+- **THEN** 系统软删除该院系
+
+#### Scenario: 删除被引用院系
+- **WHEN** 运营删除一个已被玩家选用的院系
+- **THEN** 系统拒绝删除并返回 `bizerr` 业务错误，提示存在引用
+
+### Requirement: 院系下拉供玩家选择
+系统 SHALL 向玩家提供院系下拉列表用于身份资料选择。该列表有稳定边界，按排序返回，避免无界数据装配。
+
+#### Scenario: 玩家获取院系下拉
+- **WHEN** 已登录玩家请求院系下拉
+- **THEN** 系统按排序一次性返回院系列表，不诱导逐项补查
+

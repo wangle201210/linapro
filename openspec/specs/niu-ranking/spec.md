@@ -1,0 +1,30 @@
+# niu-ranking Specification
+
+## Purpose
+TBD - created by archiving change niu-ranking-honor. Update Purpose after archive.
+## Requirements
+### Requirement: 个人喂草榜
+系统 SHALL 提供个人喂草榜:按玩家喂草实际效果累计倒序,返回 Top-N 与当前玩家自己的名次。聚合在数据库侧完成,有 Top-N 上限。响应时间点字段 MUST 返回 Unix 毫秒。
+
+#### Scenario: 查看喂草榜与本人名次
+- **WHEN** 玩家请求个人喂草榜
+- **THEN** 系统返回按喂草实际效果倒序的 Top-N(含昵称与累计值)与本人名次
+
+#### Scenario: 无喂草数据时榜单为空
+- **WHEN** 尚无任何喂草记录
+- **THEN** 系统返回空榜单
+
+### Requirement: 院系榜
+系统 SHALL 提供院系榜:在校生玩家按其院系聚合喂草实际效果,倒序返回 Top-N 院系。
+
+#### Scenario: 院系聚合排名
+- **WHEN** 玩家请求院系榜
+- **THEN** 系统返回各院系喂草总效果倒序的 Top-N(含院系名与累计值)
+
+### Requirement: 川农好友榜
+系统 SHALL 提供川农好友榜:身份为"川农好友"(社会人员/非在校)的玩家按个人喂草实际效果倒序返回 Top-N 与本人名次(若本人为川农好友)。
+
+#### Scenario: 川农好友排名
+- **WHEN** 川农好友身份的玩家请求川农好友榜
+- **THEN** 系统返回川农好友玩家喂草倒序的 Top-N 与本人名次
+

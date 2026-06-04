@@ -1,0 +1,60 @@
+# niu-settlement Specification
+
+## Purpose
+TBD - created by archiving change niu-settlement. Update Purpose after archive.
+## Requirements
+### Requirement: 运营数据看板
+系统 SHALL 向运营提供管理端鉴权的数据看板:集合化聚合活动总览(玩家数、激活牛数、全部牛数、首发数、喂草次数与喂草总效果、偷草次数、送草次数、签到次数、已发证书数)。所有聚合 MUST 在数据库侧完成,禁止 N+1 与逐玩家循环。响应时间点字段 MUST 返回 Unix 毫秒。
+
+#### Scenario: 运营查看活动看板
+- **WHEN** 具备 `sicau-niu:settlement:view` 权限的运营请求看板
+- **THEN** 系统返回集合化聚合的活动总览指标
+
+### Requirement: 名册导出
+系统 SHALL 提供管理端鉴权的玩家名册导出:有界返回玩家投影(昵称/身份/院系/年级/激活数/喂草总量),批量装配避免 N+1。超过硬上限时 MUST 截断并在响应中标注截断,不得静默丢弃。
+
+#### Scenario: 运营导出玩家名册
+- **WHEN** 具备 `sicau-niu:settlement:export` 权限的运营请求名册导出
+- **THEN** 系统返回有界的玩家名册投影行供导出
+
+#### Scenario: 名册超过上限时标注截断
+- **WHEN** 达标玩家数超过导出硬上限
+- **THEN** 系统返回截断后的行并在响应中标注已截断
+
+### Requirement: 证书批量发放
+系统 SHALL 提供管理端鉴权的证书批量发放:对指定的证书类荣誉(honor_type=certificate),按其解锁规则集合化筛出达标玩家,幂等写入玩家荣誉授予(命中既有授予即跳过),并返回 达标/新发/跳过 计数。批量发放 MUST 在事务内完成且依赖唯一授予约束保证幂等。集合规则 SHALL 支持 参与/喂草次数/激活次数;图鉴完成类规则 MUST 被拒绝并返回业务错误,不纳入批量结算。
+
+#### Scenario: 批量发放参与证书
+- **WHEN** 运营对一个 participation 解锁的证书荣誉发起批量发放
+- **THEN** 系统为全部玩家幂等写入授予,返回新发与跳过计数
+
+#### Scenario: 重复发放保持幂等
+- **WHEN** 运营对同一证书荣誉再次发起批量发放
+- **THEN** 系统跳过已授予玩家,新发计数为 0
+
+#### Scenario: 拒绝图鉴完成类批量发放
+- **WHEN** 运营对一个 category_complete 或 full_complete 解锁的荣誉发起批量发放
+- **THEN** 系统返回业务错误并不写入任何授予
+
+#### Scenario: 拒绝非证书荣誉
+- **WHEN** 运营对一个非 certificate 类型的荣誉发起批量发放
+- **THEN** 系统返回业务错误并不写入任何授予
+
+### Requirement: 风控告警视图
+系统 SHALL 提供管理端鉴权的风控告警派生视图:集合化列出共享同一设备指纹的玩家簇(一机多号),含簇内玩家昵称,供人工研判。该视图为只读派生,不自动处置。
+
+#### Scenario: 运营查看一机多号告警
+- **WHEN** 具备 `sicau-niu:settlement:view` 权限的运营请求风控告警视图
+- **THEN** 系统返回设备指纹相同且成员数大于 1 的玩家簇及其昵称
+
+### Requirement: 结算归档
+系统 SHALL 提供管理端鉴权的结算归档:把当前看板指标冻结为一份结算快照持久化保存(标题/快照内容/操作人/归档时间),并提供归档列表的有界倒序查询。
+
+#### Scenario: 运营创建结算归档
+- **WHEN** 具备 `sicau-niu:settlement:archive` 权限的运营发起归档
+- **THEN** 系统计算当前看板指标、冻结为快照并持久化一条归档记录
+
+#### Scenario: 运营查看归档列表
+- **WHEN** 具备 `sicau-niu:settlement:view` 权限的运营请求归档列表
+- **THEN** 系统按归档时间倒序返回有界的归档记录
+
