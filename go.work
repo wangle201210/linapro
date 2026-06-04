@@ -3,4 +3,5 @@ go 1.25.0
 use (
 	./apps/lina-core
 	./hack/tools/linactl
+	apps/lina-plugins/media
 )
