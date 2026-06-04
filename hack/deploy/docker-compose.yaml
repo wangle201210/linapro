@@ -57,7 +57,18 @@ services:
         mode: 0444
     command:
       - |
-        mkdir -p /run/linapro /app/data/upload /app/data/wasm
+        mkdir -p /run/linapro/plugins/sicau-niu /app/data/upload /app/data/wasm
+        # The sicau-niu source plugin refuses to register routes without a player
+        # token secret. Ship a disposable demo config (mock WeChat, demo secret)
+        # at the plugin production config path so the bundled plugin boots. Replace
+        # with real WeChat AppID/Secret and a strong secret for a real deployment.
+        cat > /run/linapro/plugins/sicau-niu/config.yaml <<'PLUGINCFG'
+        wechat:
+          mock: true
+        token:
+          secret: "c0176ba64e0c2543e51a9ed2d083099dc16e9e631f00369870bcf9eb1b1479bf"
+          ttl: 168h
+        PLUGINCFG
         # Rebuild schema and seed mock data on every start for a repeatable demo.
         ./lina init --confirm=init --rebuild=true
         ./lina mock --confirm=mock
