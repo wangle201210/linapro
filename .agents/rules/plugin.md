@@ -25,7 +25,7 @@
 
 源码插件和动态插件必须保持一致的后端业务开发结构，以降低开发者学习、迁移和维护成本。两类插件必须遵守以下结构：
 
-- 每个插件必须同时维护`plugin.yaml`、`backend/`、`frontend/`与`manifest/`。
+- 每个插件必须同时维护`plugin.yaml`、`backend/`、`frontend/`与`manifest/`。若插件在`plugin.yaml`中明确声明为后端专用、没有菜单页面且不发布公开静态资源，可以省略`frontend/`目录；此时`plugin_embed.go`不得嵌入不存在的`frontend`目录，审查结论必须记录该插件为后端专用插件。
 - 插件后端统一采用`backend/api/`、`backend/plugin.go`、`backend/internal/controller/`、`backend/internal/service/`结构。
 - `backend/api/`用于声明构建期可解析的 API DTO、请求响应契约和路由元数据。
 - `backend/plugin.go`用于声明插件后端入口、路由注册、生命周期接入或动态路由桥接入口。
@@ -59,4 +59,3 @@
 - 动态插件源码目录应维护`main.go`作为 WASM guest 构建入口。
 - 动态插件的 controller和service 是 guest 内部开发分层，宿主不得把它们当作源码插件原生 controller和service 直接加载；宿主只能通过`pluginbridge`、WASM host call 或版本化 host service 协议与动态插件交互。
 - 动态插件涉及 Go guest 代码、WASM host service、host call 协议或插件桥接时，必须遵守`.agents/rules/backend-go.md`中关于动态插件 host service、WASM host service、错误处理和共享实例的要求。
-
