@@ -427,6 +427,13 @@ var productionPanicPolicy = panicAuditPolicy{
 			Reason:   "top-level source plugin registration chooses fail-fast after the error-returning registration API rejects invalid static declarations",
 		},
 		{
+			Path:     "apps/lina-plugins/linapro-uidentity-cas/backend/plugin.go",
+			Function: "init",
+			Count:    3,
+			Category: panicCategoryPluginRegistration,
+			Reason:   "top-level source plugin, route, and cron registration chooses fail-fast after error-returning registration APIs reject invalid static declarations",
+		},
+		{
 			Path:     "apps/lina-plugins/linapro-monitor-loginlog/backend/plugin.go",
 			Function: "init",
 			Count:    6,
@@ -474,6 +481,20 @@ var productionPanicPolicy = panicAuditPolicy{
 			Count:    4,
 			Category: panicCategoryPluginRegistration,
 			Reason:   "top-level source plugin, route, cron, and framework provider factory registration chooses fail-fast after error-returning registration APIs reject invalid static declarations",
+		},
+		{
+			Path:     "apps/lina-plugins/media/backend/plugin.go",
+			Function: "init",
+			Count:    2,
+			Category: panicCategoryPluginRegistration,
+			Reason:   "top-level source plugin and route registration chooses fail-fast after error-returning registration APIs reject invalid static declarations",
+		},
+		{
+			Path:     "apps/lina-plugins/sicau-niu/backend/plugin.go",
+			Function: "init",
+			Count:    2,
+			Category: panicCategoryPluginRegistration,
+			Reason:   "top-level source plugin and route registration chooses fail-fast after error-returning registration APIs reject invalid static declarations",
 		},
 		{
 			Path:     "apps/lina-plugins/linapro-demo-source/backend/plugin.go",
