@@ -5,6 +5,7 @@
 - [x] **FB-3**: 第 4 点，运营管理端需要独立的排行榜数据查看入口
 - [x] **FB-4**: 运营结算页面视觉层级不足，规则、榜单、风控和动作区块平铺后不够清晰美观
 - [x] **FB-5**: 运营动作区“结算归档”说明文案被输入框和按钮挤压成逐字竖排
+- [x] **FB-6**: 运营动作区“批量发证”只能手输证书荣誉 ID，缺少可执行的证书候选选择，导致运营人员无法完成发证动作
 
 ### 根因记录
 
@@ -13,6 +14,7 @@
 - `FB-3`根因：排行榜服务已提供玩家端喂草榜、院系榜和好友榜，但路由和前端仅面向玩家端，运营结算页没有管理端表格投影。
 - `FB-4`根因：当前结算页把看板、活跃、规则、排行榜、动作、风控和归档全部按相同`Card`平铺，缺少首屏概览、模块主次和表单分组；规则字段数量增加后视觉密度失衡，排行榜也缺少运营视角的标题和摘要。
 - `FB-5`根因：运营动作卡片位于右侧窄栏，但`.action-item`仍使用“两列网格 + 右侧控件自动宽度”布局；“结算归档”的输入框和按钮占据过多横向空间后，左侧说明文案剩余宽度接近 0，导致中文逐字换行。
+- `FB-6`根因：后端`IssueCertificates`服务和`POST /plugins/sicau-niu/settlement/certificates/issue`接口已存在，但运营结算页只提供`InputNumber`让用户手输`honorId`；结算权限下也没有证书候选投影接口，导致操作者既不知道可发放的证书 ID，也可能误选服务端不支持批量结算的收藏类证书，从用户视角表现为“批量发证无法执行”。
 
 ### 影响分析
 
@@ -23,6 +25,7 @@
 - 数据权限影响：新增运营端读取和更新接口受宿主认证、租户和权限中间件保护；玩家端数据仍只经玩家 token 访问。新增排行榜运营投影为活动运营全局统计，按平台级插件能力处理。
 - 开发工具跨平台影响：不修改脚本、`Makefile`、`make.cmd`、`CI`或`linactl`；数据库生成使用既有插件`make dao`入口。
 - DI 来源检查：新增规则服务由`backend/plugin.go`在路由装配期创建一次，并显式传入依赖的业务服务和控制器，共享同一数据库后端，不在请求路径临时构建服务图。
+- `FB-6`补充影响：新增证书候选接口为插件自有运营结算 API，使用既有`settlementSvc`，不新增运行期依赖；候选查询仅读取插件自有荣誉定义表，受`只有发证权限可见`约束，不暴露玩家或租户业务数据；查询为单次投影并限制最多`100`条，避免前端逐项补查；不新增缓存、SQL、DAO、脚本或宿主核心契约。
 
 ### 执行记录
 
@@ -31,6 +34,7 @@
 - `FB-3`修复：运营端新增喂草榜、好友榜、院系榜接口和结算页“排行榜数据”表格区；前端客户端、页面对象和`TC004`可见性断言同步更新。
 - `FB-4`修复：将运营结算页从同权重`Card`平铺重排为运营工作台结构；新增顶部“寻牛活动运营概览”、激活进度、风险状态标签和关键指标区；活跃、规则、关键互动、运营动作、排行榜、风控和归档按运营任务分区展示；规则表单按“激活与展示”“签到与送草”“偷草策略”“榜单与风控”分组，排行榜增加榜首、记录数和领先院系摘要；保留既有接口、权限码和`data-testid`测试锚点。
 - `FB-5`修复：运营动作区改为纵向动作项布局，不再让说明文案和右侧输入控件竞争同一行宽；批量发证与结算归档控件在动作项内部按可用宽度排列，归档输入框使用`minmax`自适应，说明文案保持正常横排可读；同步补充`TC004`对归档说明文本宽度的布局断言。
+- `FB-6`修复：核对`功能模块参数.md`和`需求.md`后确认需求语义为“活动结束后/公示结算阶段支持证书批量发放”，不是每日凌晨自动发证；保留运营复核后的手动统一发证动作，新增结算权限下的可发证书候选接口，仅返回`participation/feed_count/activation_count`等后端支持批量结算的证书；运营结算页将手输`honorId`改为证书下拉选择，并将文案调整为“结算发证/统一发证”，避免误解为日常自动或每日手动任务；`TC004`补充选择证书并执行发证的端到端断言。
 
 ### 验证记录
 
@@ -49,3 +53,10 @@
 - 已执行并通过（`FB-5`）：`pnpm -C hack/tests test:validate`。
 - 已执行并通过（`FB-5`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-4a`。
 - 已执行并通过（`FB-5`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-6`）：`GOWORK=off go test ./backend/internal/service/settlement ./backend/internal/controller/settlement ./backend -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-6`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-6`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-6`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-6`）：`make dev`重新打包插件资源并重启本地后端/前端，确认新路由加载后`GET /x/sicau-niu/api/v1/plugins/sicau-niu/settlement/certificates/options`从`404`变为受权限保护的`401`。
+- 已执行并通过（`FB-6`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-4c`。
+- 已执行并通过（`FB-6`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-4`。

@@ -4,4 +4,5 @@ use (
 	./apps/lina-core
 	./hack/tools/linactl
 	apps/lina-plugins/media
+	apps/lina-plugins/sicau-niu
 )
