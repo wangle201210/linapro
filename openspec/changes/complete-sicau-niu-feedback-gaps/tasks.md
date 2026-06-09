@@ -7,6 +7,7 @@
 - [x] **FB-5**: 运营动作区“结算归档”说明文案被输入框和按钮挤压成逐字竖排
 - [x] **FB-6**: 运营动作区“批量发证”只能手输证书荣誉 ID，缺少可执行的证书候选选择，导致运营人员无法完成发证动作
 - [x] **FB-7**: 牛只发布状态同时依赖`release_stage`和`online_at`，导致运营维护重复且玩家可见/激活逻辑不一致
+- [x] **FB-8**: 玩家可见列表外的牛只仍可通过`POST /player/activations`直接激活，绕过运营放出节奏
 
 ### 根因记录
 
@@ -17,6 +18,7 @@
 - `FB-5`根因：运营动作卡片位于右侧窄栏，但`.action-item`仍使用“两列网格 + 右侧控件自动宽度”布局；“结算归档”的输入框和按钮占据过多横向空间后，左侧说明文案剩余宽度接近 0，导致中文逐字换行。
 - `FB-6`根因：后端`IssueCertificates`服务和`POST /plugins/sicau-niu/settlement/certificates/issue`接口已存在，但运营结算页只提供`InputNumber`让用户手输`honorId`；结算权限下也没有证书候选投影接口，导致操作者既不知道可发放的证书 ID，也可能误选服务端不支持批量结算的收藏类证书，从用户视角表现为“批量发证无法执行”。
 - `FB-7`根因：牛只发布同时维护`release_stage`和`online_at`两套状态来源，玩家地图还要求阶段非空且上线时间已到达；Mock 数据只写了阶段、未写上线时间，导致地图为空。激活接口只按牛只 ID 加锁并做距离校验，没有复用地图可见性判断，玩家可绕过地图直接激活未上线牛只。
+- `FB-8`根因：上一轮修复已在激活事务行锁后复用可见性判断，但回归覆盖只验证了`onlineAt`晚于当前时间，未覆盖`onlineAt`为空、周几窗口不匹配、时段窗口不匹配等“玩家地图不可见”的完整原因，也缺少重启后通过真实玩家 API 验证运行时代码已加载，导致该绕过风险仍可被本地旧进程或未覆盖场景复现。
 
 ### 影响分析
 
@@ -29,6 +31,7 @@
 - DI 来源检查：新增规则服务由`backend/plugin.go`在路由装配期创建一次，并显式传入依赖的业务服务和控制器，共享同一数据库后端，不在请求路径临时构建服务图。
 - `FB-6`补充影响：新增证书候选接口为插件自有运营结算 API，使用既有`settlementSvc`，不新增运行期依赖；候选查询仅读取插件自有荣誉定义表，受`只有发证权限可见`约束，不暴露玩家或租户业务数据；查询为单次投影并限制最多`100`条，避免前端逐项补查；不新增缓存、SQL、DAO、脚本或宿主核心契约。
 - `FB-7`补充影响：移除插件自有牛只目录 API、管理页和数据库中的`releaseStage/release_stage`，不修改`lina-core`宿主契约；玩家地图与激活接口统一按`onlineAt`和可见窗口判断。数据权限边界不变，运营牛只管理仍受既有宿主权限码保护，玩家激活仍由玩家 token 隔离。`sicau-niu`为单语言插件，不要求新增`manifest/i18n`资源；不新增缓存或运行期依赖；不修改开发工具或脚本，使用既有根`db.init`、插件 SQL 和`make -C apps/lina-plugins dao p=sicau-niu`入口。
+- `FB-8`补充影响：仅收紧插件玩家激活接口的目标可见性验收和测试覆盖，不修改宿主`lina-core`核心契约、插件 SQL、DAO、缓存或运行期依赖；玩家写操作继续由玩家 token 隔离，并在写入前校验目标牛只必须满足玩家地图可见条件。`sicau-niu`未启用插件`i18n`，本次仅更新英文 API 文档源文本和中文 OpenSpec 记录，不新增语言包；不修改开发工具或脚本。
 
 ### 执行记录
 
@@ -39,6 +42,7 @@
 - `FB-5`修复：运营动作区改为纵向动作项布局，不再让说明文案和右侧输入控件竞争同一行宽；批量发证与结算归档控件在动作项内部按可用宽度排列，归档输入框使用`minmax`自适应，说明文案保持正常横排可读；同步补充`TC004`对归档说明文本宽度的布局断言。
 - `FB-6`修复：核对`功能模块参数.md`和`需求.md`后确认需求语义为“活动结束后/公示结算阶段支持证书批量发放”，不是每日凌晨自动发证；保留运营复核后的手动统一发证动作，新增结算权限下的可发证书候选接口，仅返回`participation/feed_count/activation_count`等后端支持批量结算的证书；运营结算页将手输`honorId`改为证书下拉选择，并将文案调整为“结算发证/统一发证”，避免误解为日常自动或每日手动任务；`TC004`补充选择证书并执行发证的端到端断言。
 - `FB-7`修复：将牛只发布契约收敛为`onlineAt`唯一控制字段；管理端 DTO、Controller、`cattle`服务、Vue 客户端、表单、筛选和列表列均移除`releaseStage`，列表改展示“上线时间”。数据库安装 SQL 不再创建`release_stage`，当前迭代 SQL 幂等删除旧索引和旧列并创建`idx_sicau_niu_niu_online`，Mock 数据改为直接写`online_at`。玩家地图查询只按`online_at IS NOT NULL AND online_at <= now`做数据库过滤，再叠加周几/时段窗口；激活事务在行锁后复用同一可见性判断，未上线或窗口外牛只返回`CodeNiuNotVisible`且不写激活记录。
+- `FB-8`修复：将玩家激活接口说明明确为只允许激活当前玩家地图可见牛只；补充`Activate`数据库集成测试，分别覆盖`onlineAt`为空、未来上线、周几窗口排除当前日期和时段窗口排除当前分钟时，直接调用激活服务均返回`CodeNiuNotVisible`且不写入激活记录。
 
 ### 验证记录
 
@@ -76,3 +80,8 @@
 - 已执行并通过（`FB-7`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
 - 已执行并通过（`FB-7`）：`make dev`重启本地后端/前端后，`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-2d`。
 - 已执行并通过（`FB-7`）：数据库结构检查确认`plugin_sicau_niu_niu`仅存在`online_at`，不存在`release_stage`，并存在`idx_sicau_niu_niu_online`。
+- 已执行并通过（`FB-8`）：`GOWORK=off go test ./backend/internal/service/activation ./backend/internal/controller/player ./backend -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-8`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-8`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-8`）：`make dev`重新打包插件资源并重启本地后端/前端，确认运行时代码已加载。
+- 已执行并通过（`FB-8`）：真实玩家 API smoke：`POST /player/login`获取玩家 token；临时设置`niuId=1`已上线可见、`niuId=5`不可见；`GET /player/niu`返回`[1,13]`且不包含`5`；直接`POST /player/activations`激活`5`返回`PLUGIN_SICAU_NIU_ACTIVATION_NIU_NOT_VISIBLE`且数据库激活写入数为`0`；激活`1`成功并写入`1`条记录；`GET /player/poster?niuId=1`返回`imageBase64`且解码后`PNG`魔数为`89504e470d0a1a0a`。
