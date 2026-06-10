@@ -5,4 +5,5 @@ use (
 	./hack/tools/linactl
 	apps/lina-plugins/media
 	apps/lina-plugins/sicau-niu
+	apps/lina-plugins/linapro-uidentity-cas
 )
