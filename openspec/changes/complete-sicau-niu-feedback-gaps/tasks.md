@@ -16,6 +16,8 @@
 - [x] **FB-14**: 小程序拍照打卡激活接口仍要求传`niuId`，未按上报`GPS`自动匹配附近未激活牛
 - [x] **FB-15**: 运营端激活记录无法点击查看玩家激活时上传的照片
 - [x] **FB-16**: 示例数据里的图片字段为空或使用不可访问地址，导致演示页面图片无法加载
+- [x] **FB-17**: 小程序拍照打卡失败尝试没有记录，运营端无法追溯附近无未激活牛或超出`LBS`判距的用户打卡
+- [x] **FB-18**: 运营端激活记录页加入页签后页面高度持续增长
 
 ### 根因记录
 
@@ -35,6 +37,8 @@
 - `FB-14`根因：当前玩家激活 API 把`niuId`作为必填请求字段，Controller 直接传入服务层，服务层按指定牛 ID 加锁并做可见性和距离校验；该实现要求小程序先确定目标牛，未实现“拍照打卡只上报`GPS`，服务端计算附近是否存在未激活牛并触发激活”的需求。
 - `FB-15`根因：玩家激活表已经保存`photo_path`，但运营端激活记录列表接口没有把该字段纳入分页投影，前端表格类型和列配置也没有照片入口，导致运营人员只能看到激活文本记录，无法查看玩家打卡上传的照片证据。
 - `FB-16`根因：`manifest/sql/mock-data/001-sicau-niu-mock-data.sql`中的卡片`image_path`写入空值，荣誉`image_path`、玩家`avatar`和激活`photo_path`也没有填充可访问图片；已加载过旧示例数据的环境重复执行脚本时又会被`NOT EXISTS`跳过，导致演示页面仍然只能拿到空图或不可访问的占位路径。
+- `FB-17`根因：当前拍照打卡流程只在激活成功后写入`plugin_sicau_niu_activation`，无附近未激活牛、最近牛超出`LBS`判距等失败路径直接返回业务错误，没有独立审计表记录玩家上报坐标、最近候选、距离、阈值和照片路径；正式激活记录又承载首发、到场顺序和每日限制语义，不适合混入失败尝试。
+- `FB-18`根因：`FB-17`在`Page auto-content-height`内容区中直接嵌套`Tabs`，两个页签里的`VbenVxeGrid`又都使用`height: "auto"`；`Tabs`、`ant-tabs-content-holder`、`ant-tabs-content`、活动`TabPane`和表格外层没有完整的`height/max-height/min-height/overflow`边界，导致页面外层稳定后，页签内容区仍按 VXE 表格测量结果持续膨胀。
 
 ### 影响分析
 
@@ -56,6 +60,8 @@
 - `FB-14`补充影响：修改插件玩家端激活 API 契约和服务层匹配逻辑，不修改`lina-core`宿主核心契约、数据库结构、DAO、缓存、运行期依赖或开发脚本。玩家写操作继续由玩家 token 解析的`playerID`隔离；服务端只在插件自有牛只表中匹配当前可见且`inactive`的牛，并在事务内加行锁复查状态、可见性和距离后写入激活记录。接口性能通过上线时间、`inactive`状态、固定候选上限和内存 Haversine 计算控制，避免前端按牛逐个尝试激活或后端`N+1`查询。`sicau-niu`未启用插件`i18n`，本次仅修改中文 OpenSpec/小程序接口文档和插件 API 文档源文本，不新增语言包。
 - `FB-15`补充影响：仅修改插件自有活动记录列表 API、激活记录前端页面、E2E 测试和 OpenSpec 记录，不修改`lina-core`宿主核心契约、数据库结构、DAO、缓存、运行期依赖或开发脚本。运营端激活记录仍受`sicau-niu:record:list`权限保护；照片路径随分页列表最小字段投影返回，用户和牛只名称仍按批量装配，避免前端逐条详情查询或后端`N+1`。无新增数据写入和数据权限边界变化；`sicau-niu`未启用插件`i18n`，新增中文列名和按钮文案不新增语言包。
 - `FB-16`补充影响：仅修改`sicau-niu`插件可选`mock-data` SQL 和 OpenSpec 记录，不修改宿主核心契约、插件表结构、DAO、后端 Go、前端页面、HTTP API、权限、缓存或运行期依赖。数据分类仍为演示/测试用非敏感数据；新增`UPDATE`仅按固定 mock 业务键修正空图片或非`HTTP`占位图片，不影响非演示业务键，也不覆盖已为`HTTP/HTTPS`的运营自定义图片。`sicau-niu`未启用插件`i18n`，不新增语言包；不修改脚本或开发工具。
+- `FB-17`补充影响：新增插件自有`plugin_sicau_niu_activation_attempt`审计表、DAO 生成结果、玩家激活写入路径、运营端只读尝试记录 API 和激活记录页尝试列表，不修改`lina-core`宿主核心契约。玩家端仍由玩家 token 隔离，运营端读取仍受宿主认证、租户和`sicau-niu:record:list`权限保护；尝试记录只用于运营追溯，不参与首发、到场顺序、每日次数限制、图鉴、排行榜或结算统计。接口性能使用数据库分页、固定候选上限、最小字段投影和用户/牛只批量装配，避免`N+1`。缓存一致性无影响，不新增缓存；`sicau-niu`未启用插件`i18n`，新增中文页面文案和接口文档源文本不新增语言包；开发工具影响仅为既有`backend/hack/config.yaml` DAO 表清单新增一张表，无新增脚本或跨平台入口。
+- `FB-18`补充影响：仅修改`sicau-niu`插件激活记录前端页面布局和插件自有`TC006` E2E 断言，不修改宿主`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、权限或数据装配路径。数据权限边界不变，页面仍通过既有`sicau-niu:record:list`权限访问；无新增缓存、运行期依赖、脚本或开发工具入口。`sicau-niu`未启用插件`i18n`，本次不新增用户可见文案或语言包资源。
 
 ### 执行记录
 
@@ -75,6 +81,8 @@
 - `FB-14`修复：将玩家激活接口从“前端传`niuId`并校验指定牛距离”改为“前端只传`lat/lng/photoPath`，服务端按当前可见且`inactive`的牛只集合自动匹配最近候选”。成功响应新增`niuId`返回服务端实际激活的牛，供小程序后续刷新图鉴、获取海报或喂草使用。服务层在事务内按上线时间和`inactive`状态读取有界最小字段投影候选、计算 Haversine 距离、按最近优先加行锁并复查可见性/状态/距离后写入激活记录和更新牛只状态；已激活牛不再作为拍照打卡激活目标。同步更新小程序接口文档，请求示例不再包含`niuId`，并新增`PLUGIN_SICAU_NIU_ACTIVATION_NO_NEARBY_NIU`业务错误用于“附近没有可激活牛”场景。
 - `FB-15`修复：后端激活记录分页 DTO 和服务层列表模型新增`photoPath`，查询使用包含`photo_path`的有界字段投影并沿 Controller 返回前端。运营端激活记录页新增“照片”列，有照片时展示只读“查看”入口并打开 Ant Design 图片预览，无照片时显示空状态；前端类型和页面对象同步补齐。E2E 新增带照片激活记录种子，断言列表列可见且点击后预览层使用原始照片路径。
 - `FB-16`修复：将寻牛 mock 数据中的卡片图、荣誉图、玩家头像和激活照片填充为`https://picsum.photos/seed/...`公网图片地址；在同一个 mock SQL 中追加受控幂等`UPDATE`，让已安装过旧演示数据的环境重复加载后也能修正固定演示记录的空图片或非`HTTP`占位图片。
+- `FB-17`修复：新增`plugin_sicau_niu_activation_attempt`审计表、卸载 SQL、DAO/DO/Entity 生成结果和 mock 样例，记录玩家拍照打卡尝试的`success/no_nearby/out_of_range`结果、上报坐标、最近候选、距离、`LBS`阈值、照片路径和尝试时间。激活服务在每日次数限制通过后进入事务：成功激活时与正式激活记录同事务写入`success`尝试；附近无可见未激活牛或最近候选超出判距时提交失败尝试后返回`PLUGIN_SICAU_NIU_ACTIVATION_NO_NEARBY_NIU`；每日次数限制拒绝保持不写尝试记录。运营端新增只读`GET /plugins/sicau-niu/admin/records/activation-attempts`，复用`sicau-niu:record:list`权限并按分页批量装配玩家和牛只信息，`niuId`筛选同时匹配成功激活牛和失败尝试的最近候选牛；激活记录页新增“正式激活/打卡尝试”页签，尝试列表展示结果、最近牛、坐标、距离、判距、照片和打卡时间，照片支持只读预览。小程序接口文档补充失败尝试记录范围。
+- `FB-18`修复：激活记录页`Page`内容区改为`flex min-h-0 flex-col`，`Tabs`改为占满剩余高度的`flex min-h-0 flex-1 flex-col overflow-hidden`；每个`TabPane`内部增加`activation-record-tab-pane`固定 flex 容器，两个`VbenVxeGrid`增加`min-h-0 flex-1 overflow-hidden`；scoped 样式同时约束`ant-tabs-content-holder/content/tabpane`的`height/max-height/min-height/overflow`，让页签内容区和表格都只能在固定剩余高度内布局，不再反向膨胀。`TC006`新增激活记录页高度稳定性断言，连续读取页签`holder/content/pane`的`scrollHeight`验证切换到“打卡尝试”后内部高度不再持续增长。
 
 ### 验证记录
 
@@ -167,3 +175,21 @@
 - 已执行并通过（`FB-16`）：`GOWORK=off go test ./pkg/dialect -run 'TestOnConflictTargetsHaveDeclaredIdempotencyBasis|TestStaticHistoryMockInsertsHaveExistenceGuards' -count=1`（在`apps/lina-core`内）。
 - 已执行并通过（`FB-16`）：`git diff --check && git -C apps/lina-plugins diff --check`。
 - 已执行并通过（`FB-16`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-17`）：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -f manifest/sql/007-sicau-niu-rule-config.sql`（在`apps/lina-plugins/sicau-niu`内，新增尝试表和索引）。
+- 已执行并通过（`FB-17`）：`make dao`（在`apps/lina-plugins/sicau-niu`内，生成`activation_attempt`相关`DAO/DO/Entity`）。
+- 已执行并通过（`FB-17`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/activation ./backend/internal/service/record ./backend/internal/controller/record ./backend -count=1`（覆盖真实 PostgreSQL 激活尝试写入、失败提交、每日限制不记录、尝试记录分页和 Controller 编译门禁）。
+- 已执行并通过（`FB-17`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖插件全量 Go 包）。
+- 已执行并通过（`FB-17`）：`psql ... -f manifest/sql/007-sicau-niu-rule-config.sql`重复执行，确认尝试表和索引迁移幂等。
+- 已执行并通过（`FB-17`）：`psql ... -f manifest/sql/mock-data/001-sicau-niu-mock-data.sql`连续执行两次，首次新增 3 条尝试样例，第二次新增 0 条；数据库计数确认`success/no_nearby/out_of_range`样例各 1 条。
+- 已执行并通过（`FB-17`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-17`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-17`）：`make dev plugins=1 skip_wasm=true`重新打包插件资源并重启本地后端/前端，后端监听`http://127.0.0.1:9120/`，前端监听`http://127.0.0.1:5666/`。
+- 已执行并通过（`FB-17`）：重启后访问`GET /x/sicau-niu/api/v1/plugins/sicau-niu/admin/records/activation-attempts`返回受权限保护的`Unauthorized`，确认新尝试记录路由已加载到运行时且进入宿主权限链。
+- 已执行并通过（`FB-17`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6e`，覆盖运营端“打卡尝试”页签展示失败原因、坐标、距离阈值和照片预览。
+- 已执行并通过（`FB-17`）：`git diff --check && git -C apps/lina-plugins diff --check`。
+- 已执行并通过（`FB-17`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-18`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-18`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-18`）：只读 Playwright 高度采集确认激活记录页切换到“打卡尝试”后，`ant-tabs-content-holder/content/tabpane`从修复前持续增长为`1400 -> 2072 -> 2716 -> 3388`，修复后稳定为`686 -> 686 -> 686 -> 686`，且活动页签内表格标题和数据可见。
+- 已执行并通过（`FB-18`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6e`，新增高度稳定性断言，确认激活记录页切换到“打卡尝试”后页签`holder/content/pane`的`scrollHeight`不再持续增长。
+- 已执行并通过（`FB-18`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6d`，确认正式激活页签的照片预览仍正常。
