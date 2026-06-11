@@ -18,6 +18,9 @@
 - [x] **FB-16**: 示例数据里的图片字段为空或使用不可访问地址，导致演示页面图片无法加载
 - [x] **FB-17**: 小程序拍照打卡失败尝试没有记录，运营端无法追溯附近无未激活牛或超出`LBS`判距的用户打卡
 - [x] **FB-18**: 运营端激活记录页加入页签后页面高度持续增长
+- [x] **FB-19**: 寻牛活动下二级菜单过多，基础配置、运营和记录页面全部平铺后难以快速定位
+- [x] **FB-20**: 职责分组放在“寻牛活动”父级下形成三级菜单，三级目录无法满足独立控制闭合状态
+- [x] **FB-21**: 三个根级寻牛菜单共用空路由`path`，导致开合状态一开全开、一关全关
 
 ### 根因记录
 
@@ -39,6 +42,9 @@
 - `FB-16`根因：`manifest/sql/mock-data/001-sicau-niu-mock-data.sql`中的卡片`image_path`写入空值，荣誉`image_path`、玩家`avatar`和激活`photo_path`也没有填充可访问图片；已加载过旧示例数据的环境重复执行脚本时又会被`NOT EXISTS`跳过，导致演示页面仍然只能拿到空图或不可访问的占位路径。
 - `FB-17`根因：当前拍照打卡流程只在激活成功后写入`plugin_sicau_niu_activation`，无附近未激活牛、最近牛超出`LBS`判距等失败路径直接返回业务错误，没有独立审计表记录玩家上报坐标、最近候选、距离、阈值和照片路径；正式激活记录又承载首发、到场顺序和每日限制语义，不适合混入失败尝试。
 - `FB-18`根因：`FB-17`在`Page auto-content-height`内容区中直接嵌套`Tabs`，两个页签里的`VbenVxeGrid`又都使用`height: "auto"`；`Tabs`、`ant-tabs-content-holder`、`ant-tabs-content`、活动`TabPane`和表格外层没有完整的`height/max-height/min-height/overflow`边界，导致页面外层稳定后，页签内容区仍按 VXE 表格测量结果持续膨胀。
+- `FB-19`根因：`plugin.yaml`把院系、玩家、牛只、铁牛、卡片、金句、荣誉、结算和各类记录页面都直接挂在`plugin:sicau-niu:root`下，导致“寻牛活动”展开后出现十余个同级二级菜单，缺少按运营职责的分组目录。
+- `FB-20`根因：`FB-19`的分组实现仍保留“寻牛活动”父级，把“基础配置”“活动运营”“活动记录”作为父级下的二级目录，实际页面落到三级菜单；Vben 侧边栏对该层级不能满足运营人员分别折叠配置、运营和记录入口的使用习惯。
+- `FB-21`根因：`FB-20`把三个职责目录提升为根级目录后没有为`D`类型目录声明`path`；宿主菜单转换对空`path`保留空路由路径，Vben 侧边栏开合状态按路由`path`/open key 管理，三个根级目录共享空 key，导致展开或收起任一目录时另外两个同步变化。
 
 ### 影响分析
 
@@ -62,6 +68,9 @@
 - `FB-16`补充影响：仅修改`sicau-niu`插件可选`mock-data` SQL 和 OpenSpec 记录，不修改宿主核心契约、插件表结构、DAO、后端 Go、前端页面、HTTP API、权限、缓存或运行期依赖。数据分类仍为演示/测试用非敏感数据；新增`UPDATE`仅按固定 mock 业务键修正空图片或非`HTTP`占位图片，不影响非演示业务键，也不覆盖已为`HTTP/HTTPS`的运营自定义图片。`sicau-niu`未启用插件`i18n`，不新增语言包；不修改脚本或开发工具。
 - `FB-17`补充影响：新增插件自有`plugin_sicau_niu_activation_attempt`审计表、DAO 生成结果、玩家激活写入路径、运营端只读尝试记录 API 和激活记录页尝试列表，不修改`lina-core`宿主核心契约。玩家端仍由玩家 token 隔离，运营端读取仍受宿主认证、租户和`sicau-niu:record:list`权限保护；尝试记录只用于运营追溯，不参与首发、到场顺序、每日次数限制、图鉴、排行榜或结算统计。接口性能使用数据库分页、固定候选上限、最小字段投影和用户/牛只批量装配，避免`N+1`。缓存一致性无影响，不新增缓存；`sicau-niu`未启用插件`i18n`，新增中文页面文案和接口文档源文本不新增语言包；开发工具影响仅为既有`backend/hack/config.yaml` DAO 表清单新增一张表，无新增脚本或跨平台入口。
 - `FB-18`补充影响：仅修改`sicau-niu`插件激活记录前端页面布局和插件自有`TC006` E2E 断言，不修改宿主`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、权限或数据装配路径。数据权限边界不变，页面仍通过既有`sicau-niu:record:list`权限访问；无新增缓存、运行期依赖、脚本或开发工具入口。`sicau-niu`未启用插件`i18n`，本次不新增用户可见文案或语言包资源。
+- `FB-19`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。页面`key/path/perms/component`保持不变，只新增“基础配置”“活动运营”“活动记录”三个插件自有目录并调整页面`parent_key/sort`；宿主菜单同步会按既有`menu_key`更新父级关系。`sicau-niu`未启用插件`i18n`，新增中文菜单名按单语言插件处理，不新增`manifest/i18n`资源。E2E 影响为新增`TC007`覆盖菜单分组，并让既有插件页面对象先展开职责分组再点击页面菜单。
+- `FB-20`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。页面`key/perms/component`保持不变，最终页面访问 URL 保持不变；移除外层`plugin:sicau-niu:root`目录声明，将既有`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`调整为“寻牛配置”“寻牛运营”“寻牛记录”三个根级一级目录，页面仍作为这些目录的二级页面。宿主菜单同步按插件声明更新父级关系并清理插件清单外旧根目录。`sicau-niu`未启用插件`i18n`，新增中文菜单名按单语言插件处理，不新增`manifest/i18n`资源。本次已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`；确认无数据权限、缓存、API、后端、数据库、开发工具和模块启停影响。
+- `FB-21`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。为三个根级职责目录补充唯一`path`作为前端路由和菜单开合状态 key；二级页面`path`声明为绝对子路由以避免被父目录`path`拼接，页面`key/perms/component`和最终访问 URL 保持不变。`sicau-niu`未启用插件`i18n`，本次仅延续既有中文菜单名和测试断言，不新增`manifest/i18n`资源。本次已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`；确认无数据权限、缓存、API、后端、数据库、开发工具和模块启停影响。
 
 ### 执行记录
 
@@ -83,6 +92,9 @@
 - `FB-16`修复：将寻牛 mock 数据中的卡片图、荣誉图、玩家头像和激活照片填充为`https://picsum.photos/seed/...`公网图片地址；在同一个 mock SQL 中追加受控幂等`UPDATE`，让已安装过旧演示数据的环境重复加载后也能修正固定演示记录的空图片或非`HTTP`占位图片。
 - `FB-17`修复：新增`plugin_sicau_niu_activation_attempt`审计表、卸载 SQL、DAO/DO/Entity 生成结果和 mock 样例，记录玩家拍照打卡尝试的`success/no_nearby/out_of_range`结果、上报坐标、最近候选、距离、`LBS`阈值、照片路径和尝试时间。激活服务在每日次数限制通过后进入事务：成功激活时与正式激活记录同事务写入`success`尝试；附近无可见未激活牛或最近候选超出判距时提交失败尝试后返回`PLUGIN_SICAU_NIU_ACTIVATION_NO_NEARBY_NIU`；每日次数限制拒绝保持不写尝试记录。运营端新增只读`GET /plugins/sicau-niu/admin/records/activation-attempts`，复用`sicau-niu:record:list`权限并按分页批量装配玩家和牛只信息，`niuId`筛选同时匹配成功激活牛和失败尝试的最近候选牛；激活记录页新增“正式激活/打卡尝试”页签，尝试列表展示结果、最近牛、坐标、距离、判距、照片和打卡时间，照片支持只读预览。小程序接口文档补充失败尝试记录范围。
 - `FB-18`修复：激活记录页`Page`内容区改为`flex min-h-0 flex-col`，`Tabs`改为占满剩余高度的`flex min-h-0 flex-1 flex-col overflow-hidden`；每个`TabPane`内部增加`activation-record-tab-pane`固定 flex 容器，两个`VbenVxeGrid`增加`min-h-0 flex-1 overflow-hidden`；scoped 样式同时约束`ant-tabs-content-holder/content/tabpane`的`height/max-height/min-height/overflow`，让页签内容区和表格都只能在固定剩余高度内布局，不再反向膨胀。`TC006`新增激活记录页高度稳定性断言，连续读取页签`holder/content/pane`的`scrollHeight`验证切换到“打卡尝试”后内部高度不再持续增长。
+- `FB-19`修复：`plugin.yaml`在“寻牛活动”下新增“基础配置”“活动运营”“活动记录”三个目录，将院系、牛只、铁牛、卡片、金句和荣誉页面归入“基础配置”，将寻牛玩家和运营结算归入“活动运营”，将六类记录页归入“活动记录”。所有页面的`key/path/component/perms`保持不变，仅调整父级和组内排序；插件专属 E2E 页面对象同步改为先展开对应分组再进入目标页面，并新增`TC007-menu-groups`验证三个二级职责目录和各组代表页面仍可进入。
+- `FB-20`修复：移除“寻牛活动”外层目录声明，将`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`改为根级“寻牛配置”“寻牛运营”“寻牛记录”三个独立一级目录，避免运营页面落入三级菜单；院系、牛只、铁牛、卡片、金句和荣誉页面仍挂在“寻牛配置”下，寻牛玩家和运营结算仍挂在“寻牛运营”下，六类记录页仍挂在“寻牛记录”下。所有页面`key/component/perms`和最终访问 URL 保持不变，仅更新目录名称、父级层级和目录排序；插件 E2E 页面对象和`TC007-menu-groups`同步改为直接展开三个一级入口并验证代表页面可进入。
+- `FB-21`修复：为“寻牛配置”“寻牛运营”“寻牛记录”三个根级目录分别声明`sicau-niu-config`、`sicau-niu-operation`、`sicau-niu-records`路由路径，消除空`path`带来的菜单开合状态 key 冲突；将这些目录下的二级页面路径改为`/sicau-niu-*`绝对子路由，保持原有页面访问 URL 不被父目录路径拼接。插件 E2E 页面对象新增目录开合状态断言，`TC007-menu-groups`新增 Vben 默认手风琴模式下的独立状态回归：打开配置时运营/记录不会一起展开，打开运营时配置被单独收起且记录保持关闭，打开记录时配置/运营保持关闭。
 
 ### 验证记录
 
@@ -186,6 +198,12 @@
 - 已执行并通过（`FB-17`）：`make dev plugins=1 skip_wasm=true`重新打包插件资源并重启本地后端/前端，后端监听`http://127.0.0.1:9120/`，前端监听`http://127.0.0.1:5666/`。
 - 已执行并通过（`FB-17`）：重启后访问`GET /x/sicau-niu/api/v1/plugins/sicau-niu/admin/records/activation-attempts`返回受权限保护的`Unauthorized`，确认新尝试记录路由已加载到运行时且进入宿主权限链。
 - 已执行并通过（`FB-17`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6e`，覆盖运营端“打卡尝试”页签展示失败原因、坐标、距离阈值和照片预览。
+- 已执行并通过（`FB-19`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-19`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-19`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-19`）：`make dev plugins=1 skip_wasm=true`，启动后端`http://127.0.0.1:9120/`和前端`http://127.0.0.1:5666/`，后端启动日志显示`menuChanged=1`，确认新插件菜单清单被同步。
+- 已执行并通过（`FB-19`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-7`，覆盖“寻牛活动”下只展示“基础配置”“活动运营”“活动记录”三个职责分组，以及各组代表页面仍可进入。
+- 已执行并通过（`FB-19`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6a`，回归确认“活动记录 -> 喂草记录”路径仍可加载只读记录页。
 - 已执行并通过（`FB-17`）：`git diff --check && git -C apps/lina-plugins diff --check`。
 - 已执行并通过（`FB-17`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
 - 已执行并通过（`FB-18`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
@@ -193,3 +211,19 @@
 - 已执行并通过（`FB-18`）：只读 Playwright 高度采集确认激活记录页切换到“打卡尝试”后，`ant-tabs-content-holder/content/tabpane`从修复前持续增长为`1400 -> 2072 -> 2716 -> 3388`，修复后稳定为`686 -> 686 -> 686 -> 686`，且活动页签内表格标题和数据可见。
 - 已执行并通过（`FB-18`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6e`，新增高度稳定性断言，确认激活记录页切换到“打卡尝试”后页签`holder/content/pane`的`scrollHeight`不再持续增长。
 - 已执行并通过（`FB-18`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6d`，确认正式激活页签的照片预览仍正常。
+- 已执行并通过（`FB-20`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-20`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-20`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-20`）：`make dev plugins=1 skip_wasm=true`，后端监听`http://127.0.0.1:9120/`，前端监听`http://127.0.0.1:5666/`，后端启动日志显示`menuChanged=1`。
+- 已执行并通过（`FB-20`）：数据库检查`sys_menu`中`sicau-niu`活跃插件菜单，确认`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`均为`parent_id=0`，且不再存在`plugin:sicau-niu:root`。
+- 已执行并通过（`FB-20`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-7`，覆盖“寻牛配置”“寻牛运营”“寻牛记录”三个独立一级入口可见、旧“寻牛活动”根目录不再出现，并确认各入口代表页面仍可进入。
+- 已执行并通过（`FB-20`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6a`，回归确认“寻牛记录 -> 喂草记录”路径仍可加载只读记录页。
+- 已执行并通过（`FB-20`）：`git diff --check && git -C apps/lina-plugins diff --check`。
+- 已执行并通过（`FB-21`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-21`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-21`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-21`）：`make dev plugins=1 skip_wasm=true`，后端监听`http://127.0.0.1:9120/`，前端监听`http://127.0.0.1:5666/`。
+- 已执行并通过（`FB-21`）：数据库检查`sys_menu`中`sicau-niu`活跃插件菜单，确认`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`均为`parent_id=0`且`path`分别为`sicau-niu-config`、`sicau-niu-operation`、`sicau-niu-records`；代表页面`牛管理/运营结算/激活记录`路径仍为原有`/sicau-niu-*`最终访问 URL。
+- 已执行并通过（`FB-21`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-7`，覆盖三个一级入口可见、旧“寻牛活动”根目录不再出现、Vben 默认手风琴模式下不再一开全开，以及代表页面仍可进入。
+- 已执行并通过（`FB-21`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6a`，回归确认“寻牛记录 -> 喂草记录”路径仍可加载只读记录页。
+- 已执行并通过（`FB-21`）：`git diff --check && git -C apps/lina-plugins diff --check`。
