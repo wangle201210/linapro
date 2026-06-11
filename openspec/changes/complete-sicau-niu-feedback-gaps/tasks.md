@@ -13,6 +13,9 @@
 - [x] **FB-11**: IOT 平台`baseUrl`已单独配置，但代码仍读取`niu.baseURL`，导致真实平台请求不会使用当前配置地址
 - [x] **FB-12**: 铁牛管理页未展示已同步的铁牛经纬度，运营只能看到标识和名称
 - [x] **FB-13**: 插件时间点字段仍大量使用无时区`TIMESTAMP`，铁牛最近同步时间返回 Unix 毫秒后在页面显示到次日
+- [x] **FB-14**: 小程序拍照打卡激活接口仍要求传`niuId`，未按上报`GPS`自动匹配附近未激活牛
+- [x] **FB-15**: 运营端激活记录无法点击查看玩家激活时上传的照片
+- [x] **FB-16**: 示例数据里的图片字段为空或使用不可访问地址，导致演示页面图片无法加载
 
 ### 根因记录
 
@@ -29,6 +32,9 @@
 - `FB-11`根因：IOT 平台基础地址实际配置键为`niu.baseUrl`，但插件启动装配读取的是`niu.baseURL`；配置服务按 YAML 键精确匹配，导致真实`baseUrl`被忽略，刷新器继续使用默认文档地址。
 - `FB-12`根因：后端列表接口已经返回`lastLat/lastLng/locatedAt`，但铁牛管理页只展示标识、名称、最近定位时间和备注，没有把已有同步经纬度作为只读信息展示出来；新增/编辑表单本身也没有说明定位字段不可编辑，导致运营无法确认实体铁牛当前坐标。
 - `FB-13`根因：`sicau-niu`插件安装 SQL 中`located_at`、审计时间和多处业务时间点仍为无时区`TIMESTAMP`；Go 服务按 Unix 毫秒返回具体时间点，前端再按本地时区格式化时，数据库/驱动会话对无时区值的解释不稳定，导致铁牛最近同步时间出现约`8h`偏移并显示到次日。
+- `FB-14`根因：当前玩家激活 API 把`niuId`作为必填请求字段，Controller 直接传入服务层，服务层按指定牛 ID 加锁并做可见性和距离校验；该实现要求小程序先确定目标牛，未实现“拍照打卡只上报`GPS`，服务端计算附近是否存在未激活牛并触发激活”的需求。
+- `FB-15`根因：玩家激活表已经保存`photo_path`，但运营端激活记录列表接口没有把该字段纳入分页投影，前端表格类型和列配置也没有照片入口，导致运营人员只能看到激活文本记录，无法查看玩家打卡上传的照片证据。
+- `FB-16`根因：`manifest/sql/mock-data/001-sicau-niu-mock-data.sql`中的卡片`image_path`写入空值，荣誉`image_path`、玩家`avatar`和激活`photo_path`也没有填充可访问图片；已加载过旧示例数据的环境重复执行脚本时又会被`NOT EXISTS`跳过，导致演示页面仍然只能拿到空图或不可访问的占位路径。
 
 ### 影响分析
 
@@ -47,6 +53,9 @@
 - `FB-11`补充影响：仅修正插件自有配置键、示例模板和回归测试，不修改宿主核心契约、HTTP API、前端、数据库、缓存、脚本或运行时文案；数据权限、`i18n`和接口性能边界均不变。真实平台请求地址改为从`niu.baseUrl`读取，空值仍回退文档默认地址。
 - `FB-12`补充影响：仅修改铁牛管理前端页面和 E2E 断言，不新增数据库字段、不修改 DAO、不改变管理端或玩家端 API 契约，也不扩展 IOT 平台快照存储。新增/编辑接口仍只接收`code/name/remark`，经纬度继续由后台 IOT 刷新写入`last_lat/last_lng/located_at`并只读展示。数据权限边界不变，铁牛管理列表继续受`sicau-niu:iron:list`权限保护；缓存一致性、接口性能和宿主核心契约均无影响。`sicau-niu`未启用插件`i18n`，新增中文列名和只读展示文案不新增语言包。
 - `FB-13`补充影响：仅调整`apps/lina-plugins/sicau-niu`插件自有数据库时间类型、DAO 生成结果和后端回归测试，不修改`lina-core`宿主契约，不新增字段，不改变管理端或玩家端 API JSON 字段形态，时间响应仍按 Unix 毫秒返回。历史`TIMESTAMP`测试数据不需要按`Asia/Shanghai`保留语义，迁移直接转换为`TIMESTAMPTZ`以保证后续真实时间点稳定。数据权限边界不变；缓存无新增；`sicau-niu`未启用插件`i18n`，不新增语言包；不修改开发工具或脚本。
+- `FB-14`补充影响：修改插件玩家端激活 API 契约和服务层匹配逻辑，不修改`lina-core`宿主核心契约、数据库结构、DAO、缓存、运行期依赖或开发脚本。玩家写操作继续由玩家 token 解析的`playerID`隔离；服务端只在插件自有牛只表中匹配当前可见且`inactive`的牛，并在事务内加行锁复查状态、可见性和距离后写入激活记录。接口性能通过上线时间、`inactive`状态、固定候选上限和内存 Haversine 计算控制，避免前端按牛逐个尝试激活或后端`N+1`查询。`sicau-niu`未启用插件`i18n`，本次仅修改中文 OpenSpec/小程序接口文档和插件 API 文档源文本，不新增语言包。
+- `FB-15`补充影响：仅修改插件自有活动记录列表 API、激活记录前端页面、E2E 测试和 OpenSpec 记录，不修改`lina-core`宿主核心契约、数据库结构、DAO、缓存、运行期依赖或开发脚本。运营端激活记录仍受`sicau-niu:record:list`权限保护；照片路径随分页列表最小字段投影返回，用户和牛只名称仍按批量装配，避免前端逐条详情查询或后端`N+1`。无新增数据写入和数据权限边界变化；`sicau-niu`未启用插件`i18n`，新增中文列名和按钮文案不新增语言包。
+- `FB-16`补充影响：仅修改`sicau-niu`插件可选`mock-data` SQL 和 OpenSpec 记录，不修改宿主核心契约、插件表结构、DAO、后端 Go、前端页面、HTTP API、权限、缓存或运行期依赖。数据分类仍为演示/测试用非敏感数据；新增`UPDATE`仅按固定 mock 业务键修正空图片或非`HTTP`占位图片，不影响非演示业务键，也不覆盖已为`HTTP/HTTPS`的运营自定义图片。`sicau-niu`未启用插件`i18n`，不新增语言包；不修改脚本或开发工具。
 
 ### 执行记录
 
@@ -63,6 +72,9 @@
 - `FB-11`修复：将插件装配读取的 IOT 平台基础地址键从`niu.baseURL`改为`niu.baseUrl`，同步更新配置模板和插件级回归测试；新增非法`baseUrl`启动失败用例，确保真实配置键被消费。
 - `FB-12`修复：按最新反馈不新增数据库字段、不保存平台额外快照，仅在铁牛管理列表展示既有`lastLat`、`lastLng`和`locatedAt`，列名为“纬度”“经度”“最近同步时间”；编辑弹窗增加只读“定位信息”区，同样展示这三项，提交 payload 仍只包含`code/name/remark`。`TC002`新增铁牛管理只读经纬度断言，确认列表列可见且弹窗定位信息区没有输入框或文本域。
 - `FB-13`修复：当前迭代`007` SQL 增加幂等动态迁移块，把`plugin_sicau_niu_%`基础表中所有`timestamp without time zone`时间点列统一转换为`TIMESTAMPTZ`；`cattle`测试夹具同步执行`007`，并新增铁牛列表数据库回归测试，验证`locatedAt`在不同 PostgreSQL session 时区下仍按同一个 Unix 毫秒返回。
+- `FB-14`修复：将玩家激活接口从“前端传`niuId`并校验指定牛距离”改为“前端只传`lat/lng/photoPath`，服务端按当前可见且`inactive`的牛只集合自动匹配最近候选”。成功响应新增`niuId`返回服务端实际激活的牛，供小程序后续刷新图鉴、获取海报或喂草使用。服务层在事务内按上线时间和`inactive`状态读取有界最小字段投影候选、计算 Haversine 距离、按最近优先加行锁并复查可见性/状态/距离后写入激活记录和更新牛只状态；已激活牛不再作为拍照打卡激活目标。同步更新小程序接口文档，请求示例不再包含`niuId`，并新增`PLUGIN_SICAU_NIU_ACTIVATION_NO_NEARBY_NIU`业务错误用于“附近没有可激活牛”场景。
+- `FB-15`修复：后端激活记录分页 DTO 和服务层列表模型新增`photoPath`，查询使用包含`photo_path`的有界字段投影并沿 Controller 返回前端。运营端激活记录页新增“照片”列，有照片时展示只读“查看”入口并打开 Ant Design 图片预览，无照片时显示空状态；前端类型和页面对象同步补齐。E2E 新增带照片激活记录种子，断言列表列可见且点击后预览层使用原始照片路径。
+- `FB-16`修复：将寻牛 mock 数据中的卡片图、荣誉图、玩家头像和激活照片填充为`https://picsum.photos/seed/...`公网图片地址；在同一个 mock SQL 中追加受控幂等`UPDATE`，让已安装过旧演示数据的环境重复加载后也能修正固定演示记录的空图片或非`HTTP`占位图片。
 
 ### 验证记录
 
@@ -137,3 +149,21 @@
 - 已执行并通过（`FB-13`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/cattle -count=1`，覆盖旧建表 SQL 加当前`007`迁移后的铁牛列表时间毫秒回归。
 - 已执行并通过（`FB-13`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
 - 已执行并通过（`FB-13`）：管理员真实 API smoke，`GET /x/sicau-niu/api/v1/plugins/sicau-niu/admin/iron?pageNum=1&pageSize=20`返回`50275156712.locatedAt=1781166863369`，换算`Asia/Shanghai`为`2026/6/11 16:34:23`，不再显示到`2026-06-12`。
+- 已执行并通过（`FB-14`）：静态检索确认`POST /plugins/sicau-niu/player/activations`请求 DTO、Controller 和 activation service 不再读取`req.NiuId`或`ActivateInput.NiuId`，仅海报、喂草、后台和记录筛选等后续已知牛只接口继续保留`niuId`。
+- 已执行并通过（`FB-14`）：`GOWORK=off go test ./backend/internal/service/activation ./backend/internal/controller/player ./backend -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖 GPS 自动匹配、无附近牛、不可见牛不匹配、多个候选选最近、已激活牛不再匹配、并发首激活、Controller/API 编译门禁和插件路由绑定包）。
+- 已执行并通过（`FB-14`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/activation -count=1`（在`apps/lina-plugins/sicau-niu`内，显式覆盖真实 PostgreSQL 查询、事务和行锁路径）。
+- 已执行并通过（`FB-14`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖插件全量 Go 包）。
+- 已执行并通过（`FB-14`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-15`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/record -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖真实 PostgreSQL 激活记录`photoPath`列表投影）。
+- 已执行并通过（`FB-15`）：`GOWORK=off go test ./backend/internal/service/record ./backend/internal/controller/record ./backend -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖服务层、Controller 映射和插件后端编译门禁）。
+- 已执行并通过（`FB-15`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖插件全量 Go 包）。
+- 已执行并通过（`FB-15`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-15`）：`pnpm -C hack/tests test:validate`。
+- 已执行但受本地启动环境阻断（`FB-15`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6d`；当时`http://127.0.0.1:9120`后端未启动，随后`make dev`启动后端又因无关`linapro-uidentity-cas`插件菜单父级`system`不存在而停止，未进入本用例断言。
+- 已执行并通过（`FB-15`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-16`）：`curl -L --fail --max-time 15`抽查卡片图、荣誉图、玩家头像和激活照片示例 URL，均返回`200 image/jpeg`。
+- 已执行并通过（`FB-16`）：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -f apps/lina-plugins/sicau-niu/manifest/sql/mock-data/001-sicau-niu-mock-data.sql`连续执行两次，第一次修正旧示例图片字段，第二次对应`UPDATE`为`0`，确认幂等。
+- 已执行并通过（`FB-16`）：数据库计数确认固定演示业务键下`card_https=10`、`honor_https=8`、`avatar_https=10`、`activation_photo_https=12`。
+- 已执行并通过（`FB-16`）：`GOWORK=off go test ./pkg/dialect -run 'TestOnConflictTargetsHaveDeclaredIdempotencyBasis|TestStaticHistoryMockInsertsHaveExistenceGuards' -count=1`（在`apps/lina-core`内）。
+- 已执行并通过（`FB-16`）：`git diff --check && git -C apps/lina-plugins diff --check`。
+- 已执行并通过（`FB-16`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
