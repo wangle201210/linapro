@@ -9,6 +9,10 @@
 - [x] **FB-7**: 牛只发布状态同时依赖`release_stage`和`online_at`，导致运营维护重复且玩家可见/激活逻辑不一致
 - [x] **FB-8**: 玩家可见列表外的牛只仍可通过`POST /player/activations`直接激活，绕过运营放出节奏
 - [x] **FB-9**: `onlineAt` Unix 毫秒写入无时区`TIMESTAMP`后在不同时区会话下被判断为未来时间，导致运营刚设置已上线牛只玩家地图不可见
+- [x] **FB-10**: 铁牛定位仍使用 Mock 网关，未按 IOT 平台文档和`config.yaml`中的`niu.key/secret`定时刷新真实坐标
+- [x] **FB-11**: IOT 平台`baseUrl`已单独配置，但代码仍读取`niu.baseURL`，导致真实平台请求不会使用当前配置地址
+- [x] **FB-12**: 铁牛管理页未展示已同步的铁牛经纬度，运营只能看到标识和名称
+- [x] **FB-13**: 插件时间点字段仍大量使用无时区`TIMESTAMP`，铁牛最近同步时间返回 Unix 毫秒后在页面显示到次日
 
 ### 根因记录
 
@@ -21,6 +25,10 @@
 - `FB-7`根因：牛只发布同时维护`release_stage`和`online_at`两套状态来源，玩家地图还要求阶段非空且上线时间已到达；Mock 数据只写了阶段、未写上线时间，导致地图为空。激活接口只按牛只 ID 加锁并做距离校验，没有复用地图可见性判断，玩家可绕过地图直接激活未上线牛只。
 - `FB-8`根因：上一轮修复已在激活事务行锁后复用可见性判断，但回归覆盖只验证了`onlineAt`晚于当前时间，未覆盖`onlineAt`为空、周几窗口不匹配、时段窗口不匹配等“玩家地图不可见”的完整原因，也缺少重启后通过真实玩家 API 验证运行时代码已加载，导致该绕过风险仍可被本地旧进程或未覆盖场景复现。
 - `FB-9`根因：`onlineAt`接口契约是 Unix 毫秒绝对时间点，但插件牛只表把`online_at`定义为无时区`TIMESTAMP`；Go/数据库连接和 PostgreSQL 会话时区不一致时，写入值会变成会话本地墙钟时间，玩家地图的`online_at <= now`过滤会把刚设置为已上线的牛只误判为未来时间。
+- `FB-10`根因：`sicau-niu`首版喂草路径只预留了可替换的铁牛定位接缝，但实际装配一直注入本地 Mock/存储坐标网关；后台没有按`IOT平台太阳能定位器接口文档v1.0.pdf`注册定位刷新任务，也没有读取插件`config.yaml`中的`niu.key/secret`获取平台 token，因此实体铁牛坐标不会自动更新。
+- `FB-11`根因：IOT 平台基础地址实际配置键为`niu.baseUrl`，但插件启动装配读取的是`niu.baseURL`；配置服务按 YAML 键精确匹配，导致真实`baseUrl`被忽略，刷新器继续使用默认文档地址。
+- `FB-12`根因：后端列表接口已经返回`lastLat/lastLng/locatedAt`，但铁牛管理页只展示标识、名称、最近定位时间和备注，没有把已有同步经纬度作为只读信息展示出来；新增/编辑表单本身也没有说明定位字段不可编辑，导致运营无法确认实体铁牛当前坐标。
+- `FB-13`根因：`sicau-niu`插件安装 SQL 中`located_at`、审计时间和多处业务时间点仍为无时区`TIMESTAMP`；Go 服务按 Unix 毫秒返回具体时间点，前端再按本地时区格式化时，数据库/驱动会话对无时区值的解释不稳定，导致铁牛最近同步时间出现约`8h`偏移并显示到次日。
 
 ### 影响分析
 
@@ -35,6 +43,10 @@
 - `FB-7`补充影响：移除插件自有牛只目录 API、管理页和数据库中的`releaseStage/release_stage`，不修改`lina-core`宿主契约；玩家地图与激活接口统一按`onlineAt`和可见窗口判断。数据权限边界不变，运营牛只管理仍受既有宿主权限码保护，玩家激活仍由玩家 token 隔离。`sicau-niu`为单语言插件，不要求新增`manifest/i18n`资源；不新增缓存或运行期依赖；不修改开发工具或脚本，使用既有根`db.init`、插件 SQL 和`make -C apps/lina-plugins dao p=sicau-niu`入口。
 - `FB-8`补充影响：仅收紧插件玩家激活接口的目标可见性验收和测试覆盖，不修改宿主`lina-core`核心契约、插件 SQL、DAO、缓存或运行期依赖；玩家写操作继续由玩家 token 隔离，并在写入前校验目标牛只必须满足玩家地图可见条件。`sicau-niu`未启用插件`i18n`，本次仅更新英文 API 文档源文本和中文 OpenSpec 记录，不新增语言包；不修改开发工具或脚本。
 - `FB-9`补充影响：仅调整插件自有`online_at`数据库时间类型和服务层回归测试，不改变`onlineAt`请求/响应 Unix 毫秒 API 契约，不修改宿主核心模块、前端调用、玩家 token 隔离、缓存、运行期依赖、脚本或`i18n`资源。数据权限边界不变；索引仍覆盖玩家地图高频上线时间过滤，避免全表扫描和`N+1`。
+- `FB-10`补充影响：仅修改`apps/lina-plugins/sicau-niu`源码插件后端、插件配置模板和当前 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、前端页面、SQL、DAO、运行时语言包或开发脚本。后台定位刷新是插件源代码注册的主节点定时任务，读取插件自有铁牛表并写回插件自有`last_lat/last_lng/located_at`快照；玩家喂草请求继续只读本地快照，不直接访问外部 IOT 平台。数据权限边界不变，无新增玩家或运营接口。缓存一致性影响：外部 IOT token 仅在单进程刷新器内按文档`72h`有效期提前续期缓存，坐标快照以数据库为共享权威，默认`1min`刷新，失败时保留上一次可用坐标。性能影响：每轮刷新一次本地投影查询、分页且有上限的外部查询、一次集合化本地坐标更新；喂草路径仍为一次本地铁牛坐标查询，避免请求路径网络调用和按铁牛数量增长的数据库写入。
+- `FB-11`补充影响：仅修正插件自有配置键、示例模板和回归测试，不修改宿主核心契约、HTTP API、前端、数据库、缓存、脚本或运行时文案；数据权限、`i18n`和接口性能边界均不变。真实平台请求地址改为从`niu.baseUrl`读取，空值仍回退文档默认地址。
+- `FB-12`补充影响：仅修改铁牛管理前端页面和 E2E 断言，不新增数据库字段、不修改 DAO、不改变管理端或玩家端 API 契约，也不扩展 IOT 平台快照存储。新增/编辑接口仍只接收`code/name/remark`，经纬度继续由后台 IOT 刷新写入`last_lat/last_lng/located_at`并只读展示。数据权限边界不变，铁牛管理列表继续受`sicau-niu:iron:list`权限保护；缓存一致性、接口性能和宿主核心契约均无影响。`sicau-niu`未启用插件`i18n`，新增中文列名和只读展示文案不新增语言包。
+- `FB-13`补充影响：仅调整`apps/lina-plugins/sicau-niu`插件自有数据库时间类型、DAO 生成结果和后端回归测试，不修改`lina-core`宿主契约，不新增字段，不改变管理端或玩家端 API JSON 字段形态，时间响应仍按 Unix 毫秒返回。历史`TIMESTAMP`测试数据不需要按`Asia/Shanghai`保留语义，迁移直接转换为`TIMESTAMPTZ`以保证后续真实时间点稳定。数据权限边界不变；缓存无新增；`sicau-niu`未启用插件`i18n`，不新增语言包；不修改开发工具或脚本。
 
 ### 执行记录
 
@@ -47,6 +59,10 @@
 - `FB-7`修复：将牛只发布契约收敛为`onlineAt`唯一控制字段；管理端 DTO、Controller、`cattle`服务、Vue 客户端、表单、筛选和列表列均移除`releaseStage`，列表改展示“上线时间”。数据库安装 SQL 不再创建`release_stage`，当前迭代 SQL 幂等删除旧索引和旧列并创建`idx_sicau_niu_niu_online`，Mock 数据改为直接写`online_at`。玩家地图查询只按`online_at IS NOT NULL AND online_at <= now`做数据库过滤，再叠加周几/时段窗口；激活事务在行锁后复用同一可见性判断，未上线或窗口外牛只返回`CodeNiuNotVisible`且不写激活记录。
 - `FB-8`修复：将玩家激活接口说明明确为只允许激活当前玩家地图可见牛只；补充`Activate`数据库集成测试，分别覆盖`onlineAt`为空、未来上线、周几窗口排除当前日期和时段窗口排除当前分钟时，直接调用激活服务均返回`CodeNiuNotVisible`且不写入激活记录。
 - `FB-9`修复：将插件牛只表`online_at`从无时区`TIMESTAMP`收敛为`TIMESTAMPTZ`，当前迭代 SQL 在重建上线时间索引前幂等迁移历史列类型，并按 UTC 解释旧值以保留既有 Mock/迁移数据的绝对时间语义；补充运营侧 Unix 毫秒创建后玩家地图立即可见的数据库集成回归测试。
+- `FB-10`修复：新增 IOT 平台定位刷新器，按文档调用`/open/device/getToken`和`/open/device/getInfoList`，优先使用定位器返回的高德`latitude/longitude`，缺失时回退原始 GPS`lat/lon`；插件启动时读取`niu.key/secret/baseUrl/pageSize/refreshInterval/tokenTTL`，默认`1min`注册主节点定时任务，并把小于`1min`的配置钳制为`1min`。喂草服务改为注入本地存储坐标网关，外部 IOT 访问仅发生在后台刷新任务中；刷新器增加 token 缓存、非重入保护、坐标合法性校验、外部分页上限和集合化本地坐标更新。配置模板移除已无运行时意义的`ironLocation.mock`，保留真实生效的`niu`配置段。
+- `FB-11`修复：将插件装配读取的 IOT 平台基础地址键从`niu.baseURL`改为`niu.baseUrl`，同步更新配置模板和插件级回归测试；新增非法`baseUrl`启动失败用例，确保真实配置键被消费。
+- `FB-12`修复：按最新反馈不新增数据库字段、不保存平台额外快照，仅在铁牛管理列表展示既有`lastLat`、`lastLng`和`locatedAt`，列名为“纬度”“经度”“最近同步时间”；编辑弹窗增加只读“定位信息”区，同样展示这三项，提交 payload 仍只包含`code/name/remark`。`TC002`新增铁牛管理只读经纬度断言，确认列表列可见且弹窗定位信息区没有输入框或文本域。
+- `FB-13`修复：当前迭代`007` SQL 增加幂等动态迁移块，把`plugin_sicau_niu_%`基础表中所有`timestamp without time zone`时间点列统一转换为`TIMESTAMPTZ`；`cattle`测试夹具同步执行`007`，并新增铁牛列表数据库回归测试，验证`locatedAt`在不同 PostgreSQL session 时区下仍按同一个 Unix 毫秒返回。
 
 ### 验证记录
 
@@ -97,3 +113,27 @@
 - 已执行并通过（`FB-9`）：真实 API smoke：管理员`POST /api/v1/auth/login`获取 token；`POST /x/sicau-niu/api/v1/plugins/sicau-niu/admin/niu`创建`onlineAt=Date.now()-1h`普通牛；管理员列表返回该牛且`onlineAt`非空；玩家`POST /player/login`获取 token；`GET /player/niu`包含新建牛；最后通过管理员`DELETE /admin/niu/{id}`清理测试牛。
 - 已执行并通过（`FB-9`）：`pnpm -C hack/tests test:validate`。
 - 已执行并通过（`FB-9`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-10`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-10`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/feeding -run TestIOTRefreshUpdatesStoredIronLocationForFeeding -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖真实 PostgreSQL 写回本地铁牛坐标后喂草加成生效）。
+- 已执行并通过（`FB-10`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行但真实平台授权未通过（`FB-10`）：读取`manifest/config/config.yaml`确认存在`niu.key/secret`且未输出密钥内容，按文档调用 IOT 平台`/open/device/getToken`时 HTTP 请求到达平台，但平台返回业务码`1015`，因此未继续验证真实定位列表；本地实现和请求格式已由单元测试、门控集成测试覆盖，真实平台凭据或授权状态需按平台业务码确认。
+- 已执行并通过（`FB-11`）：读取`manifest/config/config.yaml`确认存在`niu.baseUrl/key/secret`且未输出密钥内容，确认实际配置只有`baseUrl`没有`baseURL`。
+- 已执行并通过（`FB-11`）：`GOWORK=off go test ./backend ./backend/internal/service/feeding/internal/ironlocation -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖插件装配读取`niu.baseUrl`和 IOT 刷新器配置校验）。
+- 已执行并通过（`FB-11`）：临时 Go live smoke 使用项目`ironlocation`刷新器读取当前`config.yaml`中的`niu.baseUrl/key/secret`请求真实 IOT 平台，`getToken`成功，`getInfoList`成功，返回`fetched=1`；测试完成后已删除临时 smoke 文件，未输出 key、secret 或 token。
+- 已执行并通过（`FB-11`）：按用户要求重新用项目 Go 代码执行临时 live smoke，读取当前`config.yaml`的`niu.baseUrl/key/secret`请求真实 IOT 平台，`getToken`成功，`getInfoList`成功，平台返回`platform_count=1/page_items=1/fetched=1`，首条定位器编号脱敏为`****6712`，坐标解析为`lat=29.982094/lng=102.992767`；测试完成后已删除临时 smoke 文件，未输出 key、secret 或 token。
+- 已执行并通过（`FB-11`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内，覆盖当前插件 Go 工作区）。
+- 已执行并通过（`FB-11`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-12`）：`psql ... -f apps/lina-plugins/sicau-niu/manifest/sql/007-sicau-niu-rule-config.sql`，并检查`plugin_sicau_niu_iron`不存在`iot_%`列，确认本次不新增铁牛表字段。
+- 已执行并通过（`FB-12`）：`make dao`（在`apps/lina-plugins/sicau-niu`内，确认 DAO/DO/Entity 仍按现有铁牛表结构生成）。
+- 已执行并通过（`FB-12`）：`GOWORK=off go test ./backend ./backend/internal/service/feeding ./backend/internal/service/feeding/internal/ironlocation -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-12`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-12`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-12`）：`pnpm -C hack/tests test:validate`。
+- 已执行并通过（`FB-12`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-2e`。
+- 已执行并通过（`FB-12`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并通过（`FB-13`）：`psql ... -f apps/lina-plugins/sicau-niu/manifest/sql/007-sicau-niu-rule-config.sql`，并检查`information_schema.columns`，`plugin_sicau_niu_%`表中`timestamp without time zone`列数量为`0`，`plugin_sicau_niu_iron.located_at`为`timestamp with time zone`。
+- 已执行并通过（`FB-13`）：`make dao`（在`apps/lina-plugins/sicau-niu`内，确认`TIMESTAMPTZ`仍按`*time.Time`生成）。
+- 已执行并通过（`FB-13`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/cattle -run 'TestListIronReturnsLocatedAtAsAbsoluteMillis|TestCreateIronRejectsDuplicateCode' -count=1`。
+- 已执行并通过（`FB-13`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./backend/internal/service/cattle -count=1`，覆盖旧建表 SQL 加当前`007`迁移后的铁牛列表时间毫秒回归。
+- 已执行并通过（`FB-13`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-13`）：管理员真实 API smoke，`GET /x/sicau-niu/api/v1/plugins/sicau-niu/admin/iron?pageNum=1&pageSize=20`返回`50275156712.locatedAt=1781166863369`，换算`Asia/Shanghai`为`2026/6/11 16:34:23`，不再显示到`2026-06-12`。
