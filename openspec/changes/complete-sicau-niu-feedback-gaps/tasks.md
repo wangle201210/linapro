@@ -21,6 +21,11 @@
 - [x] **FB-19**: 寻牛活动下二级菜单过多，基础配置、运营和记录页面全部平铺后难以快速定位
 - [x] **FB-20**: 职责分组放在“寻牛活动”父级下形成三级菜单，三级目录无法满足独立控制闭合状态
 - [x] **FB-21**: 三个根级寻牛菜单共用空路由`path`，导致开合状态一开全开、一关全关
+- [x] **FB-22**: 前端《后端接口开发注意清单》要求写接口支持`requestId`幂等，喂草/偷草/赠草网络重试会重复扣草或重复转移草料
+- [x] **FB-23**: 拍照打卡仅限制每日激活成功 1 次，失败尝试无上限，虚拟定位可无限网格扫图试探牛只位置
+- [x] **FB-24**: 拍照打卡缺少移动速度异常检测，虚拟定位瞬移无法被拦截和留痕
+- [x] **FB-25**: 每日限次的自然日切分使用服务器本地时区，未按清单约定固定为北京时间`00:00`
+- [x] **FB-26**: 距离计算与接口文档把坐标系写为`WGS-84`，与前端全链路`GCJ-02`约定不一致
 
 ### 根因记录
 
@@ -45,6 +50,11 @@
 - `FB-19`根因：`plugin.yaml`把院系、玩家、牛只、铁牛、卡片、金句、荣誉、结算和各类记录页面都直接挂在`plugin:sicau-niu:root`下，导致“寻牛活动”展开后出现十余个同级二级菜单，缺少按运营职责的分组目录。
 - `FB-20`根因：`FB-19`的分组实现仍保留“寻牛活动”父级，把“基础配置”“活动运营”“活动记录”作为父级下的二级目录，实际页面落到三级菜单；Vben 侧边栏对该层级不能满足运营人员分别折叠配置、运营和记录入口的使用习惯。
 - `FB-21`根因：`FB-20`把三个职责目录提升为根级目录后没有为`D`类型目录声明`path`；宿主菜单转换对空`path`保留空路由路径，Vben 侧边栏开合状态按路由`path`/open key 管理，三个根级目录共享空 key，导致展开或收起任一目录时另外两个同步变化。
+- `FB-22`根因：首版草料写接口只依赖每日次数与余额校验，请求模型没有客户端幂等键字段，表上也没有对应唯一索引；小程序在弱网下超时重试时，同一业务动作会被作为两次独立请求执行。
+- `FB-23`根因：`FB-17`补齐了尝试审计，但只把尝试表当作只读留痕，没有把当日尝试计数纳入打卡前置校验，攻击者可用失败尝试无限试探。
+- `FB-24`根因：尝试表已记录每次上报坐标和时间，但激活路径从未读取玩家上一次尝试做速度比对，瞬移行为既不被拦截也没有独立风控结果留痕。
+- `FB-25`根因：激活、签到、偷草、赠草各自用`time.Now().Format("2006-01-02")`计算自然日键，依赖进程时区；部署镜像时区非`Asia/Shanghai`时，切日时刻偏离活动约定的北京时间零点。
+- `FB-26`根因：首版距离计算注释按通用 GPS 习惯写了`WGS-84`，接口文档也未声明坐标系；前端清单明确全链路`GCJ-02`后，文档与注释的口径未同步，存在引导混用坐标系的风险。
 
 ### 影响分析
 
@@ -72,6 +82,8 @@
 - `FB-20`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。页面`key/perms/component`保持不变，最终页面访问 URL 保持不变；移除外层`plugin:sicau-niu:root`目录声明，将既有`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`调整为“寻牛配置”“寻牛运营”“寻牛记录”三个根级一级目录，页面仍作为这些目录的二级页面。宿主菜单同步按插件声明更新父级关系并清理插件清单外旧根目录。`sicau-niu`未启用插件`i18n`，新增中文菜单名按单语言插件处理，不新增`manifest/i18n`资源。本次已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`；确认无数据权限、缓存、API、后端、数据库、开发工具和模块启停影响。
 - `FB-21`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。为三个根级职责目录补充唯一`path`作为前端路由和菜单开合状态 key；二级页面`path`声明为绝对子路由以避免被父目录`path`拼接，页面`key/perms/component`和最终访问 URL 保持不变。`sicau-niu`未启用插件`i18n`，本次仅延续既有中文菜单名和测试断言，不新增`manifest/i18n`资源。本次已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`；确认无数据权限、缓存、API、后端、数据库、开发工具和模块启停影响。
 
+- `FB-22`~`FB-26`补充影响：`sicau-niu`未启用插件`i18n`，新增错误码仅含英文 fallback 文案与英文`dc`源文本，不要求维护`manifest/i18n`资源；不新增缓存（防作弊阈值经既有无缓存`rules`服务读取，幂等判断直接查业务表）；数据权限边界不变（玩家写操作仍按玩家 token 隔离，规则维护仍受`sicau-niu:settlement:rules`权限保护）；不修改开发工具或脚本，数据库变更走插件`manifest/sql`与`make dao p=sicau-niu`既有入口；DI 来源检查——`rules`服务新增`ActivationGuards`访问器属既有接口扩展，激活/喂草/社交服务未新增运行期依赖，仍由`backend/plugin.go`路由装配期一次性创建并显式传入，共享同一数据库后端；新增`internal/activityday`为无状态纯函数包，不构成运行期服务依赖。
+
 ### 执行记录
 
 - `FB-1`修复：升级`posterrender`和`certrender`默认实现，输出带活动标题、玩家/奖项字段、编号、纪念标识、版式边框和个性化装饰的`PNG`；新增`rendertext`工具，优先使用`SICAU_NIU_RENDER_FONT`或系统`CJK`字体，缺失字体时回退基础字体并保持可解码输出；补充海报和证书渲染器像素级单测，防止退回纯占位图。
@@ -95,6 +107,12 @@
 - `FB-19`修复：`plugin.yaml`在“寻牛活动”下新增“基础配置”“活动运营”“活动记录”三个目录，将院系、牛只、铁牛、卡片、金句和荣誉页面归入“基础配置”，将寻牛玩家和运营结算归入“活动运营”，将六类记录页归入“活动记录”。所有页面的`key/path/component/perms`保持不变，仅调整父级和组内排序；插件专属 E2E 页面对象同步改为先展开对应分组再进入目标页面，并新增`TC007-menu-groups`验证三个二级职责目录和各组代表页面仍可进入。
 - `FB-20`修复：移除“寻牛活动”外层目录声明，将`plugin:sicau-niu:config`、`plugin:sicau-niu:operation`、`plugin:sicau-niu:records`改为根级“寻牛配置”“寻牛运营”“寻牛记录”三个独立一级目录，避免运营页面落入三级菜单；院系、牛只、铁牛、卡片、金句和荣誉页面仍挂在“寻牛配置”下，寻牛玩家和运营结算仍挂在“寻牛运营”下，六类记录页仍挂在“寻牛记录”下。所有页面`key/component/perms`和最终访问 URL 保持不变，仅更新目录名称、父级层级和目录排序；插件 E2E 页面对象和`TC007-menu-groups`同步改为直接展开三个一级入口并验证代表页面可进入。
 - `FB-21`修复：为“寻牛配置”“寻牛运营”“寻牛记录”三个根级目录分别声明`sicau-niu-config`、`sicau-niu-operation`、`sicau-niu-records`路由路径，消除空`path`带来的菜单开合状态 key 冲突；将这些目录下的二级页面路径改为`/sicau-niu-*`绝对子路由，保持原有页面访问 URL 不被父目录路径拼接。插件 E2E 页面对象新增目录开合状态断言，`TC007-menu-groups`新增 Vben 默认手风琴模式下的独立状态回归：打开配置时运营/记录不会一起展开，打开运营时配置被单独收起且记录保持关闭，打开记录时配置/运营保持关闭。
+
+- `FB-22`修复：新增`008-sicau-niu-anticheat-idempotency.sql`，为`feeding/steal/gift`表幂等增加`request_id`列与按操作者的部分唯一索引（`request_id <> ''`时生效）；喂草、偷草、赠草请求 DTO 与服务输入新增可选`requestId`（≤64 字符），服务在各自事务内先按（操作者，`requestId`）查重，命中返回`PLUGIN_SICAU_NIU_FEEDING_DUPLICATE_REQUEST`/`PLUGIN_SICAU_NIU_SOCIAL_DUPLICATE_REQUEST`且不产生任何资产变更，唯一索引兜底并发；激活与签到依赖既有（用户，自然日）唯一索引天然防重，不加键。小程序接口文档同步“幂等键”约定与字段说明。
+- `FB-23`修复：`rules`服务新增`activation.dailyAttemptLimit`运行规则（默认 20，正数校验，含 008 种子与启动配置键），激活服务在每日成功限制之后、事务之前按北京时间日窗口统计尝试表（复用`(user_id, attempted_at)`索引），达到上限返回`PLUGIN_SICAU_NIU_ACTIVATION_ATTEMPT_LIMIT`且不再写尝试记录；运营结算页“激活与展示”规则组新增“每日尝试上限(含失败)”输入。
+- `FB-24`修复：`rules`服务新增`activation.maxSpeedMps`运行规则（默认 25，正数校验，含 008 种子与启动配置键），激活服务读取玩家最近一次尝试的坐标与时间，按 Haversine 距离与时间差（下限 1 秒防除零）计算速度，超限写入`speed_anomaly`尝试行作为风控留痕并返回`PLUGIN_SICAU_NIU_ACTIVATION_SPEED_ANOMALY`，响应不带距离/方位提示；008 同步更新尝试表`result`列注释，运营端尝试筛选与标签新增“速度异常”。
+- `FB-25`修复：新增`backend/internal/activityday`共享包，以固定`UTC+8`时区提供自然日键与日界区间；激活、签到、偷草名单、偷草、赠草的自然日计算全部收敛到该包，移除各服务内散落的`"2006-01-02"`本地时区格式化；附带不依赖宿主时区的纯单元测试。
+- `FB-26`修复：激活与喂草的 Haversine 文件注释、玩家/管理端经纬度`dc`标注、小程序接口文档“请求格式”统一声明全链路`GCJ-02`（同坐标系下偏移相消，活动尺度内直接套用 Haversine 不损精度），并在喂草几何注释中明确 IOT 铁牛坐标入库前必须转换为`GCJ-02`；IOT 平台实际坐标系待硬件侧确认，已在《后端反馈-接口开发注意清单.md》记录为待对齐问题 Q1。
 
 ### 验证记录
 
@@ -227,3 +245,9 @@
 - 已执行并通过（`FB-21`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-7`，覆盖三个一级入口可见、旧“寻牛活动”根目录不再出现、Vben 默认手风琴模式下不再一开全开，以及代表页面仍可进入。
 - 已执行并通过（`FB-21`）：`pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep TC-6a`，回归确认“寻牛记录 -> 喂草记录”路径仍可加载只读记录页。
 - 已执行并通过（`FB-21`）：`git diff --check && git -C apps/lina-plugins diff --check`。
+- 已执行并通过（`FB-22`~`FB-26`）：`go run ./hack/tools/linactl db.init confirm=init`，并对开发库执行`manifest/sql/008-sicau-niu-anticheat-idempotency.sql`（幂等，含表存在性守卫）。
+- 已执行并通过（`FB-22`~`FB-26`）：`make -C apps/lina-plugins dao p=sicau-niu`，仅`feeding/steal/gift/activation_attempt`四张表的生成文件发生预期变化。
+- 已执行并通过（`FB-22`~`FB-26`）：`LINA_TEST_PGSQL_LINK=... go test ./... -count=1`（在`apps/lina-plugins/sicau-niu/backend`内，全部包含数据库门控用例通过；新增尝试上限、速度异常、慢速放行、三个幂等键去重和`activityday`北京时间切日测试）。
+- 已执行并通过（`FB-22`~`FB-26`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-22`~`FB-26`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- E2E 判断（`FB-22`~`FB-26`）：防作弊与幂等为后端纯逻辑行为，已按测试规则用数据库门控单元测试覆盖原问题场景与修复后行为；运营端仅在既有规则表单内新增两个数字输入并为尝试列表新增一个结果标签，`TC004`既有“互动规则配置”可见性断言继续覆盖该区块，未新增独立 E2E 用例。
