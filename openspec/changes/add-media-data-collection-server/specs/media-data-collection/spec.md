@@ -48,6 +48,13 @@ THEN 应更新`media_report_stream`最新流投影。
 WHEN server 端收到包含有效业务键的`SessionMetric`
 THEN 应更新`media_report_session`最新会话投影。
 
+WHEN 上报的`StreamMetric`或`SessionMetric`缺少可由服务端推导的时长字段
+THEN server 端应根据`start_time`和`timestamp`计算`duration`或`play_duration`。
+
+WHEN 上报的`SessionMetric.link_hops`包含链路跳点
+THEN server 端应写入与看板响应一致的`hop_index`、`node_id`和`latency_ms`结构
+AND `total_link_latency`缺省时应由链路跳点延迟求和得到。
+
 #### Scenario: 根据生命周期事件维护实时计数
 
 WHEN server 端收到同一实例的`STREAM_ADD`
@@ -57,6 +64,7 @@ AND 该归属和计数 MUST 存储在宿主发布给`media`插件的共享 cache
 WHEN server 端收到同一实例的`STREAM_DELETE`
 THEN 应按`stream_id`幂等删除该流归属并递减该实例的实时直播流数量。
 AND 多个 Pod 处理同一`stream_id`事件时不应重复增减。
+AND 不应继续在`media_report_stream`保留该流的活跃最新投影。
 
 WHEN server 端收到同一实例的`SESSION_ADD`
 THEN 应按`session_id`幂等记录该会话归属并递增该实例的实时会话数量。
@@ -65,6 +73,7 @@ AND 该归属和计数 MUST 存储在宿主发布给`media`插件的共享 cache
 WHEN server 端收到同一实例的`SESSION_DELETE`
 THEN 应按`session_id`幂等删除该会话归属并递减该实例的实时会话数量。
 AND 多个 Pod 处理同一`session_id`事件时不应重复增减。
+AND 不应继续在`media_report_session`保留该会话的活跃最新投影。
 
 WHEN server 端收到重复的`STREAM_ADD`、`STREAM_DELETE`、`SESSION_ADD`或`SESSION_DELETE`
 THEN 实时直播流数和会话数不应重复增减。
@@ -143,7 +152,9 @@ THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`�
 AND 返回`source_type`、`source_id`和`stream_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
-AND `protocol_summary`应直接由`media_report_stream.protocol_summary`解析得到。
+AND `protocol_summary`应直接由`media_report_stream.protocol_summary`解析得到
+AND `protocol_count`和`total_sessions_lifetime`应优先由`protocol_summary`聚合计算，缺少协议摘要时才回退使用读模型字段
+AND `current_active_sessions`和`protocol_summary[].current_sessions`应由当前`media_report_session`活跃会话投影聚合计算。
 
 #### Scenario: 查询会话列表
 
@@ -153,7 +164,8 @@ AND 在数据库查询阶段按`stream_id`、`tenant_id`、`protocol_type`、`no
 AND 按`protocol_type`聚合当前查询范围内的会话数并组装`protocol_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
-AND `link_hops`应直接由`media_report_session.link_hops`解析得到。
+AND `link_hops`应直接由`media_report_session.link_hops`解析得到
+AND `total_link_latency`应优先由`link_hops[].latency_ms`求和，缺少链路跳点时才回退使用读模型字段。
 
 #### Scenario: 看板接口数据权限与性能边界
 
