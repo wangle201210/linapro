@@ -112,3 +112,58 @@ WHEN 插件配置`collectionServer.discovery.enabled`为`true`
 AND client 端发送`Lookup` discovery 命令
 THEN server 端应按服务名和节点查询 Nacos 实例
 AND 返回包含查询结果的`LookupAck`。
+
+### Requirement: 媒体插件应提供数据看板读接口
+
+`media`插件 MUST 提供受`media:management:query`权限保护的数据看板查询接口，读取`media_report_*`最新投影表并返回`数据看板.md`中节点总览、实例列表、流列表和会话列表所需字段。
+
+接口响应的`data`对象 MUST 与`apps/lina-plugins/media/数据看板.md`示例中的`data`对象结构保持一致；响应`data`不得额外返回文档未定义的列表包装、`total`、`pageNum`或`pageSize`字段。不返回`total`的看板列表接口 MUST 不暴露分页查询参数，服务端在数据库查询阶段使用固定`10000`条上限保护数据库。
+
+#### Scenario: 查询节点总览树
+
+WHEN 管理端请求节点总览接口
+THEN 服务端应从`media_report_node`一次性读取有界节点集合
+AND 按`parent_node_id`在内存中组装`child_nodes`
+AND 响应`data`应直接为当前节点对象，不得额外包裹`nodes`数组字段
+AND 响应字段应覆盖`node_id`、`node_name`、`region`、`status`、`parent_node_id`、资源指标、实时计数、`avg_delay`、`last_heartbeat`、`report_time`、`node_latency_map`和`child_nodes`。
+
+#### Scenario: 查询实例列表
+
+WHEN 管理端按`node_id`、状态或关键词查询实例列表
+THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`条`media_report_instance`
+AND 返回`node_info`和`instance_list`
+AND 响应`data`不得返回`total`
+AND 请求参数不得包含`pageNum`或`pageSize`
+AND 不应通过逐实例回查节点配置表装配展示字段。
+
+#### Scenario: 查询流列表
+
+WHEN 管理端按`source_type + source_id`、`tenant_id`、`node_id`、`instance_id`、状态或关键词查询流列表
+THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`条`media_report_stream`
+AND 返回`source_type`、`source_id`和`stream_list`
+AND 响应`data`不得返回`total`
+AND 请求参数不得包含`pageNum`或`pageSize`
+AND `protocol_summary`应直接由`media_report_stream.protocol_summary`解析得到。
+
+#### Scenario: 查询会话列表
+
+WHEN 管理端按`stream_id`查询会话列表
+THEN 服务端应读取`media_report_stream`获取`stream_info`和协议摘要
+AND 在数据库查询阶段按`stream_id`、`tenant_id`、`protocol_type`、`node_id`或`instance_id`过滤、排序并最多读取`10000`条`media_report_session`
+AND 按`protocol_type`聚合当前查询范围内的会话数并组装`protocol_list`
+AND 响应`data`不得返回`total`
+AND 请求参数不得包含`pageNum`或`pageSize`
+AND `link_hops`应直接由`media_report_session.link_hops`解析得到。
+
+#### Scenario: 看板接口数据权限与性能边界
+
+WHEN 查询看板流或会话数据时携带`tenant_id`筛选
+THEN 服务端 MUST 在数据库查询条件中注入该筛选，不得先查询全量再在内存中过滤。
+
+WHEN `media`插件以`platform_only`模式运行
+THEN 看板接口的数据权限边界由宿主认证权限和业务筛选条件共同约束
+AND 不额外引入租户安装态隔离。
+
+WHEN 任一看板列表接口返回动态结果集
+THEN 接口 MUST 提供数量上限
+AND 后端查询次数不得随返回行数线性增长。
