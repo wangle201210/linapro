@@ -27,6 +27,7 @@
 - [x] FB-13 将采集上报写入的`memory_allocated`、`memory_used`统一为`MB`，并将`disk_io_read`、`disk_io_write`、`network_in`、`network_out`统一为`KB/S`。
 - [x] FB-14 全量核查`media`模块旧单位残留，将被排除在 Git 跟踪外的`数据看板字典.xlsx`同步为内存`MB`、速率`KB/S`。
 - [x] FB-15 补齐流和会话关闭时间、源流协议、客户端类型枚举、统计时长和30天清理语义。
+- [x] FB-16 定时清理 cron 注册失败时必须返回插件启动错误，并允许后续启动重试。
 
 ### FB-13 反馈修复记录
 
@@ -75,3 +76,19 @@
 - 测试策略：本次为功能行为反馈，已更新单元测试覆盖采集关闭标记、协议类型、客户端类型枚举、动态时长、活跃会话过滤、关闭数据清理；未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`，并使用`lina-feedback`、`goframe-v2`和`karpathy-guidelines`技能。
 - 验证：`psql "postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable" -v ON_ERROR_STOP=1 -f apps/lina-plugins/media/manifest/sql/003-add-media-data-collection-server.sql`重复执行通过；`make dao p=media`通过；`go test ./backend/internal/service/collection -count=1`通过；`LINAPRO_TEST_POSTGRES=1 go test ./backend/internal/service/collection -run TestReportRuntimePersistsMetrics -count=1`通过；`go test ./backend/internal/service/media -count=1`通过；`go test ./backend/internal/service/cron -count=1`通过；`go test ./backend/api/media/v1 ./backend/api/mediaopen/v1 -count=1`通过；`go test ./backend/internal/controller/media ./backend/internal/controller/mediaopen -count=1`通过；`go test ./backend -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过。
+
+### FB-16 反馈修复记录
+
+- 根因：`media`插件每周清理任务注册逻辑只在`gcron.AddSingleton`失败时记录日志，`cron.Start(ctx)`不返回错误，`system.started` hook 因此无法感知 cron 注册失败；同时`sync.Once`会在失败后阻止后续启动流程重试注册。
+- 修复：将`cron.Service.Start(ctx)`调整为返回`error`，`plugin.go`启动 hook 直接返回该错误；定时任务注册成功后才标记`started`，失败时允许后续启动重试；新增 cron 单元测试覆盖注册失败返回错误和失败后重试成功。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件启动 hook 和插件内 cron 服务，不修改`apps/lina-core`核心宿主契约，不新增模块启停策略或跨模块领域依赖。
+- 数据权限：本次仅改变插件启动错误传播和定时任务注册状态，不新增 HTTP API、读取入口、写入入口或数据可见性变化。
+- 缓存一致性：不修改共享 cache、缓存键、失效、刷新或集群一致性策略。
+- i18n：不新增或修改用户可见运行时文案、API 文档源文本或翻译资源。
+- 数据库：不新增表、列、索引或 DML；清理任务仍复用既有`CleanupClosedReports`和`close_time`索引。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI或`linactl`入口。
+- DI 来源检查：未新增服务构造参数或运行期依赖；cron 服务仍由`plugin.go`使用同一启动流程中的`mediasvc.Service`实例创建。
+- 性能：启动阶段只执行一次 cron 注册；清理任务业务查询路径不变，不新增周期内额外查询。
+- 测试策略：新增`backend/internal/service/cron`单元测试，验证注册错误会返回给调用方，并且失败不会污染后续启动状态。
+- 验证：`go test ./backend/internal/service/cron -count=1`通过；`go test ./backend -count=1`通过；`go test ./backend/... -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过。

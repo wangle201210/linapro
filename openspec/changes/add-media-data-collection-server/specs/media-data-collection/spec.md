@@ -184,6 +184,13 @@ THEN 应删除`close_time`早于当前时间`30`天的`media_report_stream`记�
 AND 应删除`close_time`早于当前时间`30`天的`media_report_session`记录
 AND `close_time`为空的未关闭流和会话不得被清理。
 
+#### Scenario: 定时任务注册失败
+
+WHEN `media`插件启动时注册每周清理定时任务失败
+THEN `system.started` hook 应返回启动错误
+AND 不得将清理定时任务标记为已启动
+AND 后续启动尝试应允许重新注册定时任务。
+
 #### Scenario: 看板接口数据权限与性能边界
 
 WHEN 查询看板流或会话数据时携带`tenant_id`筛选
