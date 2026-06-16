@@ -97,7 +97,8 @@ jobs:
           image_name="linapro-water"
           registry="ghcr.io/${owner}"
           image_ref="${registry}/${image_name}"
-          image_tag="nightly-$(date +'%Y%m%d')"
+          short_sha="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+          image_tag="nightly-$(date +'%Y%m%d')-${short_sha}"
 
           {
             echo "registry=${registry}"
