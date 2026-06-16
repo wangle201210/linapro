@@ -1,0 +1,135 @@
+# Manual LinaPro water nightly Docker image publishing workflow without test gates.
+# LinaPro water 手动 nightly Docker 镜像发布工作流，不包含测试门禁。
+name: Nightly Water Image Build (Manual Trigger)
+
+on:
+  # Allow maintainers to rebuild and republish water nightly images without waiting for the test suite.
+  # 允许维护者在不等待测试套件的情况下重新构建并发布 water nightly 镜像。
+  workflow_dispatch:
+    inputs:
+      # Selects the target architectures for docker buildx.
+      # 选择 docker buildx 的目标架构。
+      platforms:
+        description: Comma-separated target platforms for docker buildx.
+        required: false
+        default: linux/amd64,linux/arm64
+
+# The workflow is read-only by default; package write access is scoped to the image job.
+# workflow 默认权限保持只读；包写权限只在镜像 job 中授予。
+permissions:
+  contents: read
+
+# Keep manual water nightly image runs serialized because they publish the same floating tag.
+# 串行化手动 water nightly 镜像发布，避免多个手动运行同时更新同一个浮动标签。
+concurrency:
+  group: "${{ github.workflow }} @ nightly"
+  cancel-in-progress: false
+
+# Keep generated nightly dates aligned with the project timezone.
+# 让生成的 nightly 日期与项目时区保持一致。
+env:
+  TZ: "Asia/Shanghai"
+
+jobs:
+  # Publishes the water nightly image directly, without depending on test verification jobs.
+  # 直接发布 water nightly 镜像，不依赖测试验证 job。
+  manual-nightly-water-image:
+    name: Build and publish nightly water image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    # Image publication needs package write access, while the workflow stays read-only by default.
+    # 镜像发布需要包写权限，workflow 默认权限保持只读。
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Check out repository sources and official plugin submodules for the water image build context.
+      # 拉取仓库源码和官方插件 submodule，用于 water 镜像构建上下文。
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      # Fail fast when plugin-full image publication cannot see official plugin manifests.
+      # 当插件完整镜像发布看不到官方插件清单时快速失败。
+      - name: Verify Official Plugin Workspace
+        uses: ./.github/actions/verify-official-plugin-workspace
+
+      # Fail fast if the checked-out plugin submodule does not contain the water image Dockerfile.
+      # 如果签出的插件 submodule 不包含 water 镜像 Dockerfile，则快速失败。
+      - name: Verify Water Image Dockerfile
+        run: test -f apps/lina-plugins/water/deploy/docker/Dockerfile
+
+      # Enable emulation for non-native target platforms.
+      # 为非本机目标平台启用模拟。
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Create the Docker Buildx builder used for multi-platform image output.
+      # 创建用于多平台镜像输出的 Docker Buildx builder。
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Authenticate to GitHub Container Registry using the workflow token.
+      # 使用工作流 token 登录 GitHub Container Registry。
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Normalize registry names and compute the immutable nightly image tag.
+      # 归一化 registry 名称，并计算 nightly 使用的不可变镜像标签。
+      - name: Prepare Water Image Metadata
+        id: image
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          image_name="linapro-water"
+          registry="ghcr.io/${owner}"
+          image_ref="${registry}/${image_name}"
+          image_tag="nightly-$(date +'%Y%m%d')"
+
+          {
+            echo "registry=${registry}"
+            echo "image_name=${image_name}"
+            echo "image_tag=${image_tag}"
+            echo "image_ref=${image_ref}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Publishing ${image_ref}:${image_tag} and ${image_ref}:nightly for ${PLATFORMS}"
+
+      # Build and push the water-specific image with CGO and FFmpeg/x264 runtime support.
+      # 使用支持 CGO 和 FFmpeg/x264 运行库的 water 专用 Dockerfile 构建并推送镜像。
+      - name: Build and Push Water Image
+        run: |
+          docker buildx build \
+            --platform "${{ inputs.platforms }}" \
+            -f apps/lina-plugins/water/deploy/docker/Dockerfile \
+            -t "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}" \
+            --push \
+            .
+
+      # Point the moving nightly tag at the just-published immutable image tag.
+      # 将 nightly 移动标签指向刚发布的不可变镜像标签。
+      - name: Publish Floating Tag
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.image.outputs.image_ref }}:nightly" \
+            "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}"
+
+      # Inspect the immutable manifest so platform metadata is visible in logs.
+      # 检查不可变 manifest，让平台元数据出现在日志中。
+      - name: Inspect Published Manifest
+        run: |
+          docker buildx imagetools inspect "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}"
+
+      # Inspect the moving nightly manifest so publication is visible in logs.
+      # 检查 nightly 移动 manifest，让发布结果出现在日志中。
+      - name: Inspect Floating Manifest
+        run: |
+          docker buildx imagetools inspect "${{ steps.image.outputs.image_ref }}:nightly"
