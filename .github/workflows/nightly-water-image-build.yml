@@ -91,7 +91,7 @@ jobs:
       - name: Prepare Water Image Metadata
         id: image
         env:
-          PLATFORMS: ${{ inputs.platforms }}
+          PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
         run: |
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           image_name="linapro-water"
@@ -111,9 +111,11 @@ jobs:
       # Build and push the water-specific image with CGO and FFmpeg/x264 runtime support.
       # 使用支持 CGO 和 FFmpeg/x264 运行库的 water 专用 Dockerfile 构建并推送镜像。
       - name: Build and Push Water Image
+        env:
+          PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
         run: |
           docker buildx build \
-            --platform "${{ inputs.platforms }}" \
+            --platform "${PLATFORMS}" \
             -f apps/lina-plugins/water/deploy/docker/Dockerfile \
             -t "${{ steps.image.outputs.image_ref }}:${{ steps.image.outputs.image_tag }}" \
             --push \
