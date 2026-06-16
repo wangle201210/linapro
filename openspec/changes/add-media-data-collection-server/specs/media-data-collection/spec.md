@@ -37,10 +37,13 @@ AND 不应因为未配置 discovery 服务而拒绝数据上报。
 WHEN server 端收到包含有效业务键的`MachineMetric`
 THEN 应将其按实例/容器指标处理并更新`media_report_instance`最新实例投影
 AND `instance_id`为空时应回退使用`machine_id`作为实例/容器业务键
+AND `memory_allocated`和`memory_used`应按`MB`写入
+AND `disk_io_read`、`disk_io_write`、`network_in`和`network_out`应按`KB/S`写入
 AND 不应从`MachineMetric`直接读取或覆盖实例直播流数和会话数。
 
 WHEN server 端收到包含有效业务键的`NetworkMetric`
 THEN 应更新对应节点的网络速率和延迟矩阵字段。
+AND `throughput`写入`network_out`前应按`KB/S`归一化。
 
 WHEN server 端收到包含有效业务键的`StreamMetric`
 THEN 应更新`media_report_stream`最新流投影。

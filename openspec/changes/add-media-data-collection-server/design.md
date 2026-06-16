@@ -54,8 +54,8 @@
 
 | 上报包 | 写入表 | 映射策略 |
 | ------ | ------ | -------- |
-| `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、内存、磁盘、网络、版本和启动时间写入实例最新投影；`live_streams`和`sessions`不由客户端直接上报。 |
-| `NetworkMetric` | `media_report_node` | `machine_id`作为节点业务键；`throughput`写入`network_out`，`destination_ip -> rtt`在事务内按节点行级锁合并进`node_latency_map`，避免同节点并发上报覆盖其他目的端延迟。 |
+| `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、内存、磁盘、网络、版本和启动时间写入实例最新投影；内存字段统一归一化为`MB`，磁盘和网络速率字段统一归一化为`KB/S`；`live_streams`和`sessions`不由客户端直接上报。 |
+| `NetworkMetric` | `media_report_node` | `machine_id`作为节点业务键；`throughput`按`KB/S`归一化后写入`network_out`，`destination_ip -> rtt`在事务内按节点行级锁合并进`node_latency_map`，避免同节点并发上报覆盖其他目的端延迟。 |
 | `StreamMetric` | `media_report_stream`、`media_report_instance` | `stream_id`作为流业务键；`tenant_id`、`node_id`、`instance_id`写入租户、节点和实例维度，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；协议、状态、码率、分辨率、帧率、丢包率、延迟、会话摘要和流路径写入最新流投影；`STREAM_ADD`和`STREAM_DELETE`按`stream_id`幂等维护实例实时直播流数量。 |
 | `SessionMetric` | `media_report_session`、`media_report_instance` | `session_id`作为会话业务键；流、租户、客户端、播放协议、播放质量、`node_id`、实例和链路跳点写入会话最新投影，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；`SESSION_ADD`和`SESSION_DELETE`按`session_id`幂等维护实例实时会话数量。 |
 
