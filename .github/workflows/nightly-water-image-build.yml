@@ -3,6 +3,11 @@
 name: Nightly Water Image Build (Manual Trigger)
 
 on:
+  # Temporarily allow this feature branch to publish the water image before the workflow reaches main.
+  # 临时允许该功能分支在 workflow 进入 main 前发布 water 镜像。
+  push:
+    branches:
+      - feat/wanna
   # Allow maintainers to rebuild and republish water nightly images without waiting for the test suite.
   # 允许维护者在不等待测试套件的情况下重新构建并发布 water nightly 镜像。
   workflow_dispatch:
