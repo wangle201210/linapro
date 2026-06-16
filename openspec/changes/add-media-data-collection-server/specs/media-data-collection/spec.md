@@ -47,9 +47,12 @@ AND `throughput`写入`network_out`前应按`KB/S`归一化。
 
 WHEN server 端收到包含有效业务键的`StreamMetric`
 THEN 应更新`media_report_stream`最新流投影。
+AND `media_report_stream`不得再存储`source_id`字段
+AND 应写入`protocol_type`保存源流协议类型。
 
 WHEN server 端收到包含有效业务键的`SessionMetric`
 THEN 应更新`media_report_session`最新会话投影。
+AND `client_type`应按`1-mobile`、`2-pc`、`0-未知`枚举值存储。
 
 WHEN 上报的`StreamMetric`或`SessionMetric`缺少可由服务端推导的时长字段
 THEN server 端应根据`start_time`和`timestamp`计算`duration`或`play_duration`。
@@ -67,7 +70,7 @@ AND 该归属和计数 MUST 存储在宿主发布给`media`插件的共享 cache
 WHEN server 端收到同一实例的`STREAM_DELETE`
 THEN 应按`stream_id`幂等删除该流归属并递减该实例的实时直播流数量。
 AND 多个 Pod 处理同一`stream_id`事件时不应重复增减。
-AND 不应继续在`media_report_stream`保留该流的活跃最新投影。
+AND 应在`media_report_stream.close_time`记录关闭时间，而不是删除流投影。
 
 WHEN server 端收到同一实例的`SESSION_ADD`
 THEN 应按`session_id`幂等记录该会话归属并递增该实例的实时会话数量。
@@ -76,7 +79,7 @@ AND 该归属和计数 MUST 存储在宿主发布给`media`插件的共享 cache
 WHEN server 端收到同一实例的`SESSION_DELETE`
 THEN 应按`session_id`幂等删除该会话归属并递减该实例的实时会话数量。
 AND 多个 Pod 处理同一`session_id`事件时不应重复增减。
-AND 不应继续在`media_report_session`保留该会话的活跃最新投影。
+AND 应在`media_report_session.close_time`记录关闭时间，而不是删除会话投影。
 
 WHEN server 端收到重复的`STREAM_ADD`、`STREAM_DELETE`、`SESSION_ADD`或`SESSION_DELETE`
 THEN 实时直播流数和会话数不应重复增减。
@@ -155,20 +158,31 @@ THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`�
 AND 返回`source_type`、`source_id`和`stream_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
+AND `source_type + source_id`筛选应映射到`node_id`或`instance_id`数据库字段，不依赖已删除的`media_report_stream.source_id`
+AND `stream_list[].duration`应通过`start_time`计算；若`close_time`不为空则计算`close_time - start_time`，否则计算当前时间与`start_time`的差值
 AND `protocol_summary`应直接由`media_report_stream.protocol_summary`解析得到
 AND `protocol_count`和`total_sessions_lifetime`应优先由`protocol_summary`聚合计算，缺少协议摘要时才回退使用读模型字段
-AND `current_active_sessions`和`protocol_summary[].current_sessions`应由当前`media_report_session`活跃会话投影聚合计算。
+AND `current_active_sessions`和`protocol_summary[].current_sessions`应由`close_time`为空的`media_report_session`活跃会话投影聚合计算。
 
 #### Scenario: 查询会话列表
 
 WHEN 管理端按`stream_id`查询会话列表
 THEN 服务端应读取`media_report_stream`获取`stream_info`和协议摘要
 AND 在数据库查询阶段按`stream_id`、`tenant_id`、`protocol_type`、`node_id`或`instance_id`过滤、排序并最多读取`10000`条`media_report_session`
-AND 按`protocol_type`聚合当前查询范围内的会话数并组装`protocol_list`
+AND 仅返回`close_time`为空的活跃会话明细
+AND 按`protocol_type`聚合当前查询范围内未关闭会话数并组装`protocol_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
+AND `active_session_list[].play_duration`应通过`start_time`计算；若`close_time`不为空则计算`close_time - start_time`，否则计算当前时间与`start_time`的差值
 AND `link_hops`应直接由`media_report_session.link_hops`解析得到
 AND `total_link_latency`应优先由`link_hops[].latency_ms`求和，缺少链路跳点时才回退使用读模型字段。
+
+#### Scenario: 定期清理已关闭流和会话
+
+WHEN `media`插件定时任务运行每周清理流程
+THEN 应删除`close_time`早于当前时间`30`天的`media_report_stream`记录
+AND 应删除`close_time`早于当前时间`30`天的`media_report_session`记录
+AND `close_time`为空的未关闭流和会话不得被清理。
 
 #### Scenario: 看板接口数据权限与性能边界
 

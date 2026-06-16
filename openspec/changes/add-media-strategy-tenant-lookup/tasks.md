@@ -13,3 +13,21 @@
 ## Feedback
 
 - [x] **FB-1**: 新增按策略 ID 查询设备策略绑定列表接口，并验证只读取设备策略表。
+- [x] **FB-2**: `UserDeviceStrategyByToken`按节点 ID 检查租户在该节点未关闭会话数量，达到租户流配置限制时返回稳定错误码。
+
+### FB-2 反馈修复记录
+
+- 根因：`UserDeviceStrategyByToken`原请求和服务输入只有`token`和`deviceId`，无法识别租户在具体媒体节点上的流数量限制；策略解析路径也没有读取`media_tenant_stream_config`和`media_report_session`中按租户、节点、未关闭会话的活跃数量，因此达到节点限流后仍会返回策略内容。
+- 修复：兼容接口新增必填`nodeId`；服务层在铁塔设备权限通过且存在匹配策略时，将`nodeId`解析为租户流配置的`node_num`，仅当该租户节点存在启用且`max_concurrent > 0`的配置时，统计`media_report_session`中同租户、同节点且`close_time IS NULL`的会话数量，达到上限时返回`MEDIA_TENANT_STREAM_LIMIT_EXCEEDED`；未配置或未启用限流的租户节点保持不限数量。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件公开兼容接口和插件内服务层，不修改`apps/lina-core`核心宿主契约，不新增跨模块内部实现依赖。
+- 数据权限：该接口仍先通过铁塔 token 得到租户身份并校验租户设备权限；限流统计只使用该 token 租户对应的`tenant_id`和请求节点，不接受调用方覆盖租户，不泄露其他租户会话存在性。
+- 缓存一致性：限流判断直接读取数据库投影和租户流配置，不新增缓存、快照或失效逻辑。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；新增业务错误码通过`bizerr.MustDefine`提供稳定`errorCode`和 fallback 文案，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 数据库：不新增本变更自己的 SQL 文件；复用`add-media-data-collection-server`补充的`media_report_session.close_time`和`idx_media_report_session_active_tenant_node`索引，租户流配置读取复用既有`media_tenant_stream_config`主键。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI或`linactl`入口。
+- DI 来源检查：未新增运行期接口依赖；限流逻辑复用`media.Service`已有数据库 DAO 和已有铁塔 token 解析链路。
+- 性能：租户节点限流为一次配置投影查询加一次按索引计数查询，只有存在启用限流配置时才访问报表会话表；不会随策略列表、会话明细或返回行数产生`N+1`查询。
+- 测试策略：本次为功能行为反馈，已新增服务层单元测试覆盖关闭会话不计入限流、达到未关闭会话上限时返回稳定错误码；未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`，并使用`lina-feedback`、`goframe-v2`和`karpathy-guidelines`技能。
+- 验证：`go test ./backend/internal/service/media -count=1`通过；`go test ./backend/api/media/v1 ./backend/api/mediaopen/v1 -count=1`通过；`go test ./backend/internal/controller/media ./backend/internal/controller/mediaopen -count=1`通过；`go test ./backend -count=1`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
