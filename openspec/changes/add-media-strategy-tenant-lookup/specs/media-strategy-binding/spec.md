@@ -69,3 +69,21 @@
 - **WHEN** 该租户和节点存在历史会话
 - **AND** 历史会话的`close_time`不为空
 - **THEN** 系统统计限制时不得将这些已关闭会话计入当前流数量。
+
+### Requirement: 跨集群内部策略解析接口
+
+`mediaopen` SHALL 提供受内部 API Key 保护的只读策略解析接口，允许`water`等跨集群服务按租户 ID 和设备 ID 获取当前生效媒体策略，而不依赖`media`源码插件的本地 Go provider。
+
+#### Scenario: 内部服务解析租户设备策略
+
+- **WHEN** 内部服务携带有效`X-Inner-Api-Key`、租户 ID 和设备 ID 调用策略解析接口
+- **THEN** 系统应按租户设备、设备、租户、全局优先级返回当前启用策略
+- **AND** 响应应包含是否匹配、策略来源、策略 ID、策略名称和 YAML 策略内容
+- **AND** 响应不得暴露`media`插件 DAO、DO、Entity 或内部服务结构
+
+#### Scenario: `water`跨集群读取策略
+
+- **WHEN** `water`插件部署在未安装`media`插件的集群
+- **AND** `water`插件配置了远端`mediaopen`服务地址和内部 API Key
+- **THEN** `water`应通过 HTTP 调用远端策略解析接口获取水印策略
+- **AND** `water`启动和水印处理不得要求本地安装`media`源码插件

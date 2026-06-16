@@ -14,6 +14,7 @@
 
 - [x] **FB-1**: 新增按策略 ID 查询设备策略绑定列表接口，并验证只读取设备策略表。
 - [x] **FB-2**: `UserDeviceStrategyByToken`按节点 ID 检查租户在该节点未关闭会话数量，达到租户流配置限制时返回稳定错误码。
+- [x] **FB-3**: `water`插件改为通过配置调用远端`mediaopen`内部策略解析接口，解除对`media`源码插件的本地运行时依赖。
 
 ### FB-2 反馈修复记录
 
@@ -31,3 +32,21 @@
 - 测试策略：本次为功能行为反馈，已新增服务层单元测试覆盖关闭会话不计入限流、达到未关闭会话上限时返回稳定错误码；未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`，并使用`lina-feedback`、`goframe-v2`和`karpathy-guidelines`技能。
 - 验证：`go test ./backend/internal/service/media -count=1`通过；`go test ./backend/api/media/v1 ./backend/api/mediaopen/v1 -count=1`通过；`go test ./backend/internal/controller/media ./backend/internal/controller/mediaopen -count=1`通过；`go test ./backend -count=1`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-3 反馈修复记录
+
+- 根因：`water`插件在`plugin.yaml`中声明依赖`media`，并在启动路由时通过`lina-plugin-media/backend/provider/strategy`构造本地`media`策略 resolver；该路径要求`water`所在集群同时安装并运行`media`源码插件，不适合`media`单集群部署、`water`多集群部署的拓扑。
+- 修复：`mediaopen`新增受`X-Inner-Api-Key`保护的`GET /api/v1/strategies/resolve`只读接口，复用`media.Service.ResolveStrategy`按租户设备、设备、租户、全局优先级解析策略；`water`移除`media`插件依赖声明和 Go import，改为从插件运行时配置`mediaStrategy.baseUrl`、`mediaStrategy.apiKey`、`mediaStrategy.timeout`构造 HTTP resolver。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`和`apps/lina-plugins/water/AGENTS.md`均不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：本次新增跨集群 HTTP DTO 作为稳定契约，未让`water`访问`media`内部 DAO/DO/Entity 或内部 service；`media`仍是策略权威源，`water`只消费远端投影。
+- 数据权限：新增接口位于`mediaopen`内部 API Key 鉴权链下，读取租户和设备策略投影，不接收调用方覆盖权限上下文，不新增管理端列表、导出、批量或租户可见性入口。
+- 缓存一致性：不新增缓存、快照或失效机制；`water`每次处理按配置调用远端策略接口，异步任务状态缓存仍复用宿主 cache。
+- i18n：`media`与`water`插件均未配置`i18n.enabled: true`，按单语言插件处理；新增和修改的 API 文档源文本、插件清单说明与 README 不新增插件多语言资源。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity；`media.Service.ResolveStrategy`继续使用现有策略表和既有查询路径。
+- 开发工具跨平台：仅使用既有`make -C apps/lina-plugins ctrl p=media`生成接口绑定，不修改`Makefile`、脚本、CI或`linactl`入口。
+- DI 来源检查：`water`新增运行期依赖为插件配置服务读取出的纯值配置和 HTTP resolver；owner 为`water`插件，创建位置为`backend/plugin.go`路由注册阶段，传递路径为`watersvc.New(cacheSvc, strategyResolver)`，不新增共享缓存敏感服务实例。
+- 性能：单次水印处理最多一次远端策略解析 HTTP GET，不在列表、批量或聚合路径循环调用；`media`端解析沿用固定优先级查询链，不随返回行数产生`N+1`。
+- 测试策略：本次为跨模块运行时行为反馈，新增`water`远端 resolver 单元测试覆盖请求头、查询参数、统一响应解码和未配置错误；新增`media`路由测试覆盖内部策略解析接口必须经过 Inner API Key 鉴权。未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`go test lina-plugin-water/backend/internal/service/water -count=1`通过；`go test lina-plugin-water/backend -count=1`通过；`go test lina-plugin-water/... -count=1`通过；`go test ./backend/api/mediaopen/v1 ./backend/internal/controller/mediaopen ./backend -run 'TestMediaOpenResolveStrategyRequiresInnerAPIAuth|TestMediaOpenRoutesUseInnerAPIAuth' -count=1`通过；`go test ./backend -count=1`通过；`go test ./... -count=1`在`apps/lina-plugins/media`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+- 宿主启动绑定补充验证：`go test ./internal/cmd -count=1`未计入通过验证；失败点为当前工作区 panic allowlist 计数不匹配，`apps/lina-plugins/media/backend/plugin.go:init`期望 2 实际 3，`apps/lina-plugins/sicau-niu/backend/plugin.go:init`期望 2 实际 3。两个`plugin.go`文件本次均未修改。
