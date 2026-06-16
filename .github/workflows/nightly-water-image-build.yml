@@ -55,6 +55,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
+          ssh-key: ${{ secrets.OFFICIAL_PLUGINS_DEPLOY_KEY }}
           submodules: recursive
 
       # Fail fast when plugin-full image publication cannot see official plugin manifests.
