@@ -28,6 +28,7 @@
 - [x] FB-14 全量核查`media`模块旧单位残留，将被排除在 Git 跟踪外的`数据看板字典.xlsx`同步为内存`MB`、速率`KB/S`。
 - [x] FB-15 补齐流和会话关闭时间、源流协议、客户端类型枚举、统计时长和30天清理语义。
 - [x] FB-16 定时清理 cron 注册失败时必须返回插件启动错误，并允许后续启动重试。
+- [x] FB-17 修复`media`插件文件版本低于数据库有效版本导致运行时状态异常，恢复源码插件自动升级入口。
 
 ### FB-13 反馈修复记录
 
@@ -92,3 +93,20 @@
 - 性能：启动阶段只执行一次 cron 注册；清理任务业务查询路径不变，不新增周期内额外查询。
 - 测试策略：新增`backend/internal/service/cron`单元测试，验证注册错误会返回给调用方，并且失败不会污染后续启动状态。
 - 验证：`go test ./backend/internal/service/cron -count=1`通过；`go test ./backend -count=1`通过；`go test ./backend/... -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过。
+
+### FB-17 反馈修复记录
+
+- 根因：本地开发库中`sys_plugin.media.version`和 active release 已经是`v0.1.2`，但仓库`apps/lina-plugins/media/plugin.yaml`仍停留在`v0.1.1`。运行时升级投影会将源码插件文件发现版本低于数据库有效版本判定为`abnormal`，管理端因此显示“插件文件与数据库有效状态不一致，无法自动升级”。
+- 修复：将`media/plugin.yaml`版本提升到`v0.1.2`，与当前`003-add-media-data-collection-server.sql`所属数据采集变更和数据库有效版本对齐，恢复源码插件运行时升级状态为可比较的正常版本序列；新增嵌入清单测试，防止携带`003`迁移的插件再次发布为低版本。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件清单版本和测试，不修改`apps/lina-core`核心宿主契约，不新增模块启停、跨模块调用或抽象层。
+- 数据权限：不新增或修改 HTTP API、读取入口、写入入口、批量动作或租户可见性路径。
+- 缓存一致性：不修改共享 cache、缓存键、失效、刷新或集群一致性策略；修复后插件运行时状态仍由宿主既有插件 runtime cache 和数据库 release 状态派生。
+- i18n：不新增或修改运行时用户可见文案、API 文档源文本、插件语言包或翻译缓存；本次只修正触发已有管理端异常文案的版本源数据。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity；`003-add-media-data-collection-server.sql`仍是当前数据采集变更的唯一迁移文件，版本提升用于触发已安装源码插件执行该迁移。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：不修改列表、批量、导出、聚合或插件扫描装配路径，不引入数据库查询频次变化或`N+1`风险。
+- 测试策略：本次为源码插件升级治理缺陷，新增`plugin_embed_test.go`验证嵌入`plugin.yaml`版本与`003`迁移保持一致，并运行插件包测试和 OpenSpec 严格校验。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -P pager=off -c "SELECT plugin_id, version, installed, status, current_state, release_id FROM sys_plugin WHERE plugin_id='media';" -c "SELECT id, release_version, status FROM sys_plugin_release WHERE plugin_id='media' ORDER BY id;"`确认数据库有效版本为`v0.1.2`且 active release 为`v0.1.2`；`go test . -run TestEmbeddedManifestVersionCoversCollectionServerSQL -count=1`通过；`go test ./backend -count=1`通过；`go test ./internal/service/plugin -run 'TestSourcePluginListMarksLowerDiscoveredVersionAbnormal|TestValidateSourcePluginUpgradeReadinessAllowsPendingUpgrade' -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`通过。
