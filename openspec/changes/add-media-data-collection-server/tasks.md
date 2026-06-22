@@ -29,6 +29,9 @@
 - [x] FB-15 补齐流和会话关闭时间、源流协议、客户端类型枚举、统计时长和30天清理语义。
 - [x] FB-16 定时清理 cron 注册失败时必须返回插件启动错误，并允许后续启动重试。
 - [x] FB-17 修复`media`插件文件版本低于数据库有效版本导致运行时状态异常，恢复源码插件自动升级入口。
+- [x] FB-18 扩展`media`采集 TCP client，覆盖数据上报和 discovery 注册、查询、注销联调路径。
+- [x] FB-19 实际启动`media`采集 TCP server 联调数据上报和注册发现，并修复实测发现的关闭投影和空发现响应问题。
+- [x] FB-20 重新实测 TCP 上报后的落库准确性和 dashboard 统计接口准确性，并修复实测发现的时长与关闭协议统计问题。
 
 ### FB-13 反馈修复记录
 
@@ -110,3 +113,61 @@
 - 测试策略：本次为源码插件升级治理缺陷，新增`plugin_embed_test.go`验证嵌入`plugin.yaml`版本与`003`迁移保持一致，并运行插件包测试和 OpenSpec 严格校验。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
 - 验证：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -P pager=off -c "SELECT plugin_id, version, installed, status, current_state, release_id FROM sys_plugin WHERE plugin_id='media';" -c "SELECT id, release_version, status FROM sys_plugin_release WHERE plugin_id='media' ORDER BY id;"`确认数据库有效版本为`v0.1.2`且 active release 为`v0.1.2`；`go test . -run TestEmbeddedManifestVersionCoversCollectionServerSQL -count=1`通过；`go test ./backend -count=1`通过；`go test ./internal/service/plugin -run 'TestSourcePluginListMarksLowerDiscoveredVersionAbnormal|TestValidateSourcePluginUpgradeReadinessAllowsPendingUpgrade' -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`通过。
+
+### FB-18 反馈修复记录
+
+- 根因：已有`collection-client`只覆盖`net-flux` discovery 注册、查询和注销，缺少通过同一 TCP 协议发送`MachineMetric`、`NetworkMetric`、`StreamMetric`和`SessionMetric`的联调入口，无法直接用 client 验证数据上报链路。
+- 修复：扩展`apps/lina-plugins/media/hack/tools/collection-client`，新增`report`、`report-close`、`report-cycle`和`smoke`动作；`report`发送实例、网络、流新增和会话新增报文，`report-close`发送会话关闭和流关闭报文，`report-cycle`顺序发送新增和关闭报文，`smoke`串联 discovery 注册、查询、数据上报和注销；新增 CLI 参数控制租户、节点、实例、流、会话、协议和状态；补充单元测试覆盖参数默认值、非法动作和协议枚举解析。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件自有开发联调工具，不修改`apps/lina-core`核心宿主契约，不新增模块边界、跨模块调用或运行期服务依赖。
+- 数据权限：不新增 HTTP API、读取入口、写入入口或数据权限过滤逻辑；client 只模拟采集端 TCP 上报。
+- 缓存一致性：不修改 server 端共享 cache、缓存键、失效或集群策略；client 仅触发现有生命周期事件处理。
+- i18n：不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存。
+- 数据库：不新增或修改 SQL、表、列、索引、DAO、DO 或 Entity；数据写入仍由既有 TCP server handler 和 report writer 完成。
+- 开发工具跨平台：修改的是 Go 开发工具入口，不新增 shell、PowerShell、Makefile、CI 或平台专属命令；使用 Go 标准库 flag、time、strings 和现有`net-flux` client，验证方式为 Go 单元测试。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：client 每次动作发送固定数量报文，不新增列表、批量、聚合或数据库查询路径，不引入`N+1`风险。
+- 测试策略：新增工具层单元测试并运行采集 server 所在`collection`包回归测试；未涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能。
+- 验证：`go test ./hack/tools/collection-client -count=1`通过；`go run ./hack/tools/collection-client -h`通过并确认新增动作和参数出现在帮助输出中；`go test ./backend/internal/service/collection -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；实际 TCP 联调结果见`FB-19`。
+
+### FB-19 反馈修复记录
+
+- 根因：实际启动宿主和`media`采集 TCP server 后，用`collection-client`调试发现两个服务端行为缺陷：`STREAM_DELETE`只更新`close_time/report_time`，没有同步将流投影`status`置为`closed`、`current_active_sessions`置为`0`；注销后再次`LOOKUP`时，Nacos SDK 返回`instance list is empty!`被当成错误向上返回，TCP handler 未发送空`LookupAck`，导致客户端等待到超时。
+- 修复：`markReportStreamClosed`在关闭流时同步写入`status=closed`和`current_active_sessions=0`；`discoveryRuntime.Lookup`将 Nacos 空实例错误归一为空`LookupAck`，使注销后查询稳定返回`{}`；补充单元测试覆盖流关闭投影收敛和空发现响应。
+- 实际联调：使用本地 Docker PostgreSQL、Redis 和 Nacos，配置`GF_GCFG_PATH=/tmp/linapro-media-tcp.yMCd9d`启动`apps/lina-core`：`go run -tags official_plugins .`，确认日志包含`media collection server started addr=127.0.0.1:1911`和`[tcp-server] is listening on 127.0.0.1:1911`。
+- TCP 数据上报验证：`go run ./hack/tools/collection-client -action ping -timeout 5s`返回`pong received`；`go run ./hack/tools/collection-client -action report ... -timeout 10s -settle 2s`发送实例、网络、流和会话上报后，库表确认`media_report_instance.live_streams=1/sessions=1`、`media_report_stream.status=running/current_active_sessions=1/close_time IS NULL`、`media_report_session.close_time IS NULL`；`go run ./hack/tools/collection-client -action report-close ... -timeout 10s -settle 2s`后，库表确认`media_report_instance.live_streams=0/sessions=0`、`media_report_stream.status=closed/current_active_sessions=0/close_time IS NOT NULL`、`media_report_session.close_time IS NOT NULL`。
+- TCP 注册发现验证：`go run ./hack/tools/collection-client -action register-lookup -service linapro-media-client-test-e2e-20260621-empty -instance-id linapro-media-client-test-e2e-20260621-empty -node 1 -private-ip 127.0.0.1 -private-port 19191 -timeout 30s -settle 2s`返回包含健康实例的`LookupAck`；`go run ./hack/tools/collection-client -action deregister ... -timeout 10s -settle 2s`成功；注销后`go run ./hack/tools/collection-client -action lookup -service linapro-media-client-test-e2e-20260621-empty -node 1 -timeout 10s -settle 1s`快速返回`{}`，不再超时。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件采集服务和插件内联调工具，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖或抽象层。
+- 数据权限：不新增 HTTP API、读取入口、写入入口或数据权限过滤逻辑；本次只修复采集端 TCP 写入投影和 discovery TCP 响应语义。
+- 缓存一致性：不新增缓存键、失效或集群策略；实例实时计数仍由既有宿主共享 cache 维护，本次只修复数据库关闭投影字段。
+- i18n：不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存。
+- 数据库：不新增或修改 SQL、表、列、索引、DAO、DO 或 Entity；本地`psql DELETE/SELECT`仅用于清理和核验本次联调测试 ID。
+- 开发工具跨平台：修改 Go 开发工具和 Go 后端代码，不新增 shell、PowerShell、Makefile、CI 或平台专属命令。
+- 性能：关闭事件和 lookup 仍为单报文固定次数处理；未新增列表、批量、聚合或循环查询路径，不引入`N+1`风险。
+- 测试策略：本次为实际 TCP 行为反馈，使用单元测试覆盖服务端边界行为，并通过本地 Docker 依赖完成真实 TCP 手工联调；未涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
+- 验证：`go test ./backend/internal/service/collection -count=1`通过；`go test ./hack/tools/collection-client -count=1`通过；`go test ./backend -count=1`通过；上述实际 TCP 联调命令和库表查询通过。
+
+### FB-20 反馈修复记录
+
+- 根因：按实际 TCP 上报样本核对 dashboard 接口时发现两个统计口径问题：活跃流和会话的`duration/play_duration`在本地 PostgreSQL `timestamp without time zone`读写后受时区解释影响，接口动态计算认为`start_time`晚于当前时间并返回`0`，没有回退到投影表已保存的上报端显式时长；关闭流后数据库`current_active_sessions`已为`0`，但`protocol_summary.current_sessions`仍保留旧值，dashboard 流列表又从旧摘要汇总回`1`，导致关闭后接口统计不准确。
+- 修复：`dashboardElapsedSeconds`在动态时长计算非正数时回退到投影表显式`duration/play_duration`；`markReportStreamClosed`关闭流时保留协议历史累计数并清零`protocol_summary.current_sessions`；dashboard 流列表的协议合并逻辑改为已加载活跃会话计数时以`media_report_session.close_time IS NULL`聚合结果为准，即使结果为空也覆盖旧`current_sessions`。
+- 实际联调环境：使用本地 Docker PostgreSQL、Redis 和 Nacos，配置`GF_GCFG_PATH=/tmp/linapro-media-tcp.yMCd9d`启动`apps/lina-core`：`go run -tags official_plugins .`，确认日志包含`media collection server started addr=127.0.0.1:1911`和`http server started listening on [:9120]`。
+- TCP 注册发现验证：`go run ./hack/tools/collection-client -action ping -addr 127.0.0.1:1911 -timeout 10s`返回`pong received`；`go run ./hack/tools/collection-client -action register-lookup -service linapro-media-client-stat-e2e-20260622-0915 -instance-id inst-stat-e2e-20260622-0915 -node 1 -private-ip 127.0.0.1 -private-port 19191 -timeout 30s -settle 2s`返回包含同一 service、`group_name=1`和`private_port=19191`的健康实例；`deregister`后再次`lookup`返回`{}`。
+- Active 上报库表验证：`go run ./hack/tools/collection-client -action report ... -tenant-id tenant-stat-e2e-20260622-0915 -node-id node-stat-e2e-20260622-0915 -instance-id inst-stat-e2e-20260622-0915 -stream-id stream-stat-e2e-20260622-0915 -session-id session-stat-e2e-20260622-0915 -client-ip 192.0.2.55 -protocol hls -status running -timeout 15s -settle 2s`后，库表精确核对通过：`media_report_instance`为`cpu_allocated=4`、`cpu_load=32.50`、`memory_allocated=1024.00`、`memory_used=512.00`、`disk_io_read=256.00`、`disk_io_write=128.00`、`network_in=4.00`、`network_out=6.00`、`live_streams=1`、`sessions=1`；`media_report_stream`为`protocol_type=HLS`、`status=running`、`resolution=1280x720`、`fps=25.00`、`bitrate=4096`、`packet_loss=0.0100`、`duration=60`、`avg_delay=35`、`total_sessions_lifetime=1`、`current_active_sessions=1`、`protocol_summary.current_sessions=1`；`media_report_session`为`client_type=2`、`play_duration=60`、`current_bitrate=2048`、`current_resolution=1280x720`、`total_link_latency=18`；`media_report_node.node_latency_map`包含`192.0.2.55:18`。
+- Active dashboard 接口验证：登录`POST /api/v1/auth/login`获取 token 后，`GET /api/v1/media/dashboard/instances?nodeId=node-stat-e2e-20260622-0915`返回实例`live_streams=1/sessions=1`和资源指标与库表一致；`GET /api/v1/media/dashboard/streams?tenantId=tenant-stat-e2e-20260622-0915&nodeId=node-stat-e2e-20260622-0915&instanceId=inst-stat-e2e-20260622-0915&status=running`返回流`duration=60/current_active_sessions=1/protocol_summary.current_sessions=1`；`GET /api/v1/media/dashboard/sessions?...`返回`HLS`分组`active/session_count=1`且会话`play_duration=60/total_link_latency=18`；`GET /api/v1/media/dashboard/nodes/overview?rootNodeId=node-stat-e2e-20260622-0915&includeEmpty=true`返回节点聚合`live_streams=1/sessions=1/avg_delay=35`。
+- Close 上报库表和接口验证：`go run ./hack/tools/collection-client -action report-close ... -timeout 15s -settle 2s`后，库表确认`media_report_instance.live_streams=0/sessions=0`、`media_report_stream.status=closed/current_active_sessions=0/protocol_summary.current_sessions=0/close_time IS NOT NULL`、`media_report_session.close_time IS NOT NULL/play_duration=60`；dashboard 接口确认实例和节点统计归零，流列表返回`status=closed/current_active_sessions=0/protocol_summary.current_sessions=0`，会话列表`HLS`分组为`inactive/session_count=0/active_session_list=[]`。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件采集投影写入、dashboard 统计读取和插件内联调工具验证，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖或抽象层。
+- 数据权限：不新增 HTTP API、读取入口、写入入口或权限标签；dashboard 接口仍按既有`media:management:query`权限访问，本次只修正同一权限边界内的统计口径。
+- 缓存一致性：生命周期实时计数仍由既有宿主共享 cache 维护；本次只在关闭流时同步数据库投影摘要，并在 dashboard 读取时以数据库活跃会话聚合覆盖旧摘要，不新增缓存键、失效策略或本地缓存。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存。
+- 数据库：不新增或修改 SQL、表、列、索引、DAO、DO 或 Entity；本次使用既有`media_report_*`投影表和`close_time`活跃会话过滤路径，`psql DELETE/SELECT`仅用于清理和核验本次联调测试 ID。
+- 开发工具跨平台：长期维护的`collection-client`仍为 Go 工具；本轮未新增 shell、PowerShell、Makefile、CI 或平台专属脚本。实际调试使用的`psql`、`curl`、`node`和`lsof`仅为本地一次性验证命令，不作为交付开发入口。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；dashboard 统计仍通过既有`media.Service`方法读取 DAO 投影，采集写入仍通过既有`reportRuntime`和宿主传入的共享 cache。
+- 性能：dashboard 流列表活跃会话统计仍为一次`WHERE stream_id IN (...) AND close_time IS NULL GROUP BY stream_id, protocol_type`聚合查询；空计数覆盖不增加随流行数逐项查询；关闭流额外读取单条 stream 投影用于保留历史协议累计数，固定单资源操作，不引入`N+1`路径。
+- 测试策略：本次为功能行为反馈，新增/更新单元测试覆盖时长回退、关闭协议摘要清零和 dashboard 旧摘要覆盖；变更不涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
+- 验证：`go test ./backend/internal/service/media -count=1`通过；`LINAPRO_TEST_POSTGRES=1 go test ./backend/internal/service/collection -count=1`通过；`go test ./hack/tools/collection-client -count=1`通过；`go test ./backend/internal/controller/media -count=1`通过；`go test ./backend -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`通过；`git -C apps/lina-plugins/media diff --check`通过；上述实际 TCP 联调、库表核对和 dashboard HTTP 断言均通过。
