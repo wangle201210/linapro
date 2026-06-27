@@ -2,9 +2,5 @@ go 1.25.0
 
 use (
 	./apps/lina-core
-	./apps/lina-plugins
 	./hack/tools/linactl
-	apps/lina-plugins/linapro-uidentity-cas
-	apps/lina-plugins/media
-	apps/lina-plugins/sicau-niu
 )

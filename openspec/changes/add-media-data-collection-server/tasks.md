@@ -32,6 +32,8 @@
 - [x] FB-18 扩展`media`采集 TCP client，覆盖数据上报和 discovery 注册、查询、注销联调路径。
 - [x] FB-19 实际启动`media`采集 TCP server 联调数据上报和注册发现，并修复实测发现的关闭投影和空发现响应问题。
 - [x] FB-20 重新实测 TCP 上报后的落库准确性和 dashboard 统计接口准确性，并修复实测发现的时长与关闭协议统计问题。
+- [x] FB-21 在`/api/v1/media/apidocs.html`中补充 TCP 采集协议说明入口，避免用户误以为 TCP 能力缺失。
+- [x] FB-22 检查`media`插件内`collection-client`完整性，并修正插件工具运行入口和根`go.work`工作区范围。
 
 ### FB-13 反馈修复记录
 
@@ -171,3 +173,39 @@
 - 测试策略：本次为功能行为反馈，新增/更新单元测试覆盖时长回退、关闭协议摘要清零和 dashboard 旧摘要覆盖；变更不涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
 - 验证：`go test ./backend/internal/service/media -count=1`通过；`LINAPRO_TEST_POSTGRES=1 go test ./backend/internal/service/collection -count=1`通过；`go test ./hack/tools/collection-client -count=1`通过；`go test ./backend/internal/controller/media -count=1`通过；`go test ./backend -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`通过；`git -C apps/lina-plugins/media diff --check`通过；上述实际 TCP 联调、库表核对和 dashboard HTTP 断言均通过。
+
+### FB-21 反馈修复记录
+
+- 根因：`/api/v1/media/apidocs.html`原本只渲染 Stoplight 的 HTTP OpenAPI 文档，`media`采集 server 又是`system.started` hook 启动的`net-flux`兼容 TCP 服务，不会作为 GoFrame HTTP route 进入`/api/v1/media/openapi.json`，导致用户在插件独立文档页看不到 TCP 采集能力说明，容易误判为接口缺失。
+- 修复：在`media`插件自有`apidocs.html`中增加`HTTP API`和`TCP 采集协议`两个视图；HTTP 视图继续加载`/api/v1/media/openapi.json`，TCP 视图说明`collectionServer.enabled`、`collectionServer.addr`、系统心跳、指标上报、生命周期事件、Nacos discovery 命令、处理边界和`collection-client`联调入口；同时保持 OpenAPI JSON 只包含真实 HTTP 路由，不为 TCP 采集 server 伪造 HTTP path。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件自有 API 文档页面和插件后端测试，不修改`apps/lina-core`核心宿主契约，不新增宿主扩展点、跨模块领域依赖或抽象层。
+- API 契约：`/api/v1/media/apidocs.html`和`/api/v1/media/openapi.json`路由不变；OpenAPI JSON 仍只发布真实 HTTP API，TCP 能力作为同页协议说明展示，不改变请求 DTO、响应 DTO、权限标签或 HTTP 方法。
+- 数据权限：不新增或修改数据读取、写入、导出、聚合、批量信息或下拉候选接口；不改变任何业务数据可见性边界。
+- 缓存一致性：不修改共享 cache、缓存键、失效、刷新、集群一致性或采集生命周期计数策略。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次新增中文插件文档页静态说明，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口；页面内仅展示既有 Go 联调命令。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：文档页只增加静态 HTML/CSS/JS 和一次本地视图切换，不新增数据库查询、后端数据装配、HTTP 调用瀑布或`N+1`风险。
+- 测试策略：本次为用户可观察文档入口反馈，更新`media/backend`路由测试，断言页面包含 TCP 协议说明和`collection-client`入口，并断言 OpenAPI JSON 不包含伪造的 TCP collection HTTP path；未新增 Vben 前端页面、E2E 资产或业务端到端流程，未触发插件 E2E 用例新增。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/data-permission.md`、`.agents/rules/dev-tooling.md`、`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`、`frontend-design`和`karpathy-guidelines`技能。
+- 验证：`openspec validate add-media-data-collection-server --strict`通过；使用临时 Go workspace 包含`apps/lina-core`与`apps/lina-plugins/media`后执行`go test /Users/wanna/mine/github/wangle201210/linapro/apps/lina-plugins/media/backend -run 'TestMediaPluginOpenAPIDocumentOnlyContainsMediaRoutes|TestMediaPluginAPIDocsPageLoadsMediaDocument' -count=1`通过；使用同一临时 workspace 执行`go test /Users/wanna/mine/github/wangle201210/linapro/apps/lina-plugins/media/backend -count=1`通过。初次尝试在`apps/lina-plugins/media`内直接执行`go test ./backend ...`失败，原因是根`go.work`包含不存在`go.mod`的`./apps/lina-plugins`工作区条目，后续已用临时 workspace 规避并完成验证。
+
+### FB-22 反馈修复记录
+
+- 根因：`collection-client`实际位于`apps/lina-plugins/media/hack/tools/collection-client`，仓库根目录不存在`/hack/tools/collection-client`；同时根`go.work`错误包含`./apps/lina-plugins`和源码插件模块，违反宿主专用`host-only`工作区约定，并导致在`media`插件目录直接执行`go run ./hack/tools/collection-client`时因`apps/lina-plugins/go.mod`不存在而失败。`/api/v1/media/apidocs.html`中的联调命令也未说明插件目录和`GOWORK`边界，容易继续误导使用者。
+- 检查结论：`media`插件内`collection-client`功能覆盖完整，已支持`ping`、`register`、`lookup`、`deregister`、`register-lookup`、`report`、`report-close`、`report-cycle`和`smoke`动作；数据上报覆盖`MachineMetric`、`NetworkMetric`、`StreamMetric`、`SessionMetric`以及`STREAM_ADD`、`STREAM_DELETE`、`SESSION_ADD`、`SESSION_DELETE`生命周期事件；单元测试覆盖参数默认值、非法动作、系统包回调、协议枚举和状态枚举解析。
+- 修复：将根`go.work`恢复为宿主专用工作区，仅保留`apps/lina-core`和`hack/tools/linactl`；更新`media`插件`apidocs.html`的联调入口，明确先进入`apps/lina-plugins/media`，并将`GOWORK`设为`off`后运行插件内`collection-client`；同步更新插件后端路由测试断言。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- OpenSpec：本反馈属于活跃变更`add-media-data-collection-server`的工具入口和验收闭环补充，不新增规范需求；根`go.work`调整与既有`linactl-build-tool-consolidation`规范中根工作区保持`host-only`的要求一致。
+- API 契约：不新增 HTTP API、路由、DTO 或权限标签；`/api/v1/media/apidocs.html`仅更新静态说明，`/api/v1/media/openapi.json`仍只包含真实 HTTP 路由。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次更新中文插件文档页静态说明，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 缓存一致性：不修改共享 cache、缓存键、生命周期计数、失效或集群一致性策略。
+- 数据权限：不新增或修改数据读取、写入、导出、聚合、批量信息或下拉候选接口；不改变任何业务数据可见性边界。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity。
+- 开发工具跨平台：`collection-client`仍为 Go 工具；根`go.work`恢复宿主专用范围，插件完整模式继续由`linactl`生成`temp/go.work.plugins`。插件内单独运行该工具时需要按平台设置`GOWORK=off`环境变量后执行`go run ./hack/tools/collection-client`，未新增 shell、PowerShell、Makefile、CI 或平台专属脚本。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 测试策略：本次为治理和工具入口反馈，不改变 TCP 协议业务行为；使用工具单元测试、帮助输出 smoke、后端路由测试、`linactl`工具测试和 OpenSpec 严格校验闭环，不新增 E2E。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`和`.agents/rules/dev-tooling.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能。
+- 验证：`cd apps/lina-plugins/media && GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`cd apps/lina-plugins/media && GOWORK=off go run ./hack/tools/collection-client -h`通过，帮助输出包含全部动作和参数；使用临时 Go workspace 包含`apps/lina-core`与`apps/lina-plugins/media`后执行`go test /Users/wanna/mine/github/wangle201210/linapro/apps/lina-plugins/media/backend -run 'TestMediaPluginOpenAPIDocumentOnlyContainsMediaRoutes|TestMediaPluginAPIDocsPageLoadsMediaDocument' -count=1`通过；`go test ./hack/tools/linactl/... -count=1`通过；`go test ./apps/lina-core/internal/service/plugin/internal/testutil -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过；`make status`通过；`make dev`已重启后端和前端，当前`/api/v1/media/apidocs.html`返回内容包含`TCP 采集协议`、`apps/lina-plugins/media`、`GOWORK=off`和`collection-client`，`/api/v1/media/openapi.json`确认不包含伪造的 TCP collection HTTP path。

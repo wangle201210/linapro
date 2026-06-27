@@ -128,6 +128,23 @@ AND client 端发送`Lookup` discovery 命令
 THEN server 端应按服务名和节点查询 Nacos 实例
 AND 返回包含查询结果的`LookupAck`。
 
+### Requirement: 媒体插件独立文档页应说明 TCP 采集协议
+
+`media`插件 MUST 在独立接口文档页中提供 TCP 采集协议说明，帮助开发者区分 HTTP OpenAPI 接口与`net-flux`兼容 TCP 采集能力。
+
+#### Scenario: 浏览媒体插件独立接口文档
+
+WHEN 用户打开`/api/v1/media/apidocs.html`
+THEN 页面应提供 HTTP API 视图
+AND 页面应提供 TCP 采集协议说明视图
+AND TCP 采集协议说明应覆盖监听配置、系统心跳、指标上报、生命周期事件、Nacos discovery 命令和联调入口。
+
+#### Scenario: 生成媒体插件 OpenAPI 文档
+
+WHEN 服务端生成`/api/v1/media/openapi.json`
+THEN OpenAPI 文档只应包含真实 HTTP 路由
+AND 不应为 TCP 采集 server 伪造 HTTP 路径。
+
 ### Requirement: 媒体插件应提供数据看板读接口
 
 `media`插件 MUST 提供受`media:management:query`权限保护的数据看板查询接口，读取`media_report_*`最新投影表并返回`数据看板.md`中节点总览、实例列表、流列表和会话列表所需字段。
