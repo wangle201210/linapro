@@ -34,6 +34,7 @@
 - [x] FB-20 重新实测 TCP 上报后的落库准确性和 dashboard 统计接口准确性，并修复实测发现的时长与关闭协议统计问题。
 - [x] FB-21 在`/api/v1/media/apidocs.html`中补充 TCP 采集协议说明入口，避免用户误以为 TCP 能力缺失。
 - [x] FB-22 检查`media`插件内`collection-client`完整性，并修正插件工具运行入口和根`go.work`工作区范围。
+- [x] FB-23 使用本地 Docker Nacos 和本地服务复测远端`lookup/register-lookup`超时与`report-close`流投影异常，修复本地可复现问题。
 
 ### FB-13 反馈修复记录
 
@@ -209,3 +210,24 @@
 - 测试策略：本次为治理和工具入口反馈，不改变 TCP 协议业务行为；使用工具单元测试、帮助输出 smoke、后端路由测试、`linactl`工具测试和 OpenSpec 严格校验闭环，不新增 E2E。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`和`.agents/rules/dev-tooling.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能。
 - 验证：`cd apps/lina-plugins/media && GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`cd apps/lina-plugins/media && GOWORK=off go run ./hack/tools/collection-client -h`通过，帮助输出包含全部动作和参数；使用临时 Go workspace 包含`apps/lina-core`与`apps/lina-plugins/media`后执行`go test /Users/wanna/mine/github/wangle201210/linapro/apps/lina-plugins/media/backend -run 'TestMediaPluginOpenAPIDocumentOnlyContainsMediaRoutes|TestMediaPluginAPIDocsPageLoadsMediaDocument' -count=1`通过；`go test ./hack/tools/linactl/... -count=1`通过；`go test ./apps/lina-core/internal/service/plugin/internal/testutil -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过；`make status`通过；`make dev`已重启后端和前端，当前`/api/v1/media/apidocs.html`返回内容包含`TCP 采集协议`、`apps/lina-plugins/media`、`GOWORK=off`和`collection-client`，`/api/v1/media/openapi.json`确认不包含伪造的 TCP collection HTTP path。
+
+### FB-23 反馈修复记录
+
+- 根因：远端`10.157.225.55:27153`实测出现`lookup/register-lookup`等待`LookupAck`超时，以及`report-close`后流列表仍显示`running/current_active_sessions=1`。按用户要求切到本地 Docker Nacos 和本地服务复测时，首先发现当前测试替身未实现`cachecap.Service`新增的`GetMany`、`SetMany`、`DeleteMany`方法，导致`collection`和`media`服务测试无法编译运行，阻断本地行为验证。
+- 修复：补齐`collection`包`memoryCollectionCache`和`media`包`memoryRouteMemoryCache`的批量缓存接口实现，使测试替身重新满足宿主发布 cache 契约；本地真实 Nacos、TCP server 和 dashboard API 复测未复现远端异常，生产 TCP discovery 和`report-close`流投影逻辑无需改动。
+- 本地服务环境：本地 Docker 已运行`linapro-postgres`、`server-redis-1`和`linapro-nacos-test`；创建 Git 忽略的`apps/lina-plugins/media/manifest/config/config.yaml`启用`collectionServer.enabled=true`和`collectionServer.discovery.enabled=true`，执行`make dev`启动服务，确认`temp/lina-core.log`包含`media collection server started addr=127.0.0.1:1911`且`127.0.0.1:1911`已监听。
+- TCP discovery 验证：`go run ./hack/tools/collection-client -addr 127.0.0.1:1911 -action ping -timeout 10s`返回`pong received`；`register-lookup -service linapro-media-local-fb23 -instance-id inst-local-fb23 -node 1 -private-ip 127.0.0.1 -private-port 19191 -timeout 30s -settle 2s`返回包含健康实例的`LookupAck`；空服务`lookup`返回`{}`；`deregister`后再次`lookup`返回`{}`，均无超时。
+- TCP 上报和 dashboard 验证：使用测试 ID`tenant-local-fb23-20260627232350`、`node-local-fb23-20260627232350`、`inst-local-fb23-20260627232350`、`stream-local-fb23-20260627232350`、`session-local-fb23-20260627232350`执行`report`后，HTTP dashboard 接口返回实例`live_streams=1/sessions=1`、流`status=running/current_active_sessions=1/protocol_summary.current_sessions=1`、会话`session_count=1`、节点`live_streams=1/sessions=1`；执行`report-close`后，接口返回实例`live_streams=0/sessions=0`、流`status=closed/current_active_sessions=0/protocol_summary.current_sessions=0`、`status=running`筛选为空、`status=closed`筛选命中该流、会话分组`inactive/session_count=0`、节点`live_streams=0/sessions=0`。
+- 远端判断：本地当前代码和本地 Nacos 不复现远端`LookupAck`超时和流关闭投影滞留，远端更可能是部署版本未包含当前修复、`collectionServer.discovery.*`/Nacos 配置不一致、或远端服务日志中存在 discovery/关闭事件处理错误。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改仅限`media`源码插件测试替身和 OpenSpec 反馈记录，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖或抽象层。
+- 数据权限：不新增或修改 HTTP API、读取入口、写入入口、权限标签或数据权限过滤逻辑；本地 dashboard 验证仍使用既有登录鉴权和`media:management:query`边界。
+- 缓存一致性：生产缓存策略不变；测试替身补齐批量接口以匹配宿主共享 cache 契约，不新增缓存键、失效策略、跨实例同步策略或本地缓存路径。
+- i18n：不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity；本地测试数据通过唯一业务键写入既有`media_report_*`投影表。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口；实际联调使用既有 Go 工具`collection-client`和`make dev`，`curl`、`lsof`仅为本地一次性验证命令。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：不修改生产查询或写入路径；测试替身批量方法为固定输入 key 集合的内存 map 操作，不影响运行时性能。
+- 测试策略：本次为功能行为复测反馈，使用本地 Docker Nacos 集成测试、服务包单元测试、`collection-client`工具测试和真实 TCP/API 手工验证闭环；未涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`和`.agents/rules/architecture.md`，并使用`lina-feedback`、`goframe-v2`和`karpathy-guidelines`技能。
+- 验证：使用临时 Go workspace 包含`apps/lina-core`与`apps/lina-plugins/media`后执行`go test ./backend/internal/service/collection ./backend/internal/service/media -count=1`通过；`LINAPRO_TEST_NACOS=1 go test ./backend/internal/service/collection -run TestNacosDiscoveryClientIntegration -count=1`通过；`cd apps/lina-plugins/media && GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；上述本地真实 TCP discovery、`report`、`report-close`和 dashboard HTTP 验证通过。
