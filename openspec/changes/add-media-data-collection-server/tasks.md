@@ -35,6 +35,7 @@
 - [x] FB-21 在`/api/v1/media/apidocs.html`中补充 TCP 采集协议说明入口，避免用户误以为 TCP 能力缺失。
 - [x] FB-22 检查`media`插件内`collection-client`完整性，并修正插件工具运行入口和根`go.work`工作区范围。
 - [x] FB-23 使用本地 Docker Nacos 和本地服务复测远端`lookup/register-lookup`超时与`report-close`流投影异常，修复本地可复现问题。
+- [x] FB-24 修复多 Pod 部署下 discovery lookup 复用 Nacos SDK 本地缓存导致注销后仍返回旧实例的问题。
 
 ### FB-13 反馈修复记录
 
@@ -231,3 +232,22 @@
 - 测试策略：本次为功能行为复测反馈，使用本地 Docker Nacos 集成测试、服务包单元测试、`collection-client`工具测试和真实 TCP/API 手工验证闭环；未涉及前端页面、E2E 资产或用户可观察 UI，未触发 E2E 质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`和`.agents/rules/architecture.md`，并使用`lina-feedback`、`goframe-v2`和`karpathy-guidelines`技能。
 - 验证：使用临时 Go workspace 包含`apps/lina-core`与`apps/lina-plugins/media`后执行`go test ./backend/internal/service/collection ./backend/internal/service/media -count=1`通过；`LINAPRO_TEST_NACOS=1 go test ./backend/internal/service/collection -run TestNacosDiscoveryClientIntegration -count=1`通过；`cd apps/lina-plugins/media && GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；上述本地真实 TCP discovery、`report`、`report-close`和 dashboard HTTP 验证通过。
+
+### FB-24 反馈修复记录
+
+- 根因：`nightly-20260629`在 k8s 多副本环境下已经将 Nacos 注册和注销改为 persistent instance，Nacos 权威状态在注销后也能变为空；但某个已经执行过`Lookup`的 Pod 后续仍返回旧实例。根因是该 Pod 复用了长生命周期 Nacos SDK naming client，`SelectOneHealthyInstance`优先读取 SDK `serviceInfoHolder`本地订阅缓存，且 SDK 默认`UpdateCacheWhenEmpty=false`时空实例列表不会覆盖旧本地缓存。旧配置项`collectionServer.discovery.preloadCache`还和 SDK 字段`NotLoadCacheAtStart`语义相反，后续配置维护容易重新引入磁盘旧缓存。
+- 修复：`collection` discovery runtime 改为每个 TCP discovery 命令创建短生命周期 Nacos client，并在`Register`、`Lookup`和`Deregister`结束后关闭，避免跨命令复用进程内订阅缓存；Nacos SDK client 配置固定`UpdateCacheWhenEmpty=true`；将配置项从易误解的`preloadCache`改为`notLoadCacheAtStart`并默认`true`；移除未参与注册、查询和注销的`collectionServer.discovery.groupName`配置，文档明确 net-flux 的`node`映射为 Nacos group；同步更新插件配置样例、k8s 模板和`/api/v1/media/apidocs.html`说明。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件 TCP discovery、插件自有配置样例、部署模板、插件文档页和 OpenSpec 记录内，不修改`apps/lina-core`核心宿主契约，不新增宿主扩展点或跨模块领域依赖。
+- API 契约：不新增 HTTP API、路由、DTO、权限标签或 OpenAPI JSON path；`/api/v1/media/apidocs.html`仅更新插件静态说明，OpenAPI JSON 仍只包含真实 HTTP 路由。
+- 数据权限：不新增或修改业务数据读取、写入、导出、聚合、批量信息或租户可见性路径；TCP discovery 只访问 Nacos 服务发现状态，不读写 LinaPro 业务库。
+- 缓存一致性：本次明确规避 Nacos SDK 进程内和磁盘本地缓存对 discovery 查询正确性的影响。Nacos 服务端是 discovery 权威数据源；每次 TCP discovery 命令使用短生命周期 SDK client；client 启动默认不加载磁盘 cache；SDK 收到空服务时允许更新本地状态；跨 Pod 同步由 Nacos 服务端承担，LinaPro 不再依赖任一 Pod 的本地 SDK 缓存。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次更新中文插件文档页静态说明，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口；`collection-client`仍为 Go 工具，本次未改变其 CLI 契约。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；Nacos client 仍只在`collectionServer.discovery.enabled=true`且收到 TCP discovery 命令时由`collection`服务按配置创建。
+- 性能：每个 discovery TCP 命令新增一次 Nacos client 创建和关闭成本，但 discovery 注册、注销、查询不是高频 dashboard 列表或批量数据装配路径；该取舍用于保证多 Pod 注销后的正确性，不新增数据库查询或`N+1`风险。
+- 测试策略：本次为功能行为反馈，已补单元测试覆盖短生命周期 client、注销后空 lookup、SDK 参数不加载本地缓存且空服务更新缓存；真实 Nacos 集成测试覆盖注册、lookup、deregister 以及同一 lookup runtime 注销后查空。变更不涉及前端业务页面或 E2E 资产，未触发 E2E 质量审查。
+- 验证环境说明：本机 Docker daemon 不可用，因此未声称本机 Docker Nacos 验证；真实 Nacos 验证通过 6006 服务器 k8s Pod 内执行当前工作区编译出的测试二进制，直连集群内`linapro-nacos:8848`，覆盖 Nacos 2.x 所需的 gRPC 内部端口路径。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/data-permission.md`和`.agents/rules/architecture.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
+- 验证：`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./... -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/collection -race -run 'TestEventHandlerCreatesFreshDiscoveryClientPerLookup|TestEventHandlerRegistersDiscoveryInstance|TestEventHandlerDeregistersDiscoveryInstance|TestEventHandlerLooksUpDiscoveryInstance|TestEventHandlerWritesEmptyLookupAckWhenDiscoveryHasNoInstance' -count=1`通过；在 6006 服务器 k8s Pod 内执行`LINAPRO_TEST_NACOS=1 LINAPRO_TEST_NACOS_HOST=linapro-nacos LINAPRO_TEST_NACOS_PORT=8848 /tmp/linapro-media-collection.test -test.run TestNacosDiscoveryClientIntegration -test.count=1 -test.v`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/collection ./backend/internal/service/media ./backend -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/cron ./backend/internal/controller/media ./backend/api/media/v1 -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./hack/tools/collection-client -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git -C apps/lina-plugins diff --check`和`git diff --check`通过。

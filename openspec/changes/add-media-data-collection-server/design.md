@@ -24,12 +24,11 @@
 | `collectionServer.discovery.namespace` | `public` | Nacos namespace |
 | `collectionServer.discovery.logDir` | `./logs` | Nacos SDK 日志目录 |
 | `collectionServer.discovery.cacheDir` | `./cache` | Nacos SDK 本地缓存目录 |
-| `collectionServer.discovery.preloadCache` | `true` | Nacos SDK 是否预加载本地缓存 |
+| `collectionServer.discovery.notLoadCacheAtStart` | `true` | Nacos SDK 创建 client 时是否跳过加载本地磁盘缓存 |
 | `collectionServer.discovery.timeout` | `5000` | Nacos SDK 请求超时时间，单位毫秒 |
-| `collectionServer.discovery.groupName` | `DEFAULT_GROUP` | 默认 Nacos group |
 | `collectionServer.discovery.username` | `nacos` | Nacos 用户名 |
 | `collectionServer.discovery.password` | `nacos` | Nacos 密码 |
-| `collectionServer.discovery.node` | `1` | 默认节点 ID，用于本地配置兜底 |
+| `collectionServer.discovery.node` | `1` | 默认节点 ID，用于本地配置兜底；discovery 注册、注销和查询时映射为 Nacos group |
 
 采集 server 默认关闭是为了避免在未声明运维端口时改变部署暴露面。discovery 默认关闭是为了避免未配置 Nacos 时影响纯指标采集；启用后才创建 Nacos discovery client。插件在宿主 HTTP server 启动后异步启动 TCP server，并复用宿主传入的上下文取消链完成停止。
 
@@ -42,7 +41,7 @@
 - `Ping`请求返回`Pong`。
 - `MachineMetric`、`NetworkMetric`、`StreamMetric`和`SessionMetric`上报被接受、记录日志并写入`media`数据看板上报读模型；其中`MachineMetric`字段名沿用`net-flux`历史命名，但语义收敛为实例/容器指标。
 - `STREAM_ADD`、`STREAM_DELETE`、`SESSION_ADD`和`SESSION_DELETE`作为流和会话生命周期事件处理，采集 server 使用宿主发布给`media`插件的共享`cachecap.Service`维护资源归属和实例实时计数，并写回`media_report_instance.live_streams`和`media_report_instance.sessions`。
-- discovery 命令在`collectionServer.discovery.enabled=true`时对接 Nacos：`Instance`注册实例，`Deregister`注销实例，`Lookup`查询实例并返回`LookupAck`。
+- discovery 命令在`collectionServer.discovery.enabled=true`时对接 Nacos：`Instance`注册实例，`Deregister`注销实例，`Lookup`查询实例并返回`LookupAck`；discovery client 不应跨 TCP 命令复用 Nacos SDK 本地订阅缓存，且默认不加载 Nacos SDK 磁盘缓存，避免多 Pod 部署下注销后仍读取旧实例。
 - discovery 未启用时返回明确错误，不影响系统心跳和数据上报命令。
 - config、event 和 control 命令暂不提供业务动作，避免在没有 LinaPro 侧契约时引入额外状态变更。
 
