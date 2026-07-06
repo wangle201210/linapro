@@ -17,6 +17,7 @@
 - [x] **FB-3**: `water`插件改为通过配置调用远端`mediaopen`内部策略解析接口，解除对`media`源码插件的本地运行时依赖。
 - [x] **FB-4**: 为`water`插件补充 Kubernetes 部署清单和中英文部署说明。
 - [x] **FB-5**: 调整`water`Kubernetes 部署为默认 10 副本，并确保自动安装插件仅包含`water`。
+- [x] **FB-6**: 补齐`media`插件 Tieta 与内部接口配置闭环。
 
 ### FB-2 反馈修复记录
 
@@ -84,3 +85,20 @@
 - 测试策略：本次为部署资产和文档反馈修复，不涉及 Go 运行期代码、前端页面或 E2E 资产；未触发 E2E 质量审查，采用 YAML 解析、结构断言、文件存在性检查、`kubectl`客户端 dry-run、OpenSpec 严格校验和 diff 空白检查作为治理验证。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/plugin.md`、`.agents/rules/testing.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/cache-consistency.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`技能。
 - 验证：`ruby -e 'require "yaml"; ...' apps/lina-plugins/water/deploy/kubernetes/linapro-k8s.yaml`解析出 12 个 Kubernetes 文档并断言`linapro-water.spec.replicas == 10`、`plugin.autoEnable`仅包含`water`、`cluster.enabled == true`、`jwt.secret`为顶层配置且不存在`auth.jwt`、PostgreSQL 设置`PGDATA=/var/lib/postgresql/data/pgdata`；`kubectl create --dry-run=client --validate=true -f apps/lina-plugins/water/deploy/kubernetes/linapro-k8s.yaml`通过；`kubectl apply --dry-run=client --validate=true -f apps/lina-plugins/water/deploy/kubernetes/linapro-k8s.yaml`因当前 kube 账号缺少`secrets`、`persistentvolumeclaims`和`statefulsets`的`get`权限无法完成，失败点不是 YAML 解析或 Kubernetes schema；`test -f apps/lina-plugins/water/deploy/kubernetes/README.md && test -f apps/lina-plugins/water/deploy/kubernetes/README.zh-CN.md && test -f apps/lina-plugins/water/deploy/kubernetes/linapro-k8s.yaml`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-6 反馈修复记录
+
+- 根因：`media`插件的 Tieta HTTP 客户端需要`tieta.baseUrl`、`tieta.mock`和`tieta.timeout`，`mediaopen`内部接口需要`innerapi.apiKey`；其中`innerapi.apiKey`已有默认值但未在配置模板中显式暴露。进一步核对发现，Tieta 客户端原先直接读取全局`g.Cfg()`，而`media`生产部署的插件配置位于`/app/config/plugins/media/config.yaml`并通过宿主发布的插件`ConfigService`读取；因此仅把`tieta.baseUrl`补到插件配置 Secret 仍不能保证 Tieta 客户端读到该值。
+- 修复：`media.Service`构造函数显式接收宿主发布的插件配置服务，并将该配置服务传入 Tieta token 认证和租户设备权限校验链路；Tieta base URL、mock 开关和 timeout 统一从`media`插件运行配置读取。同步在`apps/lina-plugins/media/manifest/config/config.example.yaml`、两份 Kubernetes 清单的`linapro-source-plugin-configs/media-config.yaml`中补充`tieta.*`与`innerapi.apiKey`，并更新`media`插件根 README 和 Kubernetes README 的中英文配置说明。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：本次闭环限定在`media`源码插件内部服务构造、插件路由/启动装配、配置模板和部署资产，不修改`apps/lina-core`核心宿主契约，不新增跨模块接口或运行期抽象。
+- 数据权限：不新增或修改 HTTP API、数据库读写、租户可见性或权限校验逻辑；Tieta token 接口既有权限边界不变。
+- 缓存一致性：不修改 Tieta 用户缓存、路由记忆缓存、宿主缓存后端或失效策略；配置服务只是读取运行配置，不改变缓存 key、TTL 或失效机制。
+- i18n：`media`插件未配置`i18n.enabled: true`，按单语言插件处理；本次仅同步中英文 README，不新增运行时 UI 文案、API 文档源文本、插件清单或语言包资源。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity、索引或查询路径。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或开发工具入口；`kubectl`命令仅作为 Kubernetes 清单治理验证。
+- DI 来源检查：新增运行期依赖为`media.Service`构造函数中的`plugincap.ConfigService`。owner 为宿主插件能力服务，创建位置为`apps/lina-core/internal/cmd/internal/httpstartup/httpstartup_runtime.go`中的`pluginsvc.NewPluginConfigFactoryWithHostStaticConfig`及插件能力目录按`media`插件 ID 作用域化；传递路径为`backend/plugin.go`中的`plugins.Config()`到`mediasvc.New(..., configSvc)`，再由`serviceImpl`传入 Tieta 客户端调用。该依赖为只读配置服务，不是缓存敏感状态实例。
+- 性能：不涉及列表、详情批量、导出、聚合统计、树形数据、下拉候选或数据装配路径，不引入`N+1`查询风险。
+- 测试策略：本次涉及 Go 生产代码和运行时配置读取路径，已新增服务层单元测试覆盖 Tieta 配置从插件`ConfigService`读取，以及缺失 base URL 返回稳定错误码；未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/backend-go.md`，并使用`lina-feedback`和`goframe-v2`技能；确认`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/dev-tooling.md`无本次文件变更影响。
+- 验证：`GOWORK=off go test ./backend/internal/service/media -count=1`通过；`GOWORK=off go test ./backend/provider/strategy -count=1`通过；`GOWORK=off go test ./backend -count=1`通过；`GOWORK=off go test ./... -count=1`在`apps/lina-plugins/media`通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过编译门禁；`go test ./internal/cmd -count=1`仍因当前工作区既有 panic allowlist 不匹配失败，失败项包含`apps/lina-plugins/cms/backend/plugin.go:init`、`apps/lina-plugins/media/backend/plugin.go:init`、`apps/lina-plugins/sicau-niu/backend/plugin.go:init`和`apps/lina-plugins/water/backend/plugin.go:init`，其中完整测试失败点不是本次构造函数编译问题；`ruby -e 'require "yaml"; ...' apps/lina-plugins/media/deploy/kubernetes/linapro-k8s.yaml apps/lina-plugins/media/deploy/kubernetes/linapro-k8s-external-pgsql.yaml`解析出 18/15 个 Kubernetes 文档并断言插件配置 Secret 内存在`tieta.baseUrl`、`innerapi.apiKey`和`collectionServer`；`ruby -e 'require "yaml"; ...' apps/lina-plugins/media/manifest/config/config.example.yaml`通过；`kubectl create --dry-run=client --validate=false -f apps/lina-plugins/media/deploy/kubernetes/linapro-k8s.yaml`通过；`kubectl create --dry-run=client --validate=false -f apps/lina-plugins/media/deploy/kubernetes/linapro-k8s-external-pgsql.yaml`通过；`git diff --check -- ...`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
