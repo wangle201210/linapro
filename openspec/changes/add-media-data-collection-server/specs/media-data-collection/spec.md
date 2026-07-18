@@ -211,6 +211,20 @@ AND 用户节点应包含会话、用户、客户端、播放协议、节点和�
 AND 响应业务字段必须来自`media_report_stream`、`media_report_session`、`media_report_node`的真实投影或数据库聚合结果
 AND 在上报协议和数据库投影提供对应字段前，响应不得暴露以`stream_name`替代的`device_name`、以`stream_id`替代的`video_code`、以`client_ip`替代的`server_ip`，也不得暴露始终为空的`browser`或`operating_system`。
 
+#### Scenario: 查询租户媒体节点拓扑
+
+WHEN 管理端请求租户媒体节点拓扑接口
+THEN 服务端应提供单个`GET`查询接口，受`media:management:query`权限保护
+AND 请求入参应仅包含单个必填`tenant_id`，不得包含行政区划筛选
+AND 使用铁塔 token 回退鉴权时，请求`tenant_id`必须与 token 用户所属租户一致，缺失或不一致时应拒绝查询
+AND 服务端应在数据库查询阶段按`tenant_id`和`close_time`为空过滤活跃流与活跃会话
+AND 响应应返回租户当前并发会话数、当前活跃流数、流协议种类及各协议活跃流数
+AND 响应应按`node_id`返回最多`10000`个节点，每个节点包含节点名称、当前并发会话数、当前活跃流数、流协议种类及各协议活跃流数
+AND 服务端应使用数据库聚合和节点名称批量投影完成数据装配，不得按节点逐项查询
+AND 数据库应提供以`tenant_id`、`node_id`和`protocol_type`为前导维度并限定`close_time`为空的活跃流索引；活跃会话应复用现有租户节点部分索引
+AND 响应业务字段必须来自`media_report_stream`、`media_report_session`和`media_report_node`的真实投影或数据库聚合结果
+AND 在报表投影提供租户名称前，响应不得暴露`tenant_name`，租户显示名称应由调用方使用已选择的租户数据展示。
+
 #### Scenario: 定期清理已关闭流和会话
 
 WHEN `media`插件定时任务运行每周清理流程

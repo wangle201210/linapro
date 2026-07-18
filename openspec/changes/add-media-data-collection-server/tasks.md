@@ -43,6 +43,7 @@
 - [x] FB-29 将视频网关服务监测拓扑接口入参收敛为单个设备 ID。
 - [x] FB-30 删除视频网关服务监测拓扑响应中数据库无法真实获取的字段。
 - [x] FB-31 为单设备拓扑查询补充有效的活跃流和活跃会话索引。
+- [x] FB-32 补齐仅按租户 ID 查询的租户媒体节点拓扑聚合接口。
 
 ### FB-13 反馈修复记录
 
@@ -400,3 +401,22 @@
 - 测试策略：扩展 service 单元测试逐项验证保留的流、基础平台、网关和用户会话字段值来自测试数据库投影；使用 PostgreSQL SQL 重放、索引定义查询和`EXPLAIN`验证索引可用性。无前端页面、路由、E2E 资产或用户可见文案变化，未触发页面 E2E 和截图验证。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
 - 验证：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -f apps/lina-plugins/media/manifest/sql/003-add-media-data-collection-server.sql`连续执行通过，新增索引第二次执行均提示已存在并跳过；`pg_indexes`确认两个部分索引定义与 SQL 一致；活跃流查询`EXPLAIN`使用`idx_media_report_stream_active_device`，协议租户聚合`EXPLAIN`使用`idx_media_report_session_active_device_stream`；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -run 'TestDashboardTopology|TestDashboardQueriesReadReportProjections|TestDashboardListQueriesUseFixedUpperBound' -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1 -parallel 1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过。
+
+### FB-32 反馈修复记录
+
+- 根因：租户监测页需要同屏展示租户活跃会话、活跃流、协议统计及各媒体节点对应统计，现有节点、流、会话接口需要前端多次查询和自行聚合，既无法保证统一统计时点，也会形成调用瀑布。
+- 修复：新增`GET /api/v1/media/dashboard/tenant-topology`，受`media:management:query`保护，请求仅包含必填且最长`64`字符的`tenantId`，不接收行政区划；响应返回租户 ID、当前并发会话数、当前活跃流数、协议种类和协议流数量，以及最多`10000`个媒体节点的同口径统计、节点明细截断标记和毫秒时间戳。
+- 数据来源与口径：所有业务字段均来自`media_report_stream`、`media_report_session`和`media_report_node`真实投影或数据库聚合；活跃口径为`close_time IS NULL`；协议数量只统计非空协议，协议值对应活跃流数量；节点名称优先使用最新节点投影。数据库未提供租户名称，响应不暴露`tenant_name`，也不包含行政区划字段。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：变更限定在`media`源码插件 API、controller、service、鉴权上下文、SQL、测试和 OpenSpec 记录内，不修改`apps/lina-core`核心宿主或前端，不新增跨模块依赖或抽象层。
+- 数据权限：宿主调用继续由`media:management:query`、宿主认证和租户中间件治理；铁塔 token 回退鉴权会把 token 用户租户写入插件私有 context，service 在任何报表查询和表结构检查前拒绝租户缺失或请求租户不一致的调用，防止跨租户查询。
+- 性能：租户总数使用无明细上限的协议聚合和会话计数保证准确；节点明细使用两次最多`10000`行的数据库聚合和一次节点名称批量投影，不按节点循环查询，不存在`N+1`；数据查询次数固定为五次，另复用既有四表就绪检查，不随返回节点数量增长。
+- 数据库：在当前迭代 SQL 中新增`idx_media_report_stream_active_tenant_node_protocol`部分索引，列顺序为`tenant_id`、`node_id`、`protocol_type`且限定`close_time IS NULL`；活跃会话复用`idx_media_report_session_active_tenant_node`。SQL 使用`CREATE INDEX IF NOT EXISTS`，连续执行幂等，不新增表、列、DML、DAO、DO、Entity、自增主键或软删除语义。
+- 缓存一致性：接口直接读取数据库最新报表投影，不新增缓存、缓存键、快照、失效、刷新或跨实例一致性路径。
+- i18n：`media/plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；新增 API 文档和业务错误 fallback 使用英文，不新增插件`manifest/i18n`或`apidoc`资源。当前工作区与独立干净 worktree 执行全仓扫描均为`1509`条既有违规、涉及`164`个文件，定向检查确认本次新增文件和错误文案没有增加违规；`make i18n.check`仍被同一批仓库存量问题阻断。
+- 开发工具跨平台：执行`make ctrl dir=apps/lina-plugins/media/backend`生成接口声明和 controller 骨架，并按插件既有显式依赖注入构造模式移除生成器附加的重复构造定义；不修改`Makefile`、脚本、CI、`linactl`或长期维护工具，无跨平台交付影响。
+- DI 来源检查：不新增运行期依赖或构造函数参数；controller 复用`ControllerV1.mediaSvc`，Tieta 租户通过请求 context 传递，service 接口注释明确了调用方绑定要求和稳定失败语义。
+- 测试策略：新增 API DTO、controller 和 service 测试，覆盖请求仅含`tenantId`、响应精确字段、无租户名称和行政区划、租户及节点聚合准确性、关闭数据和其他租户排除、节点名称最新投影、空数据、参数边界以及 Tieta 租户匹配/缺失/不一致。变更不涉及前端页面、路由或 E2E 资产，未新增页面 E2E。
+- 审查：已执行`lina-review`反馈级审查，范围来自主仓和插件子仓`git status --short`及未跟踪文件展开，共`15`个文件；发现的参数/授权晚于表检查、service 接口注释缺少租户隔离调用边界两项问题均已修复，复审未发现阻塞问题。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能；前端、E2E、开发工具长期入口和宿主插件 README 均无变更影响。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1 -parallel 1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`；PostgreSQL SQL 脚本连续执行通过且第二次提示新增索引已存在；`pg_indexes`确认两个租户活跃部分索引定义正确；`EXPLAIN`确认活跃流节点协议聚合使用`idx_media_report_stream_active_tenant_node_protocol`，活跃会话节点聚合使用`idx_media_report_session_active_tenant_node`；`openspec validate add-media-data-collection-server --strict`通过；主仓和插件子仓`git diff --check`通过。
