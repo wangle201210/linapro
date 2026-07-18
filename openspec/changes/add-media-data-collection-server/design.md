@@ -55,14 +55,14 @@
 | ------ | ------ | -------- |
 | `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、内存、磁盘、网络、版本和启动时间写入实例最新投影；内存字段统一归一化为`MB`，磁盘和网络速率字段统一归一化为`KB/S`；`live_streams`和`sessions`不由客户端直接上报。 |
 | `NetworkMetric` | `media_report_node` | `machine_id`作为节点业务键；`throughput`按`KB/S`归一化后写入`network_out`，`destination_ip -> rtt`在事务内按节点行级锁合并进`node_latency_map`，避免同节点并发上报覆盖其他目的端延迟。 |
-| `StreamMetric` | `media_report_stream`、`media_report_instance` | `stream_id`作为流业务键；`tenant_id`、`node_id`、`instance_id`写入租户、节点和实例维度，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；协议、状态、码率、分辨率、帧率、丢包率、延迟、会话摘要和流路径写入最新流投影；`STREAM_ADD`和`STREAM_DELETE`按`stream_id`幂等维护实例实时直播流数量。 |
-| `SessionMetric` | `media_report_session`、`media_report_instance` | `session_id`作为会话业务键；流、租户、客户端、播放协议、播放质量、`node_id`、实例和链路跳点写入会话最新投影，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；`SESSION_ADD`和`SESSION_DELETE`按`session_id`幂等维护实例实时会话数量。 |
+| `StreamMetric` | `media_report_stream`、`media_report_instance` | `stream_id`作为流业务键；`tenant_id`、`device_id`、`node_id`、`instance_id`写入租户、设备、节点和实例维度，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；协议、状态、码率、分辨率、帧率、丢包率、延迟、会话摘要和流路径写入最新流投影；`STREAM_ADD`和`STREAM_DELETE`按`stream_id`幂等维护实例实时直播流数量。 |
+| `SessionMetric` | `media_report_session`、`media_report_instance` | `session_id`作为会话业务键；流、租户、设备、客户端、播放协议、播放质量、`node_id`、实例和链路跳点写入会话最新投影，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；`SESSION_ADD`和`SESSION_DELETE`按`session_id`幂等维护实例实时会话数量。 |
 
 `media_report_instance`和`media_report_session`不再伪造业务键，必须分别由`MachineMetric.instance_id`或`MachineMetric.machine_id`、`SessionMetric.session_id`驱动写入；缺少业务键的上报包会被忽略。采集端无法稳定获取宿主机器信息时，不应把容器 CPU、内存和磁盘指标伪装成`media_report_node`物理节点快照。
 
 ## 性能和数据边界
 
-上报处理只按单个上报包执行固定次数写入，不在动态结果集中循环查询数据库或调用远程插件能力。`MachineMetric`按实例业务键执行一次最新投影 upsert；`NetworkMetric`按节点业务键在事务内锁定单行并合并当前延迟矩阵，避免同节点并发目的端覆盖；`StreamMetric`和`SessionMetric`分别按流和会话业务键执行一次最新投影 upsert。看板后续查询可直接读取投影表并依赖`node_id`、`report_time`、`source_type/source_id`、`tenant_id/status`等索引，避免实时回查配置表和`N+1`装配。discovery 查询只按单个服务名和节点 ID 访问 Nacos，不在 LinaPro 数据库中装配动态结果集。
+上报处理只按单个上报包执行固定次数写入，不在动态结果集中循环查询数据库或调用远程插件能力。`MachineMetric`按实例业务键执行一次最新投影 upsert；`NetworkMetric`按节点业务键在事务内锁定单行并合并当前延迟矩阵，避免同节点并发目的端覆盖；`StreamMetric`和`SessionMetric`分别按流和会话业务键执行一次最新投影 upsert。看板后续查询可直接读取投影表并依赖`node_id`、`report_time`、`source_type/source_id`、`tenant_id/status`和`tenant_id/device_id`等索引，避免实时回查配置表和`N+1`装配。discovery 查询只按单个服务名和节点 ID 访问 Nacos，不在 LinaPro 数据库中装配动态结果集。
 
 实例实时流数和会话数的权威运行时来源是宿主共享 cache 中维护的生命周期事件状态：`stream_id -> instance_id`、`session_id -> instance_id`、`instance_id -> live_streams`和`instance_id -> sessions`。源码插件只能通过`cachecap.Service`访问该状态，不能直接依赖宿主私有 Redis、`kvcache`或 coordination 实现；在`cluster.enabled=true`时，该服务由宿主统一切换到 Redis/coordination KV 等共享后端，在单机模式下可继续使用宿主 SQL KV 后端。采集 server 在处理生命周期事件时使用对应流或会话投影行的数据库行级锁串行化同一资源的事件，再更新共享 cache 和实例投影，保证多 Pod 下重复`ADD`、重复`DELETE`和跨实例迁移不会重复增减。cache 是实时计数权威状态，`media_report_instance`中的`live_streams`和`sessions`是供数据看板读取的最新投影；若共享 cache 写入失败，当前上报处理返回错误并保留下一次生命周期事件重试恢复的路径。
 

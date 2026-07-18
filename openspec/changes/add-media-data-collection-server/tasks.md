@@ -36,6 +36,7 @@
 - [x] FB-22 检查`media`插件内`collection-client`完整性，并修正插件工具运行入口和根`go.work`工作区范围。
 - [x] FB-23 使用本地 Docker Nacos 和本地服务复测远端`lookup/register-lookup`超时与`report-close`流投影异常，修复本地可复现问题。
 - [x] FB-24 修复多 Pod 部署下 discovery lookup 复用 Nacos SDK 本地缓存导致注销后仍返回旧实例的问题。
+- [x] FB-25 为`media_report_stream`和`media_report_session`补充`device_id`设备维度字段，支持后续按设备分组统计。
 
 ### FB-13 反馈修复记录
 
@@ -251,3 +252,26 @@
 - 验证环境说明：本机 Docker daemon 不可用，因此未声称本机 Docker Nacos 验证；真实 Nacos 验证通过 6006 服务器 k8s Pod 内执行当前工作区编译出的测试二进制，直连集群内`linapro-nacos:8848`，覆盖 Nacos 2.x 所需的 gRPC 内部端口路径。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/data-permission.md`和`.agents/rules/architecture.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
 - 验证：`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./... -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/collection -race -run 'TestEventHandlerCreatesFreshDiscoveryClientPerLookup|TestEventHandlerRegistersDiscoveryInstance|TestEventHandlerDeregistersDiscoveryInstance|TestEventHandlerLooksUpDiscoveryInstance|TestEventHandlerWritesEmptyLookupAckWhenDiscoveryHasNoInstance' -count=1`通过；在 6006 服务器 k8s Pod 内执行`LINAPRO_TEST_NACOS=1 LINAPRO_TEST_NACOS_HOST=linapro-nacos LINAPRO_TEST_NACOS_PORT=8848 /tmp/linapro-media-collection.test -test.run TestNacosDiscoveryClientIntegration -test.count=1 -test.v`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/collection ./backend/internal/service/media ./backend -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./backend/internal/service/cron ./backend/internal/controller/media ./backend/api/media/v1 -count=1`通过；`GOWORK=/tmp/linapro-media-work.s13xtD/go.work go test ./hack/tools/collection-client -count=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git -C apps/lina-plugins diff --check`和`git diff --check`通过。
+
+### FB-25 反馈修复记录
+
+- 根因：`media_report_stream`和`media_report_session`只保存租户、节点、实例、流和会话维度，`net-flux`指标包也没有固定`DeviceId`访问器，导致后续统计无法稳定按设备国标 ID 分组；采集端虽可通过`Extra`携带设备标识，但服务端未归一并持久化。
+- 修复：在`media_report_stream`和`media_report_session`补充`device_id`字段、DAO/DO/Entity、写入投影、dashboard 请求筛选和响应投影；采集上报从`Extra.device_id`优先、`Extra.deviceId`兼容读取设备 ID，`collection-client`新增`-device-id`并在流和会话上报中写入`extra.device_id`；补充单元测试覆盖归一、持久化、筛选和接口返回。
+- OpenSpec：本反馈属于活跃变更`add-media-data-collection-server`的数据采集读模型和统计查询契约补全，已同步更新`design.md`、增量规范和本任务记录。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件自有 SQL、采集服务、dashboard 服务、API DTO、联调工具和插件文档，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖或抽象层。
+- API 契约：`GET /api/v1/media/dashboard/streams`和`GET /api/v1/media/dashboard/sessions`新增可选`deviceId`筛选，并在流和会话响应中返回`device_id`；只读接口仍使用`GET`和既有`media:management:query`权限。
+- 数据权限：dashboard 仍在数据库查询阶段按租户、节点、实例、状态、协议和新增设备维度过滤，不放宽原有可见性边界；TCP 上报只写入采集投影，不通过 HTTP 暴露额外租户数据。
+- 缓存一致性：不新增缓存键、缓存失效或本地状态；设备 ID 是数据库投影字段，实例实时计数仍由既有共享 cache 维护。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次新增中文 API 文档源文本和插件文档说明，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 数据库：在当前迭代唯一 SQL 文件`003-add-media-data-collection-server.sql`中追加幂等`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`和设备筛选索引；不写入自增主键，不新增 Seed DML 或 Mock 数据；SQL 重放验证通过。
+- 开发工具跨平台：`collection-client`仍为 Go 工具，新增`-device-id`参数使用 Go 标准库 flag 解析，不新增 shell、PowerShell、Makefile、CI 或平台专属脚本。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：设备筛选在数据库侧完成，并新增`(tenant_id, device_id, status)`和`(tenant_id, device_id, protocol_type)`索引；dashboard 流协议统计和会话统计仍为集合化聚合，不新增逐行查询或`N+1`路径。
+- 测试策略：本次为功能行为反馈，使用单元测试、PostgreSQL 持久化测试、SQL 重放、真实 TCP 上报和真实 HTTP dashboard 断言闭环；不涉及前端页面或 E2E 资产，未触发 E2E 用例新增。
+- 实际 TCP 上报准确性验证：使用本地 PostgreSQL、Redis、Nacos 和`media`采集 TCP server，测试 ID`tenant-device-20260718131107`、`device-device-20260718131107`、`stream-device-20260718131107`、`session-device-20260718131107`执行`report`后，库表确认`media_report_stream.device_id=device-device-20260718131107`、`status=running`、`current_active_sessions=1`、`total_sessions_lifetime=1`、`protocol_type=HLS`；`media_report_session.device_id=device-device-20260718131107`、`client_id=client-device-20260718131107`、`client_ip=192.0.2.57`、`protocol_type=HLS`；聚合查询按`tenant_id/stream_id/device_id`得到`active_sessions=1`、`total_sessions=1`。
+- 实际 dashboard 统计验证：登录`POST /api/v1/auth/login`获取 token 后，`GET /api/v1/media/dashboard/streams?tenantId=tenant-device-20260718131107&deviceId=device-device-20260718131107`返回 1 条流，`device_id`、`current_active_sessions=1`、`total_sessions_lifetime=1`和`HLS.current_sessions=1/total_sessions=1`准确；错误`deviceId`返回 0 条流；`GET /api/v1/media/dashboard/sessions?streamId=stream-device-20260718131107&tenantId=tenant-device-20260718131107&deviceId=device-device-20260718131107`返回`stream_info.device_id`和会话`device_id`准确，`HLS.session_count=1`；错误`deviceId`会话计数为 0。
+- 关闭上报验证：执行`report-close`后，库表确认流和会话`device_id`保留不变，`media_report_stream.status=closed/current_active_sessions=0/close_time IS NOT NULL`，`media_report_session.close_time IS NOT NULL`，实例`live_streams=0/sessions=0`；dashboard 流列表仍按正确设备命中该流，返回`status=closed/current_active_sessions=0/HLS.current_sessions=0/total_sessions=1`，会话列表返回`HLS`为`inactive/session_count=0/active_session_list=[]`。
+- TCP 注册发现验证：`ping`返回`pong received`；使用干净本地 Docker Nacos 重新验证持久实例后，`register-lookup -settle 0s`返回包含`service-device-fast-20260718131107`、`group_name=1`和`private_port=19191`的健康实例，`deregister`成功，注销后`lookup`返回`{}`；延迟数秒后该本地 Nacos 会将无健康检查的持久实例置为`healthy:false`，因此`settle=3s`查询返回空，记录为本地 Nacos 健康状态约束，不影响本次设备字段上报和统计验证。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/i18n.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能。
+- 验证：`GOWORK=off go test ./backend/internal/service/collection -count=1`通过；`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./backend/internal/service/collection -run TestReportRuntimePersistsMetrics -count=1`通过；`GOWORK=off go test ./backend/internal/service/media -count=1`通过；`GOWORK=off go test ./backend/internal/controller/media -count=1`通过；`GOWORK=off go test ./backend/api/media/v1 -count=1`通过；`GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`GOWORK=off go test ./backend -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；SQL 全量重放通过；真实 TCP 上报、关闭上报、dashboard HTTP 断言和 TCP 注册发现联调通过。

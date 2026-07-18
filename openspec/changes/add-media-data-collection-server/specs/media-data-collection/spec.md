@@ -48,11 +48,13 @@ AND `throughput`写入`network_out`前应按`KB/S`归一化。
 WHEN server 端收到包含有效业务键的`StreamMetric`
 THEN 应更新`media_report_stream`最新流投影。
 AND `media_report_stream`不得再存储`source_id`字段
-AND 应写入`protocol_type`保存源流协议类型。
+AND 应写入`protocol_type`保存源流协议类型
+AND 应写入`device_id`作为流所属设备业务标识，支持后续按设备维度统计。
 
 WHEN server 端收到包含有效业务键的`SessionMetric`
 THEN 应更新`media_report_session`最新会话投影。
-AND `client_type`应按`1-mobile`、`2-pc`、`0-未知`枚举值存储。
+AND `client_type`应按`1-mobile`、`2-pc`、`0-未知`枚举值存储
+AND 应写入`device_id`作为会话所属设备业务标识，支持后续按设备维度统计。
 
 WHEN 上报的`StreamMetric`或`SessionMetric`缺少可由服务端推导的时长字段
 THEN server 端应根据`start_time`和`timestamp`计算`duration`或`play_duration`。
@@ -170,7 +172,7 @@ AND 不应通过逐实例回查节点配置表装配展示字段。
 
 #### Scenario: 查询流列表
 
-WHEN 管理端按`source_type + source_id`、`tenant_id`、`node_id`、`instance_id`、状态或关键词查询流列表
+WHEN 管理端按`source_type + source_id`、`tenant_id`、`device_id`、`node_id`、`instance_id`、状态或关键词查询流列表
 THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`条`media_report_stream`
 AND 返回`source_type`、`source_id`和`stream_list`
 AND 响应`data`不得返回`total`
@@ -185,7 +187,7 @@ AND `current_active_sessions`和`protocol_summary[].current_sessions`应由`clos
 
 WHEN 管理端按`stream_id`查询会话列表
 THEN 服务端应读取`media_report_stream`获取`stream_info`和协议摘要
-AND 在数据库查询阶段按`stream_id`、`tenant_id`、`protocol_type`、`node_id`或`instance_id`过滤、排序并最多读取`10000`条`media_report_session`
+AND 在数据库查询阶段按`stream_id`、`tenant_id`、`device_id`、`protocol_type`、`node_id`或`instance_id`过滤、排序并最多读取`10000`条`media_report_session`
 AND 仅返回`close_time`为空的活跃会话明细
 AND 按`protocol_type`聚合当前查询范围内未关闭会话数并组装`protocol_list`
 AND 响应`data`不得返回`total`
