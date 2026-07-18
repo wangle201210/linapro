@@ -196,6 +196,21 @@ AND `active_session_list[].play_duration`应通过`start_time`计算；若`close
 AND `link_hops`应直接由`media_report_session.link_hops`解析得到
 AND `total_link_latency`应优先由`link_hops[].latency_ms`求和，缺少链路跳点时才回退使用读模型字段。
 
+#### Scenario: 查询视频网关服务监测拓扑
+
+WHEN 管理端请求视频网关服务监测拓扑接口
+THEN 服务端应提供单个`GET`查询接口，受`media:management:query`权限保护
+AND 请求入参应仅包含单个必填`device_id`
+AND 服务端应在数据库查询阶段按`device_id`过滤并最多读取`10000`条流投影和`10000`条会话明细
+AND 数据库应提供以`device_id`为前导列并限定`close_time`为空的活跃流和活跃会话索引，以支撑单设备拓扑查询、协议租户聚合和稳定排序
+AND 服务端应一次性读取有界流集合、当前活跃会话明细和协议租户聚合统计，不得让前端按流、协议或租户逐项补查
+AND 响应应按设备、流、推流协议、租户和用户会话组织拓扑树
+AND 设备和流节点应包含设备编码、基础平台流参数、视频网关流参数和当前协议复用数
+AND 租户节点应包含当前查询范围内的并发会话数
+AND 用户节点应包含会话、用户、客户端、播放协议、节点和实例信息
+AND 响应业务字段必须来自`media_report_stream`、`media_report_session`、`media_report_node`的真实投影或数据库聚合结果
+AND 在上报协议和数据库投影提供对应字段前，响应不得暴露以`stream_name`替代的`device_name`、以`stream_id`替代的`video_code`、以`client_ip`替代的`server_ip`，也不得暴露始终为空的`browser`或`operating_system`。
+
 #### Scenario: 定期清理已关闭流和会话
 
 WHEN `media`插件定时任务运行每周清理流程

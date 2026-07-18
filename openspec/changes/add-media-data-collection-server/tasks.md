@@ -39,6 +39,10 @@
 - [x] FB-25 为`media_report_stream`和`media_report_session`补充`device_id`设备维度字段，支持后续按设备分组统计。
 - [x] FB-26 将`media`插件采集链路切换为`net-flux`强类型`device_id`协议字段。
 - [x] FB-27 移除`Extra`中的设备 ID 冗余写入和读取路径。
+- [x] FB-28 补齐视频网关服务监测拓扑页所需的单次聚合统计接口。
+- [x] FB-29 将视频网关服务监测拓扑接口入参收敛为单个设备 ID。
+- [x] FB-30 删除视频网关服务监测拓扑响应中数据库无法真实获取的字段。
+- [x] FB-31 为单设备拓扑查询补充有效的活跃流和活跃会话索引。
 
 ### FB-13 反馈修复记录
 
@@ -321,3 +325,78 @@
 - 关闭上报验证：执行新版`collection-client -action report-close`后，库表确认流和会话`device_id`保留不变，流`status=closed/current_active_sessions=0/total_sessions_lifetime=1/close_time IS NOT NULL`，会话`close_time IS NOT NULL`，实例`live_streams=0/sessions=0`；dashboard 流列表按正确设备仍命中关闭流且`HLS.current_sessions=0/total_sessions=1`，会话统计返回`status=inactive/session_count=0/active_session_list=[]`。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
 - 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/collection -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./hack/tools/collection-client -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；真实 TCP 上报、关闭上报、PostgreSQL 投影核对和 dashboard HTTP 统计核对通过。
+
+### FB-28 反馈修复记录
+
+- 根因：现有`media`看板只提供节点、实例、流和会话四个分散接口。视频网关服务监测拓扑页需要同屏展示设备、视频基础平台、视频网关、推流协议、租户并发和用户会话，如果前端串联现有接口，会形成按流、协议或租户逐项补查和前端自聚合，无法满足单次页面加载的统计接口边界。
+- 修复：新增`GET /api/v1/media/dashboard/topology`，受`media:management:query`保护；请求只接受单个必填`deviceId`作为页面入口；响应一次返回`node_id`、`device_id`、设备拓扑、流拓扑、基础平台节点、视频网关节点、协议复用数、租户并发数和用户会话节点。
+- 数据来源：接口只读取`media_report_stream`和`media_report_session`活跃投影，并按需读取`media_report_node`获取节点名称；响应业务字段均来自真实投影或数据库聚合结果，不返回缺少独立投影来源的`device_name`、`video_code`、`server_ip`、`browser`和`operating_system`。
+- OpenSpec：本反馈属于活跃变更`add-media-data-collection-server`的数据看板接口补齐，已在增量规范中新增“查询视频网关服务监测拓扑”场景。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件的 API DTO、controller、service、测试和 OpenSpec 记录，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖、领域能力或抽象层。
+- API 契约：新增只读`GET`资源接口；`g.Meta`包含`dc`和`permission`标签；响应时间字段`generated_at`和用户节点`start_time`均为`Unix timestamp in milliseconds`；请求不提供`pageNum`或`pageSize`，服务端固定有界返回。
+- 数据权限：接口沿用`media:management:query`权限和`platform_only`插件边界；`deviceId`在数据库查询阶段注入，不先查全量再内存过滤；聚合统计只覆盖当前设备查询范围内可见的活跃投影。
+- 缓存一致性：不新增或修改缓存、缓存键、失效、刷新或跨实例同步策略；实时计数仍由采集链路写入投影，拓扑接口仅查询数据库最新投影。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次新增 API 文档源文本使用英文以避免增加全仓 i18n 扫描项，不新增插件`manifest/i18n`或`apidoc`翻译资源。
+- 数据库性能：接口按单个`deviceId`先有界读取最多`10000`条活跃流投影，再基于该有界`stream_id`集合执行一次协议租户聚合查询和一次最多`10000`条活跃会话明细查询；查询使用以`device_id`为前导列的活跃流和活跃会话部分索引，不存在按流、协议、租户或用户循环查询数据库的`N+1`路径。
+- 开发工具跨平台：本次运行`make ctrl dir=apps/lina-plugins/media/backend`刷新 GoFrame 生成接口声明，但不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；新增 controller 方法继续复用`ControllerV1.mediaSvc`。
+- 测试策略：新增 service 单元测试覆盖单设备 ID 归一化、设备 ID 必填、协议租户聚合、用户会话节点、真实投影字段值和空设备结果；新增 DTO 和 controller 测试固定拓扑 JSON 形状、确认只暴露必填`deviceId`请求入参、确认删除无投影字段并确认不暴露分页包装。变更不涉及前端页面或 E2E 资产，未新增 E2E。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -run 'TestDashboardTopology|TestDashboardQueriesReadReportProjections|TestDashboardListQueriesUseFixedUpperBound' -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/api/media/v1 -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/controller/media -run TestDashboardControllerReturnsFrontendDataShape -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/controller/media -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/api/media/v1 ./backend/api/media -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/... -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过。
+
+### FB-29 反馈修复记录
+
+- 根因：FB-28 初版把拓扑接口做成了通用多维筛选接口，暴露了`nodeId`、`deviceIds[]`、`tenantId`、`protocolType`和`status`，但页面拓扑入口实际只应由单个设备 ID 驱动，额外入参会扩大前端误用面并让接口契约偏离页面统计语义。
+- 修复：`GET /api/v1/media/dashboard/topology`请求 DTO 只保留带 GoFrame 必填和长度校验的`deviceId`；service 层同步收敛为单个`DeviceId`，空值复用`CodeMediaDeviceIDRequired`返回参数错误；流投影和会话聚合均在数据库阶段按`device_id`过滤；响应从`device_ids`改为单个`device_id`。
+- OpenSpec：已将“查询视频网关服务监测拓扑”场景更新为请求入参仅包含单个必填`device_id`，并保留`10000`条流投影和`10000`条会话明细上限要求。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件 API DTO、controller、service、测试和 OpenSpec 记录内，不修改`apps/lina-core`核心宿主契约，不新增跨模块依赖或抽象。
+- API 契约：只读接口继续使用`GET`和`media:management:query`权限；请求仅暴露带`v:"required|length:1,128"`校验的`deviceId`，不暴露分页、多设备或多维筛选字段；响应时间字段仍为`Unix timestamp in milliseconds`。
+- 数据权限：接口按`platform_only`插件边界和`media:management:query`权限访问；`deviceId`在数据库查询阶段注入，聚合统计只覆盖当前设备活跃投影，不先查全量再内存过滤。
+- 缓存一致性：不新增或修改缓存、缓存键、失效、刷新或跨实例同步策略；接口继续直接查询数据库投影。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次新增 topology API 文档源文本已使用英文，不新增插件`manifest/i18n`或`apidoc`翻译资源。已运行`make i18n.check`，该全仓命令仍因既有`cms`、`linapro-uidentity-cas`、宿主前端缺失键以及未启用 i18n 的插件中文源文本失败；针对`apps/lina-plugins/media/backend/api/media/v1/media_dashboard_topology.go`的过滤复查无输出，确认本次新增 API 文件未继续增加 i18n 扫描项。
+- 数据库性能：接口按单个`deviceId`先有界读取最多`10000`条活跃流投影，再基于该有界`stream_id`集合执行一次协议租户聚合查询和一次最多`10000`条活跃会话明细查询；查询使用 FB-31 补充的单设备活跃流和活跃会话索引，不存在按流、协议、租户或用户循环查询数据库的`N+1`路径，不新增 DAO、DO 或 Entity。
+- 开发工具跨平台：本次不修改`Makefile`、脚本、CI、`linactl`或长期维护工具入口；仅执行`gofmt`。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；controller 继续复用`ControllerV1.mediaSvc`。
+- 测试策略：更新 service 单元测试覆盖单设备 ID trim、设备 ID 必填、协议租户聚合、用户会话节点和空设备结果；更新 DTO 和 controller 测试确认请求只暴露带必填校验的`deviceId`并固定响应 JSON 形状。变更不涉及前端页面或 E2E 资产，未新增 E2E。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -run 'TestDashboardTopology|TestDashboardQueriesReadReportProjections|TestDashboardListQueriesUseFixedUpperBound' -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/api/media/v1 -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/controller/media -run TestDashboardControllerReturnsFrontendDataShape -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过；`rg -n "[一-龥]" media/backend/api/media/v1/media_dashboard_topology.go`无输出；`go run ./hack/tools/linactl i18n.check 2>&1 | rg 'apps/lina-plugins/media/backend/api/media/v1/media_dashboard_topology.go' || true`无输出；`make i18n.check`未通过，失败原因见 i18n 影响记录。
+
+### FB-30 反馈修复记录
+
+- 根因：拓扑响应为贴合页面原型混入了当前上报协议和数据库投影没有的业务字段。`device_name`实际取自`stream_name`，`video_code`实际取自`stream_id`，`server_ip`实际回退为`client_ip`，`browser`和`operating_system`则始终返回空字符串，字段名称与真实数据语义不一致。
+- 修复：从 API DTO、service 投影、controller 映射和测试数据中删除设备节点与基础平台节点的`device_name`、网关节点的`video_code`，以及用户会话节点的`server_ip`、`browser`和`operating_system`；同时删除对应的替代值、空值和回退逻辑。响应其余业务字段均来自`media_report_stream`、`media_report_session`、`media_report_node`真实列或数据库聚合结果；`generated_at`和`session_detail_limited`保留为来源明确的服务端响应元数据。
+- OpenSpec：本反馈直接收敛活跃变更`add-media-data-collection-server`中的拓扑接口响应契约，已更新“查询视频网关服务监测拓扑”场景，禁止返回没有真实投影来源的字段。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件拓扑 API、service、controller、测试和 OpenSpec 记录内，不修改`apps/lina-core`核心宿主契约，不新增跨模块依赖、抽象层或前端适配。
+- API 契约：接口路径、`GET`方法、单个必填`deviceId`入参、权限标签、时间字段和有界返回策略不变；仅删除无法真实获取的响应字段，不保留兼容字段或空占位。
+- 数据权限：不改变`platform_only`插件边界、`media:management:query`权限或数据库查询条件；接口仍在数据库阶段按单个`device_id`约束流和会话范围，不先查询全量数据后过滤。
+- 缓存一致性：无缓存影响；接口继续直接查询数据库投影，不新增缓存、快照、失效、刷新或跨实例同步策略。
+- i18n：`media/plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次仅删除英文 API 文档字段及其说明，不新增或修改运行时 UI、插件语言包、`apidoc`翻译资源或翻译缓存，目标 API 文件中文静态扫描无输出。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity；仅依据现有`media_report_stream`、`media_report_session`和`media_report_node`投影收敛响应字段，SQL 幂等性、数据分类、自增主键和软删除语义无影响。
+- 性能：数据库查询次数、`10000`条流与会话上限、集合化聚合和内存组装路径不变；删除字段后不新增查询，也不存在按动态结果集循环查询的`N+1`路径。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或代码生成入口；仅执行`gofmt`，无跨平台影响。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；controller 继续复用`ControllerV1.mediaSvc`。
+- 测试策略：更新 DTO 序列化测试，明确断言五类无投影字段的 JSON key 不存在；更新 controller 和 service 测试，继续验证设备流数量、协议复用数、租户并发数、会话明细及`client_ip`等真实投影字段。变更不涉及现有前端页面、路由或 E2E 资产，未触发页面 E2E 和截图验证。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/api/media/v1 -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/controller/media -run TestDashboardControllerReturnsFrontendDataShape -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -run 'TestDashboardTopology|TestDashboardQueriesReadReportProjections|TestDashboardListQueriesUseFixedUpperBound' -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1 -parallel 1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过；`rg -n "DeviceName|VideoCode|ServerIp|Browser|OperatingSystem|device_name|video_code|server_ip|browser|operating_system"`针对拓扑生产代码无输出。
+
+### FB-31 反馈修复记录
+
+- 根因：拓扑接口按要求只接收`deviceId`，流查询条件为`device_id`和未关闭状态，会话查询条件为`device_id`、有界`stream_id`集合和未关闭状态；现有设备索引均以`tenant_id`为前导列，单设备入口未提供`tenant_id`时不能有效支撑该查询路径。
+- 修复：为`media_report_stream`新增以`device_id`、`report_time DESC`和`stream_id`组成且限定`close_time IS NULL`的部分索引；为`media_report_session`新增以`device_id`、`stream_id`、`protocol_type`、`tenant_id`、`report_time DESC`和`session_id`组成且限定`close_time IS NULL`的部分索引，分别覆盖活跃流读取、活跃会话明细排序和协议租户聚合。
+- OpenSpec：已在活跃变更`add-media-data-collection-server`的“查询视频网关服务监测拓扑”场景中增加单设备活跃投影索引要求。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：仅补充`media`插件自有报表投影表的查询索引，不修改`apps/lina-core`、模块边界、跨模块契约、前端适配或运行期依赖。
+- API 契约：HTTP 路径、方法、DTO、权限标签、单设备入参和响应结构均不变；索引只优化现有数据库执行路径。
+- 数据权限：不改变`platform_only`插件边界、`media:management:query`权限或查询过滤条件；索引不包含新的可见性语义，也不扩大查询范围。
+- 缓存一致性：无缓存影响；不新增或修改缓存、快照、失效、刷新和跨实例同步策略，权威数据源仍为数据库报表投影。
+- i18n：不修改运行时 UI、API 文档源文本、插件清单、语言包、`apidoc`资源或翻译缓存，无 i18n 影响。
+- 数据库：索引追加到当前迭代`003-add-media-data-collection-server.sql`，使用`CREATE INDEX IF NOT EXISTS`满足重复执行幂等性；不新增表、列、DML、自增主键写入或软删除语义，也不需要运行`make dao`。
+- 性能：本地 PostgreSQL 强制关闭顺序扫描后的执行计划显示，活跃流查询使用`idx_media_report_stream_active_device`的 Index Scan，协议租户聚合使用`idx_media_report_session_active_device_stream`的 Index Only Scan；查询次数仍为有界流读取、一次聚合和一次明细读取，不存在`N+1`。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或工具入口；本地`psql`只用于 PostgreSQL SQL 重放和查询计划验证，不属于交付脚本变更。
+- DI 来源检查：未新增运行期依赖、构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 测试策略：扩展 service 单元测试逐项验证保留的流、基础平台、网关和用户会话字段值来自测试数据库投影；使用 PostgreSQL SQL 重放、索引定义查询和`EXPLAIN`验证索引可用性。无前端页面、路由、E2E 资产或用户可见文案变化，未触发页面 E2E 和截图验证。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能。
+- 验证：`psql 'postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable' -v ON_ERROR_STOP=1 -f apps/lina-plugins/media/manifest/sql/003-add-media-data-collection-server.sql`连续执行通过，新增索引第二次执行均提示已存在并跳过；`pg_indexes`确认两个部分索引定义与 SQL 一致；活跃流查询`EXPLAIN`使用`idx_media_report_stream_active_device`，协议租户聚合`EXPLAIN`使用`idx_media_report_session_active_device_stream`；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/media -run 'TestDashboardTopology|TestDashboardQueriesReadReportProjections|TestDashboardListQueriesUseFixedUpperBound' -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1 -parallel 1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过。
