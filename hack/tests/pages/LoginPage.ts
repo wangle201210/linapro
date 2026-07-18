@@ -66,7 +66,71 @@ export class LoginPage {
   }
 
   get createAccountEntry() {
-    return this.page.getByText("创建账号", { exact: true }).first();
+    return this.page
+      .getByTestId("login-create-account-link")
+      .or(this.page.getByText("创建账号", { exact: true }).first());
+  }
+
+  get createAccountRegion() {
+    return this.page.getByTestId("login-create-account");
+  }
+
+  get socialAuthRegionOrDivider() {
+    return this.page.getByTestId("login-social-auth-region");
+  }
+
+  get forgetPasswordEmailInput() {
+    return this.page
+      .locator(
+        '#email, [name="email"], input[placeholder*="example@"], input[placeholder*="邮箱"], input[placeholder*="email"]',
+      )
+      .first();
+  }
+
+  get forgetPasswordSubmitButton() {
+    return this.page.locator('button[aria-label="submit"]');
+  }
+
+  get registerSubmitButton() {
+    return this.page.locator('button[aria-label="register"]');
+  }
+
+  get registerUsernameInput() {
+    return this.page
+      .locator(
+        '#username, [name="username"], input[placeholder*="用户名"], input[placeholder*="username"], input[placeholder*="account"]',
+      )
+      .first();
+  }
+
+  get registerPasswordInput() {
+    return this.page
+      .locator(
+        '#password, [name="password"], input[placeholder*="密码"], input[placeholder*="password"]',
+      )
+      .first();
+  }
+
+  get registerConfirmPasswordInput() {
+    return this.page
+      .locator(
+        '#confirmPassword, [name="confirmPassword"], input[placeholder*="确认密码"], input[placeholder*="Confirm"]',
+      )
+      .first();
+  }
+
+  get registerAgreeCheckbox() {
+    return this.page.locator('button[role="checkbox"], input[type="checkbox"]').first();
+  }
+
+  get goToLoginEntry() {
+    return this.page
+      .getByText(/去登录|Login instead/, { exact: true })
+      .first();
+  }
+
+  get backToLoginButton() {
+    return this.page.getByRole("button", { name: /返回|Back/i }).first();
   }
 
   get mobileLoginButton() {
@@ -77,8 +141,22 @@ export class LoginPage {
     return this.page.getByRole("button", { name: "扫码登录" });
   }
 
-  get thirdPartyLoginTitle() {
-    return this.page.getByText("其他登录方式", { exact: true }).first();
+  /**
+   * Host region for full-width protocol / directory login buttons
+   * (`auth.login.after`: generic OIDC, LDAP, …).
+   * Hidden when no plugin injects into that slot.
+   */
+  get externalAuthRegion() {
+    return this.page.getByTestId("login-external-auth-region");
+  }
+
+  /**
+   * Host region for platform social icon logins
+   * (`auth.login.social`: Google, Discord, …) under “其他登录方式”.
+   * Hidden when no plugin injects into that slot.
+   */
+  get socialAuthRegion() {
+    return this.page.getByTestId("login-social-auth-region");
   }
 
   get leftAuthPanel() {
@@ -91,6 +169,14 @@ export class LoginPage {
 
   get rightAuthPanel() {
     return this.page.locator('.side-content[data-side="right"]').first();
+  }
+
+  /**
+   * Slogan illustration image on the left/right login layout side panel.
+   * Absent when `sys.auth.sloganImage` is empty.
+   */
+  get sloganImage() {
+    return this.page.getByTestId("login-slogan-image");
   }
 
   get usernameInput() {
@@ -113,6 +199,30 @@ export class LoginPage {
     // The main login button has aria-label="login", distinguishing it from
     // "手机号登录" and "扫码登录" buttons
     return this.page.locator('button[aria-label="login"]');
+  }
+
+  /**
+   * Host-owned outlet for protocol / directory login extensions
+   * (`auth.login.after`). Plugin-specific entries must not be hard-coded here.
+   */
+  get externalAuthSlot() {
+    return this.page.getByTestId("login-external-auth-slot");
+  }
+
+  get externalAuthSlotItems() {
+    return this.externalAuthSlot.locator(".plugin-slot-outlet__item");
+  }
+
+  /**
+   * Host-owned outlet for platform social icon extensions
+   * (`auth.login.social`). Plugin-specific entries must not be hard-coded here.
+   */
+  get socialAuthSlot() {
+    return this.page.getByTestId("login-social-auth-slot");
+  }
+
+  get socialAuthSlotItems() {
+    return this.socialAuthSlot.locator(".plugin-slot-outlet__item");
   }
 
   get errorMessage() {

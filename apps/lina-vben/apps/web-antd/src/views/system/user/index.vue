@@ -378,8 +378,42 @@ function handleBatchEdit() {
   userBatchEditModalApi.open();
 }
 
-async function handleStatusChange(row: any) {
-  await userStatusChange(row.id, row.status);
+/** Row IDs currently submitting a status switch request. */
+const statusChangingIds = ref<Record<number, boolean>>({});
+
+function isStatusChanging(row: { id: number }) {
+  return statusChangingIds.value[row.id] === true;
+}
+
+function setStatusChanging(id: number, changing: boolean) {
+  const next = { ...statusChangingIds.value };
+  if (changing) {
+    next[id] = true;
+  } else {
+    delete next[id];
+  }
+  statusChangingIds.value = next;
+}
+
+async function handleStatusChange(row: any, checked: boolean) {
+  if (isSelf(row) || isStatusChanging(row)) {
+    return;
+  }
+  const next = checked ? 1 : 0;
+  if (row.status === next) {
+    return;
+  }
+  // Keep the controlled Switch on the current value while the request is in
+  // flight; only commit the target state after the API succeeds.
+  setStatusChanging(row.id, true);
+  try {
+    await userStatusChange(row.id, next);
+    row.status = next;
+  } catch {
+    await gridApi.query();
+  } finally {
+    setStatusChanging(row.id, false);
+  }
 }
 
 function onReload() {
@@ -477,13 +511,12 @@ function handleResetPwd(row: any) {
 
         <template #status="{ row }">
           <Switch
-            v-model:checked="row.status"
-            :checked-value="1"
-            :disabled="isSelf(row)"
-            :un-checked-value="0"
+            :checked="row.status === 1"
             :checked-children="statusLabel.checked"
             :un-checked-children="statusLabel.unchecked"
-            @change="() => handleStatusChange(row)"
+            :loading="isStatusChanging(row)"
+            :disabled="isSelf(row) || isStatusChanging(row)"
+            @change="(checked) => handleStatusChange(row, !!checked)"
           />
         </template>
 

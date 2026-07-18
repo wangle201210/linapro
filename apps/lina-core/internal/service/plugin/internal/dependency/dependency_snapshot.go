@@ -30,7 +30,10 @@ func ApplyRegistrySnapshot(
 		snapshot.Version = strings.TrimSpace(registry.Version)
 	}
 	snapshot.Installed = registry.Installed == statusflag.Installed.Int()
+	// Enable-axis checks use global registry status so they match UpdateStatus.
+	snapshot.Enabled = snapshot.Installed && registry.Status == statusflag.EnabledValue.Int()
 	if !snapshot.Installed {
+		snapshot.Enabled = false
 		return
 	}
 	release, err := storeSvc.GetRegistryRelease(ctx, registry)
@@ -50,6 +53,7 @@ func ApplyRegistrySnapshot(
 		snapshot.Version = strings.TrimSpace(releaseSnapshot.Version)
 	}
 	snapshot.Dependencies = plugintypes.CloneDependencySpec(releaseSnapshot.Dependencies)
+	snapshot.OwnerHostServices = ownerHostServiceSummariesFromSpecs(releaseSnapshot.RequestedHostServices)
 }
 
 // ClonePluginSnapshots returns a detached copy so callers cannot mutate the
@@ -63,6 +67,7 @@ func ClonePluginSnapshots(items []*PluginSnapshot) []*PluginSnapshot {
 		}
 		cloned := *item
 		cloned.Dependencies = plugintypes.CloneDependencySpec(item.Dependencies)
+		cloned.OwnerHostServices = cloneOwnerHostServiceSummaries(item.OwnerHostServices)
 		out = append(out, &cloned)
 	}
 	return out

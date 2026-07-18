@@ -296,7 +296,9 @@ onUnmounted(() => {
         'form-is-required': shouldRequired,
         'flex-col': isVertical,
         'flex-row items-center': !isVertical,
-        'pb-4': !compact,
+        // Reserve a modest gap under absolute FormMessage (tighter than pb-7).
+        'pb-4': !compact && !isInValid,
+        'pb-5': !compact && isInValid,
         'pb-2': compact,
       }"
       class="relative flex"
@@ -324,8 +326,29 @@ onUnmounted(() => {
           <VbenRenderContent :content="label" />
         </template>
       </FormLabel>
-      <div class="flex-auto overflow-hidden p-px">
-        <div :class="cn('relative flex w-full items-center', wrapperClass)">
+      <!--
+        Positioning context for absolute FormMessage must be the control column
+        (not FormItem). FormItem is relative for other reasons; if FormMessage
+        uses left-0 against FormItem, horizontal forms pin errors under labels.
+
+        Do NOT put overflow-x-hidden on this outer column: CSS computes
+        overflow-y as auto when overflow-x is not visible, which clips the
+        absolute FormMessage that extends into FormItem bottom padding.
+
+        Keep overflow-x-hidden on the INNER control row only, and put p-px on
+        the SAME element: Vben inputs use focus-visible:ring-1 (box-shadow).
+        Without matching padding, the ring is clipped to corner fragments
+        (login page focus highlight regression).
+      -->
+      <div class="relative flex-auto">
+        <div
+          :class="
+            cn(
+              'relative flex w-full items-center overflow-x-hidden p-px',
+              wrapperClass,
+            )
+          "
+        >
           <FormControl :class="cn(controlClass)">
             <slot
               v-bind="{
@@ -387,7 +410,7 @@ onUnmounted(() => {
         </FormDescription>
 
         <Transition name="slide-up" v-if="!compact">
-          <FormMessage class="absolute" />
+          <FormMessage class="absolute left-0 right-0" />
         </Transition>
       </div>
     </FormItem>

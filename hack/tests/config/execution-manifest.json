@@ -46,6 +46,7 @@
     "e2e/iam/role",
     "e2e/iam/user",
     "e2e/dashboard/TC002-workspace-navigation.ts",
+    "e2e/dashboard/TC007-theme-switch-performance.ts",
     "e2e/i18n/TC001-user-editable-data-no-i18n-projection.ts",
     "e2e/i18n/TC002-config-metadata-localization.ts",
     "e2e/i18n/TC003-menu-governance-localized-titles.ts",
@@ -124,6 +125,11 @@
       "entry": "e2e/dashboard/TC002-workspace-navigation.ts",
       "categories": ["permissionMatrix", "sharedDatabaseSeed"],
       "reason": "Workspace quick navigation traverses shared host module routes and waits for table-backed pages that depend on the global menu, permission, and seed state."
+    },
+    {
+      "entry": "e2e/dashboard/TC007-theme-switch-performance.ts",
+      "categories": ["performanceTiming"],
+      "reason": "Theme transition performance assertions use browser wall-clock timings and must run without another Playwright worker competing for CPU or renderer time."
     },
     {
       "entry": "e2e/i18n/TC001-user-editable-data-no-i18n-projection.ts",
@@ -211,5 +217,47 @@
       "reason": "Settings-owned user tests validate user labels and batch edits against shared user and role data."
     }
   ],
-  "parallelIsolationAllowlist": []
+  "parallelIsolationAllowlist": [],
+  "ciShards": {
+    "defaults": {
+      "parallelWorkers": 2
+    },
+    "host": [
+      {
+        "name": "core",
+        "entries": ["e2e/auth", "e2e/dashboard", "e2e/about"]
+      },
+      {
+        "name": "iam",
+        "entries": ["e2e/iam"]
+      },
+      {
+        "name": "settings",
+        "entries": ["e2e/settings"]
+      },
+      {
+        "name": "scheduler",
+        "entries": ["e2e/scheduler"]
+      },
+      {
+        "name": "i18n",
+        "entries": ["e2e/i18n"]
+      },
+      {
+        "name": "extension-plugin",
+        "entries": ["e2e/extension/plugin"]
+      }
+    ],
+    "plugin": {
+      "targetShardCount": 8,
+      "packing": "file-count-binpack",
+      "weightOverrides": {}
+    },
+    "pluginFullExtra": [
+      {
+        "name": "extension-plugin",
+        "scope": "extension:plugin"
+      }
+    ]
+  }
 }

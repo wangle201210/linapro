@@ -18,6 +18,7 @@ import (
 	"lina-core/internal/service/datascope"
 	hostconfigadapter "lina-core/internal/service/plugin/internal/hostconfig"
 	"lina-core/pkg/plugin/capability/capmodel"
+	"lina-core/pkg/plugin/capability/capregistry"
 	"lina-core/pkg/plugin/capability/hostconfigcap"
 	"lina-core/pkg/plugin/pluginbridge/protocol"
 )
@@ -128,9 +129,18 @@ func (s *trackingSysConfigService) List(context.Context, hostconfigcap.ListSysCo
 	return &capmodel.PageResult[*hostconfigcap.SysConfigInfo]{Items: []*hostconfigcap.SysConfigInfo{}}, nil
 }
 
-func (s *trackingSysConfigService) SetValue(_ context.Context, key hostconfigcap.SysConfigKey, value string) error {
+func (s *trackingSysConfigService) SetValue(_ context.Context, key hostconfigcap.SysConfigKey, value string, _ *hostconfigcap.SetSysConfigValueOptions) error {
 	s.lastSetKey = key
 	s.lastSetValue = value
+	return nil
+}
+
+func (s *trackingSysConfigService) BatchSetValue(_ context.Context, items []hostconfigcap.SetSysConfigValueItem, options *hostconfigcap.SetSysConfigValueOptions) error {
+	for _, item := range items {
+		if err := s.SetValue(context.Background(), item.Key, item.Value, options); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -341,6 +351,7 @@ func TestHandleHostServiceInvokeHostConfigSysConfigSingleKeyMethods(t *testing.T
 func TestConfigureHostConfigServiceRejectsNil(t *testing.T) {
 	if _, err := NewRuntime(
 		&capabilityHostServiceTestServices{},
+		capregistry.NewRegistry(),
 		noopTestConfigFactory{},
 		nil,
 		noopTestManifestFactory{},

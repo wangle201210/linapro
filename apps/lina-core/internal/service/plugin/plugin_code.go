@@ -58,7 +58,7 @@ var (
 	// CodePluginTenantProvisioningPolicyInvalid reports that a new-tenant provisioning policy cannot apply to the plugin.
 	CodePluginTenantProvisioningPolicyInvalid = bizerr.MustDefine(
 		"PLUGIN_TENANT_PROVISIONING_POLICY_INVALID",
-		"Plugin {pluginId} must support linapro-tenant-core governance and be installed in tenant_scoped mode before it can be auto-enabled for new tenants",
+		"Plugin {pluginId} must support multi-tenant governance and be installed in tenant_scoped mode before it can be auto-enabled for new tenants",
 		gcode.CodeInvalidParameter,
 	)
 	// CodePluginBuiltinManagementActionDenied reports that ordinary plugin
@@ -138,6 +138,9 @@ var (
 	CodePluginDependencyBlocked = lifecycle.CodePluginDependencyBlocked
 	// CodePluginReverseDependencyBlocked reports that installed downstream plugins depend on the target plugin.
 	CodePluginReverseDependencyBlocked = lifecycle.CodePluginReverseDependencyBlocked
+	// CodePluginReverseEnabledDependencyBlocked reports that enabled downstream
+	// plugins still depend on the target plugin during a disable request.
+	CodePluginReverseEnabledDependencyBlocked = lifecycle.CodePluginReverseEnabledDependencyBlocked
 	// CodePluginForceUninstallDisabled reports that force uninstall is not enabled in host configuration.
 	CodePluginForceUninstallDisabled = lifecycle.CodePluginForceUninstallDisabled
 	// CodePluginDynamicArtifactMissingForUninstall reports that a dynamic

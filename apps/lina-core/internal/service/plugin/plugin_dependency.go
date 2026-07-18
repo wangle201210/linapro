@@ -65,17 +65,19 @@ func (s *serviceImpl) CheckPluginDependencies(ctx context.Context, pluginID stri
 	if reverseIndex == nil {
 		reverseIndex = plugindep.NewReverseDependencyIndex(snapshots)
 	}
-	installResult := resolver.CheckInstall(plugindep.InstallCheckInput{
-		TargetID:         normalizedPluginID,
-		FrameworkVersion: s.frameworkVersion(ctx),
-		Plugins:          snapshots,
-	})
-	reverseResult := resolver.CheckReverse(plugindep.ReverseCheckInput{
-		TargetID:     normalizedPluginID,
-		Plugins:      snapshots,
-		ReverseIndex: reverseIndex,
-	})
-	result := plugindep.ToCheckProjection(installResult)
+	var (
+		installResult = resolver.CheckInstall(plugindep.InstallCheckInput{
+			TargetID:         normalizedPluginID,
+			FrameworkVersion: s.frameworkVersion(ctx),
+			Plugins:          snapshots,
+		})
+		reverseResult = resolver.CheckReverse(plugindep.ReverseCheckInput{
+			TargetID:     normalizedPluginID,
+			Plugins:      snapshots,
+			ReverseIndex: reverseIndex,
+		})
+		result = plugindep.ToCheckProjection(installResult)
+	)
 	result.ReverseDependents = plugindep.ToReverseDependentProjections(reverseResult.Dependents)
 	result.ReverseBlockers = plugindep.ToBlockerProjections(reverseResult.Blockers)
 	return result, nil
@@ -193,20 +195,22 @@ func (s *serviceImpl) buildDependencySnapshotsForProjection(
 			continue
 		}
 		snapshotByID[manifest.ID] = &plugindep.PluginSnapshot{
-			ID:           strings.TrimSpace(manifest.ID),
-			Name:         strings.TrimSpace(manifest.Name),
-			Version:      strings.TrimSpace(manifest.Version),
-			Manifest:     manifest,
-			Dependencies: plugintypes.CloneDependencySpec(manifest.Dependencies),
+			ID:                strings.TrimSpace(manifest.ID),
+			Name:              strings.TrimSpace(manifest.Name),
+			Version:           strings.TrimSpace(manifest.Version),
+			Manifest:          manifest,
+			Dependencies:      plugintypes.CloneDependencySpec(manifest.Dependencies),
+			OwnerHostServices: plugindep.OwnerHostServiceSummariesFromManifest(manifest),
 		}
 	}
 	if candidate != nil && strings.TrimSpace(candidate.ID) != "" {
 		snapshotByID[candidate.ID] = &plugindep.PluginSnapshot{
-			ID:           strings.TrimSpace(candidate.ID),
-			Name:         strings.TrimSpace(candidate.Name),
-			Version:      strings.TrimSpace(candidate.Version),
-			Manifest:     candidate,
-			Dependencies: plugintypes.CloneDependencySpec(candidate.Dependencies),
+			ID:                strings.TrimSpace(candidate.ID),
+			Name:              strings.TrimSpace(candidate.Name),
+			Version:           strings.TrimSpace(candidate.Version),
+			Manifest:          candidate,
+			Dependencies:      plugintypes.CloneDependencySpec(candidate.Dependencies),
+			OwnerHostServices: plugindep.OwnerHostServiceSummariesFromManifest(candidate),
 		}
 	}
 
@@ -330,6 +334,7 @@ func (s *serviceImpl) buildReverseDependencyBlockedError(
 		bizerr.P("requiredVersion", requiredVersion),
 		bizerr.P("currentVersion", currentVersion),
 		bizerr.P("dependents", strings.Join(plugindep.ReverseDependentIDs(dependents), ",")),
+		bizerr.P("ownerHostServices", plugindep.FormatReverseDependentOwnerHostServices(dependents)),
 		bizerr.P("blockers", plugindep.FormatBlockers(result.Blockers)),
 	)
 }

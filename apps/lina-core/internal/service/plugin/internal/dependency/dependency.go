@@ -38,35 +38,51 @@ type PluginSnapshot struct {
 	Version string
 	// Installed reports whether the plugin is installed in host governance.
 	Installed bool
+	// Enabled reports whether the plugin is enabled in host governance status.
+	// Uninstalled plugins are always treated as not enabled.
+	Enabled bool
 	// Manifest is the latest discovered manifest, if available.
 	Manifest *catalog.Manifest
 	// Dependencies is the dependency snapshot that should be used for this plugin.
 	Dependencies *plugintypes.DependencySpec
 	// DependencySnapshotUnknown conservatively blocks reverse checks when true.
 	DependencySnapshotUnknown bool
+	// OwnerHostServices lists owner-aware host service declarations from the
+	// effective release snapshot or current discovered manifest.
+	OwnerHostServices []*OwnerHostServiceSummary
 }
 
-// InstallCheckInput defines all state required to evaluate an install request.
+// InstallCheckInput defines all state required to evaluate an install or enable request.
 type InstallCheckInput struct {
-	// TargetID is the plugin being installed or upgraded.
+	// TargetID is the plugin being installed, upgraded, or enabled.
 	TargetID string
 	// FrameworkVersion is the current LinaPro framework version.
 	FrameworkVersion string
 	// Plugins contains discovered and installed plugin snapshots.
 	Plugins []*PluginSnapshot
+	// RequireEnabled switches the check to the runtime enable axis. When true,
+	// hard dependencies must be installed, enabled, and version-compatible.
+	// When false (install/upgrade axis), only install and version matter.
+	RequireEnabled bool
 }
 
-// ReverseCheckInput defines all state required to evaluate uninstall or upgrade
-// reverse-dependency protection.
+// ReverseCheckInput defines all state required to evaluate uninstall, disable,
+// or upgrade reverse-dependency protection.
 type ReverseCheckInput struct {
-	// TargetID is the plugin being uninstalled or upgraded.
+	// TargetID is the plugin being uninstalled, disabled, or upgraded.
 	TargetID string
-	// CandidateVersion is the target version after upgrade. Empty means uninstall.
+	// CandidateVersion is the target version after upgrade. Empty means
+	// uninstall or disable (no candidate version to evaluate).
 	CandidateVersion string
 	// Plugins contains installed plugin dependency snapshots.
 	Plugins []*PluginSnapshot
 	// ReverseIndex optionally supplies a prebuilt reverse-dependency index for Plugins.
 	ReverseIndex *ReverseDependencyIndex
+	// OnlyEnabledDependents switches the reverse check to the runtime disable
+	// axis. When true, only enabled installed downstream hard dependents produce
+	// reverse blockers. When false (uninstall/upgrade axis), all installed
+	// downstream hard dependents are protected.
+	OnlyEnabledDependents bool
 }
 
 // InstallCheckResult is the side-effect-free dependency decision for one target.
@@ -119,6 +135,8 @@ type PluginDependencyCheck struct {
 	CurrentVersion string
 	// Installed reports whether the dependency plugin is already installed.
 	Installed bool
+	// Enabled reports whether the dependency plugin is currently enabled.
+	Enabled bool
 	// Discovered reports whether the dependency plugin manifest is available.
 	Discovered bool
 	// Status is the dependency edge state.
@@ -137,6 +155,10 @@ type ReverseDependent struct {
 	Version string
 	// RequiredVersion is the target version range declared by the downstream plugin.
 	RequiredVersion string
+	// Enabled reports whether the downstream plugin is currently enabled.
+	Enabled bool
+	// OwnerHostServices summarizes owner-aware host services that target this dependency.
+	OwnerHostServices []*OwnerHostServiceSummary
 }
 
 // Blocker describes one hard dependency failure.
@@ -163,4 +185,17 @@ type Blocker struct {
 type ReverseDependencyIndex struct {
 	entriesByTarget map[string][]*reverseDependencyEntry
 	wildcardUnknown []*reverseDependencyEntry
+}
+
+// OwnerHostServiceSummary describes one owner-aware host service declaration
+// relevant to reverse dependency diagnostics.
+type OwnerHostServiceSummary struct {
+	// Owner is the owner plugin ID for the plugin-owned host service.
+	Owner string
+	// Service is the logical host service identifier.
+	Service string
+	// Version is the owner capability protocol version.
+	Version string
+	// Methods lists declared host service methods.
+	Methods []string
 }

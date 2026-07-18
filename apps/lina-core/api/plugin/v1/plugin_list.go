@@ -18,8 +18,8 @@ type ListReq struct {
 	Type      PluginType               `json:"type" dc:"Filter by plugin type: source=source plugin dynamic=dynamic plugin, if not passed, all will be queried; the current dynamic plugin implementation only supports WASM" eg:"dynamic"`
 	Status    *statusflag.Enabled      `json:"status" dc:"Filter by enabled status: 1=enabled 0=disabled, if not passed, query all" eg:"1"`
 	Installed *statusflag.Installation `json:"installed" dc:"Filter by installation status: 1=Installed 0=Not installed, if not uploaded, query all" eg:"1"`
-	// IncludeBuiltin includes project built-in source plugins for read-only diagnostics. The default false value hides builtin plugins from ordinary plugin management.
-	IncludeBuiltin bool `json:"includeBuiltin" dc:"Whether to include builtin plugins in this read-only diagnostic list query; default false hides builtin plugins from ordinary plugin management" eg:"false"`
+	// IncludeBuiltin is retained for client compatibility. Ordinary plugin management lists always include builtin plugins; this flag no longer filters results.
+	IncludeBuiltin bool `json:"includeBuiltin" dc:"Compatibility field retained for older clients; ordinary plugin management lists always include builtin plugins and this flag no longer filters results" eg:"true"`
 }
 
 // ListRes is the response for querying plugin list.
@@ -126,8 +126,9 @@ type PluginDependencyItem struct {
 	RequiredVersion string           `json:"requiredVersion" dc:"Declared dependency version range" eg:">=0.1.0"`
 	CurrentVersion  string           `json:"currentVersion" dc:"Discovered or installed dependency version" eg:"v0.1.0"`
 	Installed       bool             `json:"installed" dc:"Whether the dependency plugin is installed" eg:"false"`
+	Enabled         bool             `json:"enabled" dc:"Whether the dependency plugin is currently enabled" eg:"false"`
 	Discovered      bool             `json:"discovered" dc:"Whether the dependency plugin was found in the catalog" eg:"true"`
-	Status          DependencyStatus `json:"status" dc:"Dependency state from the server resolver: satisfied, missing, or version_unsatisfied" eg:"missing"`
+	Status          DependencyStatus `json:"status" dc:"Dependency state from the server resolver: satisfied, missing, version_unsatisfied, or not_enabled" eg:"missing"`
 	Chain           []string         `json:"chain,omitempty" dc:"Dependency chain leading to this edge" eg:"[]"`
 }
 
@@ -144,10 +145,20 @@ type PluginDependencyBlocker struct {
 
 // PluginDependencyReverseDependent describes one installed downstream dependency.
 type PluginDependencyReverseDependent struct {
-	PluginId        string `json:"pluginId" dc:"Downstream plugin ID" eg:"linapro-content-notice"`
-	Name            string `json:"name" dc:"Downstream plugin display name" eg:"Content Notice"`
-	Version         string `json:"version" dc:"Downstream plugin version" eg:"v0.1.0"`
-	RequiredVersion string `json:"requiredVersion" dc:"Version range declared by downstream plugin" eg:">=0.1.0"`
+	PluginId          string                              `json:"pluginId" dc:"Downstream plugin ID" eg:"linapro-content-notice"`
+	Name              string                              `json:"name" dc:"Downstream plugin display name" eg:"Content Notice"`
+	Version           string                              `json:"version" dc:"Downstream plugin version" eg:"v0.1.0"`
+	RequiredVersion   string                              `json:"requiredVersion" dc:"Version range declared by downstream plugin" eg:">=0.1.0"`
+	Enabled           bool                                `json:"enabled" dc:"Whether the downstream plugin is currently enabled" eg:"true"`
+	OwnerHostServices []*PluginDependencyOwnerHostService `json:"ownerHostServices,omitempty" dc:"Owner-aware host service declarations in the downstream plugin that target the checked owner plugin" eg:"[]"`
+}
+
+// PluginDependencyOwnerHostService describes one owner-aware host service declaration summary.
+type PluginDependencyOwnerHostService struct {
+	Owner   string   `json:"owner" dc:"Owner plugin ID for the plugin-owned host service" eg:"linapro-ai-core"`
+	Service string   `json:"service" dc:"Logical host service identifier declared by the downstream plugin" eg:"ai"`
+	Version string   `json:"version" dc:"Owner capability protocol version declared by the downstream plugin" eg:"v1"`
+	Methods []string `json:"methods" dc:"Owner host service methods declared by the downstream plugin" eg:"[\"text.generate\"]"`
 }
 
 // PluginRouteReviewItem describes one dynamic route exposed by the current

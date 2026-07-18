@@ -8,6 +8,8 @@ import (
 
 	"lina-core/pkg/plugin/capability/hostconfigcap"
 	"lina-core/pkg/plugin/pluginbridge/protocol"
+
+	"github.com/gogf/gf/v2/util/gconv"
 )
 
 type configHostCallRecord struct {
@@ -48,9 +50,9 @@ func (r *configHostCallRecorder) invoke(service string, method string, resourceR
 		if err != nil {
 			return nil, err
 		}
-		return protocol.MarshalHostServiceCapabilityJSONResponse(&protocol.HostServiceCapabilityJSONResponse{Value: content}), nil
+		return protocol.MarshalHostServiceJSONResponse(&protocol.HostServiceJSONResponse{Value: content}), nil
 	}
-	return protocol.MarshalHostServiceCapabilityJSONResponse(&protocol.HostServiceCapabilityJSONResponse{Value: []byte(`true`)}), nil
+	return protocol.MarshalHostServiceJSONResponse(&protocol.HostServiceJSONResponse{Value: []byte(`true`)}), nil
 }
 
 // TestHostConfigCapabilityGetUsesDefaultForMissingOrNilValues verifies the
@@ -154,7 +156,9 @@ func TestHostConfigSysConfigUsesKeyResourceRef(t *testing.T) {
 		t.Fatalf("unexpected sys_config get record: %#v", recorder.record)
 	}
 
-	if err = service.SetValue(t.Context(), "custom.feature.limit", "128"); err != nil {
+	if err = service.SetValue(t.Context(), "custom.feature.limit", "128", &hostconfigcap.SetSysConfigValueOptions{
+		SystemManageable: gconv.PtrBool(false),
+	}); err != nil {
 		t.Fatalf("set sys_config value: %v", err)
 	}
 	if recorder.record.method != protocol.HostServiceMethodHostConfigSysConfigSetValue ||

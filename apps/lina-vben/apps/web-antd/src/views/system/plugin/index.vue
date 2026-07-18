@@ -5,9 +5,11 @@ import type {
 } from '#/api/system/plugin/model';
 
 import { defineAsyncComponent, h, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { useAccess } from '@vben/access';
 import { Page, useVbenModal } from '@vben/common-ui';
+import { useAccessStore } from '@vben/stores';
 
 import { message, Modal, Space, Switch, Tag, Tooltip } from 'ant-design-vue';
 
@@ -21,6 +23,10 @@ import {
   pluginUpdateTenantProvisioningPolicy,
 } from '#/api/system/plugin';
 import { $t } from '#/locales';
+import {
+  hasPluginManagementPage,
+  resolvePluginManagementPath,
+} from '#/plugins/plugin-management-route';
 import { notifyPluginRegistryChanged } from '#/plugins/slot-registry';
 import { closePluginTabs } from '#/plugins/tabbar-cleanup';
 import { formatTimestamp } from '#/utils/time';
@@ -82,7 +88,10 @@ const pluginAccessCodes = {
 } as const;
 
 const { hasAccessByCodes } = useAccess();
+const accessStore = useAccessStore();
+const router = useRouter();
 const statusChangingPluginIds = ref<Record<string, boolean>>({});
+const tenantProvisioningChangingPluginIds = ref<Record<string, boolean>>({});
 
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
@@ -157,6 +166,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
         align: 'left',
         field: 'id',
         headerAlign: 'center',
+        // Slightly wider than name for long plugin IDs without dominating the row.
         minWidth: 220,
         title: $t('pages.system.plugin.fields.id'),
       },
@@ -165,7 +175,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
         className: 'plugin-name-column',
         field: 'name',
         headerAlign: 'center',
-        minWidth: 200,
+        // Compact width; builtin / auto-enable badges share the cell flex row.
+        minWidth: 180,
+        showOverflow: false,
         slots: { default: 'name' },
         title: $t('pages.system.plugin.fields.name'),
       },
@@ -174,7 +186,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
         className: 'plugin-description-column',
         field: 'description',
         headerAlign: 'center',
-        minWidth: 260,
+        // Wider than name so capability blurbs stay more readable than titles.
+        minWidth: 220,
         showOverflow: false,
         slots: { default: 'description' },
         title: $t('pages.system.plugin.fields.description'),
@@ -253,7 +266,10 @@ const [Grid, gridApi] = useVbenVxeGrid({
         fixed: 'right',
         slots: { default: 'action' },
         title: $t('pages.common.actions'),
-        width: 240,
+        // At most three small ghost buttons (detail + manage + one lifecycle
+        // action); keep width tight so the column does not waste horizontal
+        // space while still fitting a single non-wrapping row.
+        width: 200,
       },
     ],
     height: 'auto',
@@ -277,9 +293,51 @@ const [Grid, gridApi] = useVbenVxeGrid({
     rowConfig: {
       keyField: 'id',
     },
+    rowClassName: 'cursor-pointer',
     id: 'system-plugin-index',
   },
+  gridEvents: {
+    cellClick: ({
+      $event,
+      column,
+      row,
+    }: {
+      $event?: Event;
+      column?: { field?: string };
+      row: PluginListItem;
+    }) => {
+      if (shouldIgnorePluginRowClick(column?.field, $event)) {
+        return;
+      }
+      void handleDetail(row);
+    },
+  },
 });
+
+/** Columns / controls that must not open the detail modal on click. */
+const pluginRowClickIgnoredFields = new Set([
+  'action',
+  'autoEnableForNewTenants',
+  'enabled',
+]);
+
+function shouldIgnorePluginRowClick(
+  columnField?: string,
+  event?: Event,
+): boolean {
+  if (columnField && pluginRowClickIgnoredFields.has(columnField)) {
+    return true;
+  }
+  const target = event?.target;
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, .ant-switch, .ant-checkbox, .ant-radio, [role="switch"], [role="button"], [role="checkbox"]',
+    ),
+  );
+}
 
 function getPluginTypeLabel(type: string) {
   return type === 'source'
@@ -399,6 +457,12 @@ function isTenantProvisioningPolicySupported(row: PluginListItem) {
   );
 }
 
+function buildBuiltinPluginTooltip(row: PluginListItem) {
+  return $t('pages.system.plugin.messages.builtinTooltip', {
+    pluginId: row.id,
+  });
+}
+
 function buildAutoEnableManagedTooltip(row: PluginListItem) {
   return $t('pages.system.plugin.messages.autoEnableTooltip', {
     pluginId: row.id,
@@ -477,6 +541,20 @@ function setPluginStatusChanging(pluginId: string, changing: boolean) {
   statusChangingPluginIds.value = next;
 }
 
+function isTenantProvisioningChanging(row: PluginListItem) {
+  return tenantProvisioningChangingPluginIds.value[row.id] === true;
+}
+
+function setTenantProvisioningChanging(pluginId: string, changing: boolean) {
+  const next = { ...tenantProvisioningChangingPluginIds.value };
+  if (changing) {
+    next[pluginId] = true;
+  } else {
+    delete next[pluginId];
+  }
+  tenantProvisioningChangingPluginIds.value = next;
+}
+
 async function loadPluginDetail(row: PluginListItem): Promise<SystemPlugin> {
   return await pluginDetail(row.id);
 }
@@ -485,6 +563,38 @@ async function handleDetail(row: PluginListItem) {
   const detail = await loadPluginDetail(row);
   detailModalApi.setData({ row: detail });
   detailModalApi.open();
+}
+
+function canOpenPluginManagement(row: PluginListItem) {
+  return row.installed === 1 && hasPluginManagementPage(row.id);
+}
+
+function buildPluginManagementDisabledTooltip(row: PluginListItem) {
+  if (canOpenPluginManagement(row)) {
+    return undefined;
+  }
+  if (row.installed !== 1) {
+    return $t('pages.system.plugin.messages.installFirst');
+  }
+  return $t('pages.system.plugin.messages.noManagementPage');
+}
+
+async function handleOpenManagement(row: PluginListItem) {
+  if (!canOpenPluginManagement(row)) {
+    return;
+  }
+  const targetPath = resolvePluginManagementPath(
+    row.id,
+    router,
+    accessStore.accessMenus,
+  );
+  if (!targetPath) {
+    message.warning(
+      $t('pages.system.plugin.messages.managementRouteUnavailable'),
+    );
+    return;
+  }
+  await router.push(targetPath);
 }
 
 async function handleStatusChange(row: PluginListItem, checked: boolean) {
@@ -520,13 +630,17 @@ async function handleStatusChange(row: PluginListItem, checked: boolean) {
       return;
     }
   }
-  const previousEnabled = row.enabled;
   const nextEnabled = checked ? 1 : 0;
+  if (row.enabled === nextEnabled) {
+    return;
+  }
 
+  // Keep the controlled Switch on the current value while the request is in
+  // flight; only commit the target state after the API succeeds.
   setPluginStatusChanging(row.id, true);
-  row.enabled = nextEnabled;
   try {
     await (checked ? pluginEnable : pluginDisable)(row.id);
+    row.enabled = nextEnabled;
     if (!checked) {
       await closePluginTabs(row.id);
     }
@@ -537,7 +651,6 @@ async function handleStatusChange(row: PluginListItem, checked: boolean) {
         : $t('pages.system.plugin.messages.disabled'),
     );
   } catch {
-    row.enabled = previousEnabled;
     await gridApi.query();
   } finally {
     setPluginStatusChanging(row.id, false);
@@ -551,6 +664,9 @@ async function handleTenantProvisioningPolicyChange(
   if (isBuiltinPlugin(row)) {
     return;
   }
+  if (isTenantProvisioningChanging(row)) {
+    return;
+  }
   if (!canEditPluginPolicy()) {
     message.warning($t('pages.system.plugin.messages.noPolicyPermission'));
     return;
@@ -561,9 +677,23 @@ async function handleTenantProvisioningPolicyChange(
     );
     return;
   }
-  await pluginUpdateTenantProvisioningPolicy(row.id, checked);
-  row.autoEnableForNewTenants = checked;
-  message.success($t('pages.system.plugin.messages.tenantProvisioningUpdated'));
+  if (row.autoEnableForNewTenants === checked) {
+    return;
+  }
+  // Keep the controlled Switch on the current value while the request is in
+  // flight; only commit the target state after the API succeeds.
+  setTenantProvisioningChanging(row.id, true);
+  try {
+    await pluginUpdateTenantProvisioningPolicy(row.id, checked);
+    row.autoEnableForNewTenants = checked;
+    message.success(
+      $t('pages.system.plugin.messages.tenantProvisioningUpdated'),
+    );
+  } catch {
+    await gridApi.query();
+  } finally {
+    setTenantProvisioningChanging(row.id, false);
+  }
 }
 
 async function handleInstall(row: PluginListItem) {
@@ -838,11 +968,28 @@ async function handleLifecyclePreconditionForce(payload: { pluginId: string }) {
       </template>
 
       <template #name="{ row }">
+        <!--
+          Constrain the name cell to the column width so long titles truncate
+          and badge tooltips stay hoverable. min-w-max + shrink-0 name previously
+          spilled into the description column and intercepted pointer events.
+        -->
         <div
-          class="inline-flex min-w-max max-w-full items-center gap-1.5 whitespace-nowrap"
+          class="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap"
           :data-testid="`plugin-name-cell-${row.id}`"
         >
-          <span class="shrink-0 whitespace-nowrap">{{ row.name }}</span>
+          <span class="min-w-0 truncate" :title="row.name">{{ row.name }}</span>
+          <Tooltip
+            v-if="isBuiltinPlugin(row)"
+            :title="buildBuiltinPluginTooltip(row)"
+          >
+            <Tag
+              class="m-0 shrink-0 whitespace-nowrap leading-5"
+              :data-testid="`plugin-builtin-tag-${row.id}`"
+              color="purple"
+            >
+              {{ $t('pages.system.plugin.builtinBadge') }}
+            </Tag>
+          </Tooltip>
           <Tooltip
             v-if="isAutoEnableManaged(row)"
             :title="buildAutoEnableManagedTooltip(row)"
@@ -943,8 +1090,11 @@ async function handleLifecyclePreconditionForce(payload: { pluginId: string }) {
           <Switch
             :checked="row.autoEnableForNewTenants === true"
             :disabled="
-              !isTenantProvisioningPolicySupported(row) || !canEditPluginPolicy()
+              !isTenantProvisioningPolicySupported(row) ||
+              !canEditPluginPolicy() ||
+              isTenantProvisioningChanging(row)
             "
+            :loading="isTenantProvisioningChanging(row)"
             size="small"
             :data-testid="`plugin-tenant-provisioning-${row.id}`"
             @change="
@@ -956,13 +1106,28 @@ async function handleLifecyclePreconditionForce(payload: { pluginId: string }) {
       </template>
 
       <template #action="{ row }">
-        <Space>
+        <Space :size="4" :wrap="false">
           <ghost-button
             :data-testid="`plugin-detail-button-${row.id}`"
             @click.stop="handleDetail(row)"
           >
             {{ $t('pages.common.detail') }}
           </ghost-button>
+          <Tooltip :title="buildPluginManagementDisabledTooltip(row)">
+            <span
+              class="inline-flex"
+              :data-testid="`plugin-manage-wrapper-${row.id}`"
+              @click.stop
+            >
+              <ghost-button
+                :data-testid="`plugin-manage-button-${row.id}`"
+                :disabled="!canOpenPluginManagement(row)"
+                @click.stop="handleOpenManagement(row)"
+              >
+                {{ $t('pages.system.plugin.actions.manage') }}
+              </ghost-button>
+            </span>
+          </Tooltip>
           <ghost-button
             v-if="isRuntimeUpgradeAvailable(row) && canInstallPlugin()"
             :data-testid="`plugin-upgrade-button-${row.id}`"
@@ -1000,25 +1165,48 @@ async function handleLifecyclePreconditionForce(payload: { pluginId: string }) {
           >
             {{ $t('pages.system.plugin.actions.install') }}
           </ghost-button>
+          <!--
+            Builtin plugins keep a disabled uninstall affordance so the action
+            column has the same button count/width as managed installed rows.
+          -->
           <Tooltip
-            v-else-if="
-              !isBuiltinPlugin(row) &&
-              canUninstallPlugin() &&
-              isAutoEnableManaged(row)
-            "
+            v-else-if="isBuiltinPlugin(row) && canUninstallPlugin()"
+            :title="buildBuiltinPluginTooltip(row)"
+          >
+            <span
+              class="inline-flex"
+              :data-testid="`plugin-uninstall-wrapper-${row.id}`"
+              @click.stop
+            >
+              <ghost-button
+                danger
+                disabled
+                :data-testid="`plugin-uninstall-button-${row.id}`"
+              >
+                {{ $t('pages.system.plugin.actions.uninstall') }}
+              </ghost-button>
+            </span>
+          </Tooltip>
+          <Tooltip
+            v-else-if="canUninstallPlugin() && isAutoEnableManaged(row)"
             :title="
               buildAutoEnableManagedRuntimeHint(
                 $t('pages.system.plugin.actions.uninstall'),
               )
             "
           >
-            <ghost-button danger @click.stop="handleOpenUninstall(row)">
+            <ghost-button
+              danger
+              :data-testid="`plugin-uninstall-button-${row.id}`"
+              @click.stop="handleOpenUninstall(row)"
+            >
               {{ $t('pages.system.plugin.actions.uninstall') }}
             </ghost-button>
           </Tooltip>
           <ghost-button
-            v-else-if="!isBuiltinPlugin(row) && canUninstallPlugin()"
+            v-else-if="canUninstallPlugin()"
             danger
+            :data-testid="`plugin-uninstall-button-${row.id}`"
             @click.stop="handleOpenUninstall(row)"
           >
             {{ $t('pages.system.plugin.actions.uninstall') }}

@@ -212,6 +212,51 @@ func (*storageDomainTestService) ProviderStatuses(context.Context) ([]*storageca
 	}}, nil
 }
 
+// CreateDirectPut returns proxy mode for in-memory WASM storage tests.
+func (*storageDomainTestService) CreateDirectPut(_ context.Context, in storagecap.DirectPutInput) (*storagecap.DirectPutOutput, error) {
+	return &storagecap.DirectPutOutput{
+		Access: &storagecap.DirectAccess{Mode: storagecap.DirectAccessModeProxy, Operation: storagecap.DirectAccessOpPut},
+		Path:   in.Path,
+	}, nil
+}
+
+// ConfirmDirectPut confirms via Stat for in-memory WASM storage tests.
+func (s *storageDomainTestService) ConfirmDirectPut(ctx context.Context, in storagecap.ConfirmDirectPutInput) (*storagecap.ConfirmDirectPutOutput, error) {
+	stat, err := s.Stat(ctx, storagecap.StatInput{Path: in.Path})
+	if err != nil {
+		return nil, err
+	}
+	if stat == nil || !stat.Found {
+		return nil, nil
+	}
+	return &storagecap.ConfirmDirectPutOutput{Object: stat.Object}, nil
+}
+
+// CreateDirectGet returns proxy mode for in-memory WASM storage tests.
+func (*storageDomainTestService) CreateDirectGet(_ context.Context, in storagecap.DirectGetInput) (*storagecap.DirectGetOutput, error) {
+	return &storagecap.DirectGetOutput{
+		Access: &storagecap.DirectAccess{Mode: storagecap.DirectAccessModeProxy, Operation: storagecap.DirectAccessOpGet},
+		Path:   in.Path,
+	}, nil
+}
+
+func (*storageDomainTestService) SupportsMultipart(context.Context) (bool, error) { return false, nil }
+func (*storageDomainTestService) CreateMultipart(context.Context, storagecap.MultipartCreateInput) (*storagecap.MultipartCreateOutput, error) {
+	return nil, storagecap.NewMultipartUnsupportedError()
+}
+func (*storageDomainTestService) UploadPart(context.Context, storagecap.MultipartPartInput) (*storagecap.MultipartPartOutput, error) {
+	return nil, storagecap.NewMultipartUnsupportedError()
+}
+func (*storageDomainTestService) CompleteMultipart(context.Context, storagecap.MultipartCompleteInput) (*storagecap.MultipartCompleteOutput, error) {
+	return nil, storagecap.NewMultipartUnsupportedError()
+}
+func (*storageDomainTestService) AbortMultipart(context.Context, storagecap.MultipartAbortInput) error {
+	return storagecap.NewMultipartUnsupportedError()
+}
+func (*storageDomainTestService) CreateMultipartPartAccess(context.Context, storagecap.MultipartPartAccessInput) (*storagecap.MultipartPartAccessOutput, error) {
+	return nil, storagecap.NewMultipartUnsupportedError()
+}
+
 func (s *storageDomainTestService) ensureObjects() {
 	if s.objects == nil {
 		s.objects = make(map[string]*storageDomainTestObject)
@@ -354,12 +399,12 @@ func TestHandleHostServiceInvokeStorageBatchMethods(t *testing.T) {
 		hcc,
 		protocol.HostServiceMethodStorageStatBatch,
 		"reports/",
-		protocol.MarshalHostServiceCapabilityJSONRequest(&protocol.HostServiceCapabilityJSONRequest{Value: []byte(`{"paths":["reports/a.json","reports/missing.json"]}`)}),
+		protocol.MarshalHostServiceJSONRequest(&protocol.HostServiceJSONRequest{Value: []byte(`{"paths":["reports/a.json","reports/missing.json"]}`)}),
 	)
 	if statResponse.Status != protocol.HostCallStatusSuccess {
 		t.Fatalf("stat.batch: expected success, got status=%d payload=%s", statResponse.Status, string(statResponse.Payload))
 	}
-	jsonPayload, err := protocol.UnmarshalHostServiceCapabilityJSONResponse(statResponse.Payload)
+	jsonPayload, err := protocol.UnmarshalHostServiceJSONResponse(statResponse.Payload)
 	if err != nil {
 		t.Fatalf("decode stat.batch JSON envelope: %v", err)
 	}
@@ -373,7 +418,7 @@ func TestHandleHostServiceInvokeStorageBatchMethods(t *testing.T) {
 		hcc,
 		protocol.HostServiceMethodStorageListCursor,
 		"reports/",
-		protocol.MarshalHostServiceCapabilityJSONRequest(&protocol.HostServiceCapabilityJSONRequest{Value: []byte(`{"prefix":"reports/","limit":1}`)}),
+		protocol.MarshalHostServiceJSONRequest(&protocol.HostServiceJSONRequest{Value: []byte(`{"prefix":"reports/","limit":1}`)}),
 	)
 	if listResponse.Status != protocol.HostCallStatusSuccess {
 		t.Fatalf("list.cursor: expected success, got status=%d payload=%s", listResponse.Status, string(listResponse.Payload))
@@ -384,7 +429,7 @@ func TestHandleHostServiceInvokeStorageBatchMethods(t *testing.T) {
 		hcc,
 		protocol.HostServiceMethodStorageDeleteBatch,
 		"reports/",
-		protocol.MarshalHostServiceCapabilityJSONRequest(&protocol.HostServiceCapabilityJSONRequest{Value: []byte(`{"paths":["reports/a.json","../outside.json"]}`)}),
+		protocol.MarshalHostServiceJSONRequest(&protocol.HostServiceJSONRequest{Value: []byte(`{"paths":["reports/a.json","../outside.json"]}`)}),
 	)
 	if deleteResponse.Status != protocol.HostCallStatusInvalidRequest {
 		t.Fatalf("expected invalid request for escaped batch path, got status=%d payload=%s", deleteResponse.Status, string(deleteResponse.Payload))

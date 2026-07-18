@@ -1,60 +1,29 @@
 ---
 name: lina-community-commit-push-and-pr
 description: >-
-  为LinaPro以及SubModule仓库自动提交、推送、创建 PR，并在 PR 合并后恢复原始分支和同步 main。
-  创建 PR 时应自动识别关联 issue 编号或地址并尽量补充到 PR 正文，未识别到时留空即可。
-  必须用户手动触发，禁止自动触发该技能。
+  手动触发：为 LinaPro 主仓库及 apps/lina-plugins 子模块完成提交、PR 前 rebase、推送、创建 PR，
+  主仓 CI 修复回路，以及 PR 合并后恢复原始分支并同步 main。禁止自动触发。
 ---
 
 # 技能介绍
 
-`LinaPro`社区提交与`PR`串联技能。该技能用于把`apps/lina-plugins`子模块和主框架仓库按正确顺序分别提交、推送、创建`PR`，并强制在子模块`PR`合并后才推进主框架`PR`。
+串联主仓库与`apps/lina-plugins`的提交、推送、`PR`与收尾。子模块有变更时先合子模块`PR`，再更新主仓库子模块指针并开主仓库`PR`。主仓库`PR`存活期间子模块修复走 fix 分支，禁止在子模块`main`上改代码。
 
 ## 核心规则
 
-1. 默认主框架仓库路径是当前工作目录，默认主框架远端仓库是`linaproai/linapro`。
-2. 默认子模块远端仓库从`.gitmodules`和`git -C apps/lina-plugins remote -v`读取，通常是`linaproai/official-plugins`。
-3. 子模块`PR`目标分支固定为子模块仓库的`main`。
-4. 主框架`PR`目标分支固定为主框架仓库的`main`。
-5. 不使用`--force`、`--force-with-lease`、`git reset --hard`或历史重写命令，除非用户明确要求。
-6. 不静默丢弃任何工作区变更。发现无关变更时先报告风险；只有在能明确限定到目标路径时才继续。
-7. 创建任何`PR`前必须确认对应分支已经推送到`origin`。
-8. 创建任何`PR`正文前，应从用户请求、任务记录、当前上下文、分支名、提交信息和相关`issue`/`PR`链接中自动识别关联`issue`编号或地址，并尽量补充到`PR`正文。
-9. 关联`issue`不是创建`PR`的必填字段。未识别到关联`issue`编号或地址时，`Related Issue`内容留空并继续创建`PR`，不得因此停止流程或向用户强制索取。
-10. 创建子模块`PR`后必须停止，并提醒用户先 review 和合并该`PR`。用户回复`已合并`或`继续`之前，不得更新主框架的子模块指针、提交主框架或创建主框架`PR`。
-11. 用户回复`已合并`或`继续`后，必须先通过`gh pr view`或远端`main`提交确认子模块`PR`已经合并；如果尚未合并，停止并提示用户继续 review。
-12. 主框架`PR`创建后必须停止，并提醒用户先 review 和合并该`PR`。用户回复主框架`PR`已合并或要求收尾之前，不得执行本地分支恢复和`main`同步。
-13. 用户回复主框架`PR`已合并或要求收尾后，必须先通过`gh pr view`确认主框架`PR`状态为`MERGED`；如果尚未合并，停止并提示用户继续 review。
-14. 子模块和主框架`PR`都已确认合并后，必须将子模块和主框架工作树切回本次流程开始时记录的原始分支，再在这些原始分支上拉取并合入各自远端`main`；完成前必须验证原始分支已经包含最新`origin/main`。
-15. 执行过程中遇到`git`合并、同步或更新分支时，只允许`Git`自动完成无冲突合并；一旦出现内容冲突、子模块指针冲突或需要人工选择的冲突，必须立即停止并交给用户处理，禁止自行编辑冲突文件、删除冲突标记、选择 ours/theirs、暂存冲突结果或提交冲突解决。
-
-## 合并冲突处理
-
-执行任何可能产生合并结果的操作前，先尽量使用只读方式判断是否可自动合并，例如：
-
-```bash
-git merge-tree --write-tree HEAD origin/main
-```
-
-如果只读检查确认可以自动合并，可以执行正常合并命令并推送结果，例如：
-
-```bash
-git merge --no-edit origin/main
-git push origin "$(git branch --show-current)"
-```
-
-如果只读检查或实际合并命令报告冲突：
-
-1. 立即停止当前流程，不继续提交、推送或创建后续`PR`。
-2. 报告冲突仓库、冲突分支和冲突文件列表。
-3. 明确提醒用户需要手动处理冲突后再回复继续。
-4. 禁止修改冲突文件内容、禁止执行`git checkout --ours`、`git checkout --theirs`、`git add`、`git commit`或任何等价的冲突解决动作。
-
-如果实际合并命令已经让工作区进入冲突状态，保留现场并停止，让用户完成冲突处理；不要自动执行`git merge --abort`，除非用户明确要求放弃该次合并。
+1. 主仓库默认当前工作目录，远端默认`linaproai/linapro`。
+2. 子模块远端从`.gitmodules`和`git -C apps/lina-plugins remote -v`读取，通常是`linaproai/official-plugins`。
+3. 子模块与主仓库`PR`目标分支均固定为各自`main`。
+4. 创建任何`PR`前：提交当前变更 → `PR`前`rebase`门禁 → 推送 → 创建`PR`。
+5. 不静默丢弃工作区变更；无关变更先报告，仅能限定到目标路径时才继续。
+6. 除本技能要求的`PR`前`rebase`外，不使用`--force`、`--force-with-lease`、`git reset --hard`等历史重写，除非用户明确要求。
+7. **子模块`main`只读对齐，禁止在其上`commit`/`push`修复。** 若当前在`main`且需改子模块，必须先`switch -c fix/<main-branch>`（或等价任务分支）。
+8. 子模块`PR`创建后停止，等用户`已合并`/`继续`；主仓库`PR`创建后停止。用户说继续后用`gh pr view`或远端`main`确认已合并，未合并则停止。
+9. 主仓库`PR`未合并前若需改子模块，走阶段 2.5，不得进入阶段三。
+10. 两个`PR`均`MERGED`后，切回流程开始时的原始分支并包含最新`origin/main`。
+11. 合并/`rebase`/子模块指针冲突时立即停止交用户；禁止自行解冲突或继续`rebase`。
 
 ## 前置检查
-
-先执行只读检查：
 
 ```bash
 git status --short --branch
@@ -67,22 +36,59 @@ git -C apps/lina-plugins remote -v
 gh auth status
 ```
 
-如果主仓库或子模块处于分离`HEAD`状态，停止并说明原因，除非用户明确要求在分离`HEAD`状态继续。
-
-记录流程开始时的原始分支，后续收尾必须使用这些值恢复工作树：
+记录原始分支（收尾必用）：
 
 ```bash
 original_main_branch=$(git branch --show-current)
 original_sub_branch=$(git -C apps/lina-plugins branch --show-current)
 ```
 
-如果任一原始分支为空，视为分离`HEAD`状态并停止。
+主仓库或子模块处于分离`HEAD`，或任一原始分支为空时停止，除非用户明确要求继续。
 
-## 阶段一：处理子模块
+## PR 前 rebase 门禁
 
-### 判断是否需要子模块 PR
+顺序：提交 → `fetch origin main` → `rebase origin/main` → 检查`origin/main..HEAD` → 推送 → 创建`PR`。不得用`merge origin/main`代替。
 
-检查`apps/lina-plugins`是否存在未提交、已暂存或未跟踪变更：
+子模块：
+
+```bash
+git -C apps/lina-plugins fetch origin main
+git -C apps/lina-plugins rebase origin/main
+git -C apps/lina-plugins merge-base --is-ancestor origin/main HEAD
+git -C apps/lina-plugins log --oneline --decorate origin/main..HEAD
+```
+
+主仓库：
+
+```bash
+git fetch origin main
+git rebase origin/main
+git merge-base --is-ancestor origin/main HEAD
+git log --oneline --decorate origin/main..HEAD
+```
+
+- `origin/main..HEAD`含无关/异常提交时不得开`PR`，报告后等用户决定。
+- 普通`push`非快进被拒时不得自动强推；需用户授权或改用新分支名。
+- `rebase`冲突：停止，不推送、不开`PR`；禁止`add`/`commit`/`rebase --continue|--skip|--abort`，除非用户明确要求。
+
+## 冲突处理
+
+可合并性先只读检查：
+
+```bash
+git merge-tree --write-tree HEAD origin/main
+```
+
+可自动合并时：
+
+```bash
+git merge --no-edit origin/main
+git push origin "$(git branch --show-current)"
+```
+
+冲突则停止并报告；工作区已冲突时保留现场，不自动`merge --abort`，除非用户要求。
+
+## 阶段一：子模块 PR
 
 ```bash
 git -C apps/lina-plugins status --short --branch
@@ -90,36 +96,32 @@ git -C apps/lina-plugins diff --stat
 git -C apps/lina-plugins diff --cached --stat
 ```
 
-如果子模块没有内容更新，跳过子模块提交和子模块`PR`创建，直接进入阶段二。
+无内容更新则跳过，进入阶段二。
 
-如果子模块有内容更新：
+有更新时：
 
-1. 检查子模块当前分支：
+1. 若在`main`，先切任务分支：
 
 ```bash
 sub_branch=$(git -C apps/lina-plugins branch --show-current)
+if [ "$sub_branch" = "main" ]; then
+  git -C apps/lina-plugins switch -c "<task-branch>"
+  sub_branch=$(git -C apps/lina-plugins branch --show-current)
+fi
 ```
 
-2. 如果`sub_branch`是`main`，不要直接在`main`上提交。创建或要求切换到任务分支，例如：
-
-```bash
-git -C apps/lina-plugins switch -c "<task-branch>"
-```
-
-3. 根据实际差异生成子模块提交信息，使用`<类型>[可选作用域]: <描述>`格式。
-4. 提交并推送子模块分支：
+2. 提交（`<类型>[可选作用域]: <描述>`）：
 
 ```bash
 git -C apps/lina-plugins add -A
 git -C apps/lina-plugins commit -m "<submodule-subject>"
-git -C apps/lina-plugins push origin "$sub_branch"
 ```
 
-5. 自动识别关联`issue`编号或地址并补充到`PR`正文；未识别到时将`Related Issue`留空并继续。
-
-6. 创建子模块`PR`：
+3. `PR`前`rebase`门禁。
+4. 推送并创建`PR`；记录`sub_pr_url`/`sub_branch`。
 
 ```bash
+git -C apps/lina-plugins push origin "$sub_branch"
 gh pr create \
   --repo "<submodule-owner>/<submodule-repo>" \
   --base main \
@@ -128,31 +130,26 @@ gh pr create \
   --body-file -
 ```
 
-7. 输出子模块`PR`地址，并停止当前流程。必须明确提醒用户：
+5. 输出`PR`地址后停止：
 
 ```text
-请先 review 并合并该 submodule PR。合并完成后回复“已合并”或“继续”，我再更新主框架 submodule 指针并创建主框架 PR。
+请先 review 并合并该 submodule PR。合并完成后回复“已合并”或“继续”，我再更新主仓库 submodule 指针并创建主仓库 PR。
 ```
 
-阶段一完成后不得继续执行阶段二，即使本地能看到子模块分支已经推送。
+创建后不得进入阶段二。
 
-## 阶段二：更新主框架依赖并创建主框架 PR
+## 阶段二：主仓库 PR
 
-只有在以下任一条件满足时才能进入阶段二：
+条件：子模块无更新，或阶段一`PR`已确认`MERGED`。
 
-- 阶段一判断子模块没有内容更新；
-- 用户在子模块`PR`创建后回复`已合并`或`继续`，且已确认该子模块`PR`状态为`MERGED`。
-
-进入阶段二后执行：
-
-1. 拉取主框架和子模块远端`main`：
+1. 拉取远端`main`。
 
 ```bash
 git fetch origin main
 git -C apps/lina-plugins fetch origin main
 ```
 
-2. 如果阶段一创建过子模块`PR`，确认该`PR`已合并：
+2. 若有子模块`PR`，确认已合并；未合并则停止。
 
 ```bash
 gh pr view "<submodule-pr-number-or-url>" \
@@ -160,16 +157,14 @@ gh pr view "<submodule-pr-number-or-url>" \
   --json number,state,mergeCommit,url,baseRefName,headRefName
 ```
 
-如果`state`不是`MERGED`，停止并再次提醒用户先 review 和合并子模块`PR`。
-
-3. 将子模块工作树切到并快进到子模块`main`：
+3. 子模块对齐`origin/main`（仅取指针，非修复工作区）：
 
 ```bash
 git -C apps/lina-plugins switch main
 git -C apps/lina-plugins merge --ff-only origin/main
 ```
 
-4. 确认主框架只包含预期的子模块指针变更。如果还存在其他主框架变更，应报告差异；若这些变更是当前任务已有变更，可一并提交，否则先向用户说明风险。
+4. 确认主仓库仅含预期变更；无关差异先报告。
 
 ```bash
 git status --short --branch
@@ -177,22 +172,20 @@ git diff --submodule=log -- apps/lina-plugins
 git diff --stat
 ```
 
-5. 在主框架提交并推送当前分支：
+5. 提交主仓库（指针与其它任务变更分开语义清晰即可）：
 
 ```bash
 main_branch=$(git branch --show-current)
 git add apps/lina-plugins
+# 已确认属于本次任务的其它路径再 git add
 git commit -m "chore(plugins): update lina-plugins submodule"
-git push origin "$main_branch"
 ```
 
-如果主框架当前还有与本次任务相关且尚未提交的变更，先检查差异并生成符合规范的提交信息；不得无说明地把无关变更混入子模块指针提交。
-
-6. 自动识别关联`issue`编号或地址并补充到`PR`正文；未识别到时将`Related Issue`留空并继续。
-
-7. 创建主框架`PR`到`main`：
+6. `PR`前`rebase`门禁。
+7. 推送并创建主仓库`PR`；记录`main_pr_url`/`main_branch`。
 
 ```bash
+git push origin "$main_branch"
 gh pr create \
   --repo linaproai/linapro \
   --base main \
@@ -201,157 +194,130 @@ gh pr create \
   --body-file -
 ```
 
-8. 如果`GitHub`显示主框架`PR`为`CONFLICTING`，先按“合并冲突处理”规则做只读检查：
+8. 若`PR`状态为`CONFLICTING`，按冲突处理；能自动合则合入`origin/main`并推送，否则停止。
+
+9. **主仓 PR 创建后：子模块切到 fix 分支，禁止停在`main`等待。**
 
 ```bash
-git merge-tree --write-tree HEAD origin/main
-gh pr view "<framework-pr-number-or-url>" \
-  --repo linaproai/linapro \
-  --json mergeable,mergeStateStatus,statusCheckRollup
+git -C apps/lina-plugins fetch origin main
+git -C apps/lina-plugins switch main
+git -C apps/lina-plugins merge --ff-only origin/main
+sub_fix_branch="fix/${main_branch}"
+git -C apps/lina-plugins switch -c "$sub_fix_branch"
 ```
 
-若本地确认可自动合并，可以把`origin/main`正常合入当前分支并推送；若出现冲突，停止并报告冲突文件。
+若`fix/${main_branch}`已存在，则`switch`该分支并`rebase origin/main`（冲突则停）。
 
-阶段二完成后停止当前流程。必须明确提醒用户：
+阶段二完成后停止：
 
 ```text
-请先 review 并合并主框架 PR。合并完成后回复“已合并”或“继续收尾”，我再恢复主框架和 submodule 的本地分支并同步 main。
+请 review 主仓库 PR。若 CI/评审需改子模块：在 fix/<主仓分支> 上修改并走阶段 2.5，禁止在子模块 main 上提交。
+主仓库 PR 合并后回复“已合并”或“继续收尾”。
 ```
 
-## 阶段三：PR 合并后恢复分支并同步 main
+## 阶段 2.5：主仓 PR 存活期修复（可选）
 
-只有在以下条件全部满足时才能进入阶段三：
+触发：主仓库`PR`已开未合，且 CI/评审需要改代码。
 
-- 阶段一创建过子模块`PR`时，该子模块`PR`已通过`gh pr view`确认状态为`MERGED`；
-- 阶段二创建过主框架`PR`时，该主框架`PR`已通过`gh pr view`确认状态为`MERGED`；
-- 已记录`original_main_branch`和`original_sub_branch`，且二者都不是空值。
+**门禁：**
 
-进入阶段三后执行：
+- 子模块当前分支为`main`且要改内容 → 先切/建`fix/<main_branch>`，禁止在`main`上`commit`/`push`。
+- 主仓库修复提交到已有`main_branch`并`push`更新同一`PR`（用户要求新开`PR`除外）。
 
-1. 确认两个`PR`已经合并：
+子模块需改时：
 
-```bash
-gh pr view "<submodule-pr-number-or-url>" \
-  --repo "<submodule-owner>/<submodule-repo>" \
-  --json number,state,mergeCommit,url,baseRefName,headRefName
-gh pr view "<framework-pr-number-or-url>" \
-  --repo linaproai/linapro \
-  --json number,state,mergeCommit,url,baseRefName,headRefName
-```
-
-如果任一`state`不是`MERGED`，停止并提示用户继续 review 和合并对应`PR`。
-
-2. 刷新两个仓库的远端`main`。该步骤只更新远端跟踪分支，不代表原始工作分支已经同步：
+1. 确保在`fix/<main_branch>`（基于最新`origin/main`）。
+2. 提交 → `PR`前`rebase` → 推送 → 创建子模块 follow-up`PR`。
+3. 停止，等用户合并该子模块`PR`。
+4. 确认`MERGED`后：
 
 ```bash
-git fetch origin main
 git -C apps/lina-plugins fetch origin main
-```
-
-3. 先把子模块切回原始分支，并在该原始分支上拉取并合入子模块远端`main`：
-
-```bash
-git -C apps/lina-plugins switch "$original_sub_branch"
-git -C apps/lina-plugins fetch origin main
+git -C apps/lina-plugins switch main
+git -C apps/lina-plugins merge --ff-only origin/main
+# 主仓库任务分支上更新指针
+git switch "$main_branch"
+git add apps/lina-plugins
+git commit -m "chore(plugins): update lina-plugins submodule"
+# PR 前 rebase 门禁后
+git push origin "$main_branch"
+# 子模块回到 fix 分支待命
+git -C apps/lina-plugins switch -c "fix/${main_branch}" 2>/dev/null \
+  || git -C apps/lina-plugins switch "fix/${main_branch}"
 git -C apps/lina-plugins merge --ff-only origin/main
 ```
 
-不得只更新子模块本地`main`或`origin/main`后停止；必须让`$original_sub_branch`本身包含已经合并进远端`main`的最新内容。
+5. 仅改主仓库时：在`main_branch`提交、`rebase`、`push`即可。
+6. 仍失败则重复本阶段；通过后仍等用户合并主仓库`PR`，不得提前阶段三。
 
-如果`--ff-only`失败，先按“合并冲突处理”规则做只读检查；只读检查确认可自动合并时才允许执行：
+## 阶段三：合并后恢复分支
+
+条件：本流程创建过的子模块/`follow-up`与主仓库`PR`均已`MERGED`；`original_*`非空；无未提交修复。
+
+1. 再确认`MERGED`。
 
 ```bash
-git -C apps/lina-plugins merge --no-edit origin/main
+gh pr view "<submodule-pr-or-followup>" \
+  --repo "<submodule-owner>/<submodule-repo>" \
+  --json number,state,mergeCommit,url
+gh pr view "<framework-pr-number-or-url>" \
+  --repo linaproai/linapro \
+  --json number,state,mergeCommit,url
 ```
 
-如果出现冲突或需要人工选择，立即停止并报告冲突文件。
+2. 刷新`main`。
 
-4. 再把主框架切回原始分支，并在该原始分支上拉取并合入主框架远端`main`：
+```bash
+git fetch origin main
+git -C apps/lina-plugins fetch origin main
+```
+
+3. 子模块回原始分支并包含`origin/main`。
+
+```bash
+git -C apps/lina-plugins switch "$original_sub_branch"
+git -C apps/lina-plugins merge --ff-only origin/main
+```
+
+`--ff-only`失败则按冲突处理；需人工选择时停止。
+
+4. 主仓库同理。
 
 ```bash
 git switch "$original_main_branch"
-git fetch origin main
 git merge --ff-only origin/main
 ```
 
-不得只更新主框架本地`main`或`origin/main`后停止；必须让`$original_main_branch`本身包含已经合并进远端`main`的最新内容。
-
-如果`--ff-only`失败，先按“合并冲突处理”规则做只读检查；只读检查确认可自动合并时才允许执行：
-
-```bash
-git merge --no-edit origin/main
-```
-
-如果出现冲突或需要人工选择，立即停止并报告冲突文件。
-
-5. 确认主框架和子模块当前分支、`main`同步状态和工作区状态：
+5. 校验。
 
 ```bash
 git status --short --branch
-git log --oneline -1
 git merge-base --is-ancestor origin/main HEAD
 git -C apps/lina-plugins status --short --branch
-git -C apps/lina-plugins log --oneline -1
 git -C apps/lina-plugins merge-base --is-ancestor origin/main HEAD
 ```
 
-如果任一`merge-base --is-ancestor origin/main HEAD`失败，说明对应原始工作分支尚未包含最新远端`main`内容，必须停止并报告该仓库未完成同步。
-
-如果同步后当前分支相对远端同名分支存在本地领先提交，必须推送对应原始分支；如果远端同名分支不存在，使用`-u`建立上游；如果当前分支相对远端同名分支存在落后或分叉，停止并报告风险：
+6. 相对远端领先则推送；无上游用`-u`；落后或分叉则停止。
 
 ```bash
 git rev-list --left-right --count "origin/$original_main_branch"...HEAD
 git -C apps/lina-plugins rev-list --left-right --count "origin/$original_sub_branch"...HEAD
-```
-
-需要推送时执行：
-
-```bash
 git push origin "$original_main_branch"
 git -C apps/lina-plugins push origin "$original_sub_branch"
 ```
 
-## PR 正文要求
+## PR 正文
 
-所有`PR`正文都应包含`Related Issue`段落用于承载自动识别结果。识别到关联`issue`时，使用`Resolves <issue-id-or-url>`格式；如果同一变更关联多个`issue`，逐条列出。未识别到关联`issue`编号或地址时，该段落留空即可，不得阻塞`PR`创建。
+通用：`Summary`、`Tests`（未跑则写`Not run by this PR creation step.`）、`Related Issue`（识别到用`Resolves ...`，否则说明无关联且不阻塞）。
 
-子模块`PR`正文至少包含：
+主仓库另加`Submodule`：`apps/lina-plugins`从何 SHA 更新到何 SHA。
 
-- `Related Issue`：自动补充识别到的关联`issue`编号或地址；未识别到时留空。
-- `Summary`：概述子模块变更。
-- `Tests`：说明本次流程是否运行过测试；没有运行时写明`Not run by this PR creation step.`。
+## 输出
 
-主框架`PR`正文至少包含：
+**阶段一：** 子模块分支/主题/推送目标、`rebase`与`origin/main..HEAD`、`PR`地址、等待合并提醒。
 
-- `Related Issue`：自动补充识别到的关联`issue`编号或地址；未识别到时留空。
-- `Summary`：概述主框架变更和子模块依赖更新。
-- `Submodule`：记录`apps/lina-plugins`从哪个提交更新到哪个提交。
-- `Tests`：说明本次流程是否运行过测试；没有运行时写明`Not run by this PR creation step.`。
+**阶段二：** 子模块对齐的`main` SHA、主仓库分支/主题、`rebase`检查、`PR`地址与可合并性、子模块当前 fix 分支、工作区是否干净、测试是否运行。
 
-## 输出要求
+**阶段 2.5：** 修复落在哪一仓库/分支、子模块 follow-up`PR`（如有）、主仓库是否已 bump 指针并 push、下一步等待项。
 
-阶段一如果创建了子模块`PR`，最终输出只包含：
-
-- 子模块提交分支和提交主题；
-- 子模块推送目标；
-- 子模块`PR`地址；
-- 明确提醒用户 review 并合并该`PR`，合并后回复`已合并`或`继续`。
-
-阶段二完成后最终输出：
-
-- 子模块最终`main`提交；
-- 主框架提交分支和提交主题；
-- 主框架推送目标；
-- 主框架`PR`地址；
-- `PR`当前是否可合并；
-- 本地工作区是否干净；
-- 测试是否运行，未运行时如实说明。
-
-阶段三完成后最终输出：
-
-- 已确认合并的子模块`PR`地址和合并提交；
-- 已确认合并的主框架`PR`地址和合并提交；
-- 子模块当前分支、同步后的提交、是否已包含最新远端`main`和是否已推送；
-- 主框架当前分支、同步后的提交、是否已包含最新远端`main`和是否已推送；
-- 本地工作区是否干净；
-- 测试是否运行，未运行时如实说明。
+**阶段三：** 已合并`PR`与 merge commit、两侧当前分支与是否含最新`main`/是否已推送、工作区是否干净、测试是否运行。

@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 import type { VbenFormSchema } from '@vben/common-ui';
 
-import { computed, reactive } from 'vue';
+import { computed, onMounted, reactive } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
   AuthenticationLogin,
@@ -11,15 +12,79 @@ import {
 } from '@vben/common-ui';
 import { $t } from '@vben/locales';
 
+import { notification } from 'ant-design-vue';
+
 import PluginSlotOutlet from '#/components/plugin/plugin-slot-outlet.vue';
 import { pluginSlotKeys } from '#/plugins/plugin-slots';
 import { publicFrontendSettings } from '#/runtime/public-frontend';
 import { useAuthStore, useTenantStore } from '#/store';
 
+import { resolveExternalLoginErrorMessage as mapExternalLoginError } from './external-login-error';
+
 defineOptions({ name: 'Login' });
 
 const authStore = useAuthStore();
 const tenantStore = useTenantStore();
+const route = useRoute();
+const router = useRouter();
+
+/**
+ * consumeExternalLogin handles the `?externalLogin=1` outcome a protocol
+ * plugin callback encodes into the login-page query. Successful outcomes carry
+ * a single-use handoff code (never raw JWTs); the SPA exchanges it with the
+ * host and then reuses the password-login session bootstrap. Errors use a
+ * safe message code. The query is stripped afterwards so refreshes cannot
+ * replay the handoff.
+ */
+function resolveExternalLoginErrorMessage(message: string) {
+  return mapExternalLoginError(message, {
+    configMissing: $t('authentication.externalLoginConfigMissing'),
+    discoveryFailed: $t('authentication.externalLoginDiscoveryFailed'),
+    externalLoginFailed: $t('authentication.externalLoginFailed'),
+    fallbackLoginFailed: $t('authentication.loginFailed'),
+    translate: (key) => $t(key),
+  });
+}
+
+async function consumeExternalLogin() {
+  const query = route.query;
+  if (query.externalLogin !== '1') {
+    return;
+  }
+  const status = String(query.status ?? '');
+  const message = String(query.message ?? '');
+  const handoff = typeof query.handoff === 'string' ? query.handoff : '';
+  const redirectPath =
+    typeof query.redirect === 'string' ? query.redirect : '';
+  await router.replace({ path: route.path, query: {} });
+  if (status === 'error') {
+    notification.error({
+      description: resolveExternalLoginErrorMessage(message),
+      duration: 5,
+      message: $t('authentication.loginFailed'),
+    });
+    return;
+  }
+  if (!handoff) {
+    notification.error({
+      description: $t('authentication.externalLoginHandoffInvalid'),
+      duration: 5,
+      message: $t('authentication.loginFailed'),
+    });
+    return;
+  }
+  try {
+    await authStore.completeExternalLoginFromHandoff(handoff, redirectPath);
+  } catch {
+    notification.error({
+      description: $t('authentication.externalLoginHandoffInvalid'),
+      duration: 5,
+      message: $t('authentication.loginFailed'),
+    });
+  }
+}
+
+onMounted(consumeExternalLogin);
 const tenantOptions = computed(() =>
   tenantStore.tenants.map((tenant) => ({
     code: tenant.code,
@@ -33,6 +98,18 @@ const loginSubtitle = computed(
     publicFrontendSettings.auth.loginSubtitle ||
     $t('authentication.loginSubtitle'),
 );
+
+/** Host-managed public switches; default true when public config has not loaded. */
+const forgetPasswordEnabled = computed(
+  () => publicFrontendSettings.auth.forgetPasswordEnabled !== false,
+);
+const registerEnabled = computed(
+  () => publicFrontendSettings.auth.registerEnabled !== false,
+);
+
+function goToRegister() {
+  router.push('/auth/register');
+}
 
 const tenantSubtitle = computed(() =>
   $t('pages.multiTenant.login.selectTenantSubtitle'),
@@ -143,7 +220,7 @@ async function handleSelectTenant() {
       :form-schema="formSchema"
       :loading="authStore.loginLoading"
       :show-code-login="false"
-      :show-forget-password="false"
+      :show-forget-password="forgetPasswordEnabled"
       :show-qrcode-login="false"
       :show-register="false"
       :show-third-party-login="false"
@@ -179,6 +256,65 @@ async function handleSelectTenant() {
         {{ $t('pages.multiTenant.login.enterTenant') }}
       </VbenButton>
     </div>
-    <PluginSlotOutlet :slot-key="pluginSlotKeys.authLoginAfter" class="mt-4" />
+    <!--
+      协议 / 目录登录（通用 OIDC、LDAP 等）：全宽单行按钮纵向排列。
+      无插件注入时通过 :has(.plugin-slot-outlet) 整块隐藏。
+    -->
+    <div
+      class="login-external-auth w-full sm:mx-auto md:max-w-md"
+      data-testid="login-external-auth-region"
+    >
+      <PluginSlotOutlet
+        :slot-key="pluginSlotKeys.authLoginAfter"
+        class="mt-4 flex w-full flex-col gap-3"
+        data-testid="login-external-auth-slot"
+      />
+    </div>
+    <!--
+      第三方平台账号（Google / Discord / QQ 等）：Vben 同构分隔线 + 横向图标行。
+      无插件注入时整块隐藏。
+    -->
+    <div
+      class="login-social-auth w-full sm:mx-auto md:max-w-md"
+      data-testid="login-social-auth-region"
+    >
+      <div class="mt-4 flex items-center justify-between">
+        <span class="w-[35%] border-b border-input dark:border-gray-600"></span>
+        <span class="text-center text-xs uppercase text-muted-foreground">
+          {{ $t('authentication.thirdPartyLogin') }}
+        </span>
+        <span class="w-[35%] border-b border-input dark:border-gray-600"></span>
+      </div>
+      <PluginSlotOutlet
+        :slot-key="pluginSlotKeys.authLoginSocial"
+        class="mt-4 flex flex-wrap justify-center"
+        data-testid="login-social-auth-slot"
+      />
+    </div>
+    <!--
+      创建账号入口放在「其他登录方式」之后，对齐 Vben 登录页截图顺序。
+      是否展示由系统参数 sys.auth.registerEnabled 控制。
+    -->
+    <div
+      v-if="registerEnabled && !authStore.pendingPreToken && !authStore.tenantLoginTransitioning"
+      class="mt-3 w-full text-center text-sm sm:mx-auto md:max-w-md"
+      data-testid="login-create-account"
+    >
+      {{ $t('authentication.accountTip') }}
+      <span
+        class="vben-link text-sm font-normal"
+        data-testid="login-create-account-link"
+        @click="goToRegister"
+      >
+        {{ $t('authentication.createAccount') }}
+      </span>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.login-external-auth:not(:has(.plugin-slot-outlet)),
+.login-social-auth:not(:has(.plugin-slot-outlet)) {
+  display: none;
+}
+</style>
