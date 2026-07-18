@@ -37,6 +37,8 @@
 - [x] FB-23 使用本地 Docker Nacos 和本地服务复测远端`lookup/register-lookup`超时与`report-close`流投影异常，修复本地可复现问题。
 - [x] FB-24 修复多 Pod 部署下 discovery lookup 复用 Nacos SDK 本地缓存导致注销后仍返回旧实例的问题。
 - [x] FB-25 为`media_report_stream`和`media_report_session`补充`device_id`设备维度字段，支持后续按设备分组统计。
+- [x] FB-26 将`media`插件采集链路切换为`net-flux`强类型`device_id`协议字段。
+- [x] FB-27 移除`Extra`中的设备 ID 冗余写入和读取路径。
 
 ### FB-13 反馈修复记录
 
@@ -275,3 +277,47 @@
 - TCP 注册发现验证：`ping`返回`pong received`；使用干净本地 Docker Nacos 重新验证持久实例后，`register-lookup -settle 0s`返回包含`service-device-fast-20260718131107`、`group_name=1`和`private_port=19191`的健康实例，`deregister`成功，注销后`lookup`返回`{}`；延迟数秒后该本地 Nacos 会将无健康检查的持久实例置为`healthy:false`，因此`settle=3s`查询返回空，记录为本地 Nacos 健康状态约束，不影响本次设备字段上报和统计验证。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/i18n.md`、`.agents/rules/dev-tooling.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能。
 - 验证：`GOWORK=off go test ./backend/internal/service/collection -count=1`通过；`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./backend/internal/service/collection -run TestReportRuntimePersistsMetrics -count=1`通过；`GOWORK=off go test ./backend/internal/service/media -count=1`通过；`GOWORK=off go test ./backend/internal/controller/media -count=1`通过；`GOWORK=off go test ./backend/api/media/v1 -count=1`通过；`GOWORK=off go test ./hack/tools/collection-client -count=1`通过；`GOWORK=off go test ./backend -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；SQL 全量重放通过；真实 TCP 上报、关闭上报、dashboard HTTP 断言和 TCP 注册发现联调通过。
+
+### FB-26 反馈修复记录
+
+- 根因：`net-flux`上游已合并`StreamMetric.device_id`和`SessionMetric.device_id`强类型协议字段，但`media`插件仍依赖合并前的旧 pseudo-version，只能从`Extra.device_id`或`Extra.deviceId`读取设备维度；插件内`collection-client`也只写`Extra`，导致插件代码没有真正消费上游协议字段。升级上游 SDK 后还暴露出`NetworkMetric.throughput`已不在当前协议中，旧代码无法编译。
+- 修复：将`media`插件依赖升级到上游合并 commit 对应的`github.com/dellinger2023/net-flux v0.0.8-0.20260718061636-316ef59c9e05`；`StreamMetric`和`SessionMetric`归一化只读取`GetDeviceId()`；`collection-client`在流和会话上报、关闭上报中写入强类型`DeviceId`，不再向`Extra`写设备 ID；`NetworkMetric`节点吞吐改为读取`Extra.throughput_bps`等非设备 metadata，适配当前上游协议。
+- OpenSpec：本反馈属于活跃变更`add-media-data-collection-server`的采集协议实现闭环补充，已同步更新`design.md`中协议依赖来源说明和本任务记录。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件采集服务、插件内 Go 联调工具、插件 Go module 依赖和 OpenSpec 记录，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖、服务构造参数或抽象层。
+- API 契约：不新增或修改 HTTP API、路由、DTO、权限标签或响应结构；dashboard 的`deviceId`筛选和`device_id`响应字段沿用`FB-25`既有契约。
+- 数据权限：不新增数据读取或写入入口，不放宽 dashboard 既有`media:management:query`权限；本次仅改变 TCP 上报包中设备维度的来源优先级。
+- 缓存一致性：不修改共享 cache、缓存键、失效、刷新或集群一致性策略；实例实时计数仍沿用既有共享 cache。
+- i18n：不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存；`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity；设备字段仍复用`FB-25`已新增的投影列和索引。
+- 开发工具跨平台：修改的是插件内 Go 工具`hack/tools/collection-client`，仍使用 Go 标准库和`net-flux` client，不新增 shell、PowerShell、Makefile、CI 或平台专属脚本。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；Go module 版本升级不改变插件服务实例来源。
+- 性能：设备 ID 归一化是单包常量时间字段读取；`NetworkMetric`吞吐从`Extra`解析单个字符串，不新增数据库查询、循环装配或`N+1`风险；dashboard 聚合查询路径不变。
+- 测试策略：本次为功能行为反馈，使用单元测试覆盖强类型`DeviceId`归一化和`Extra`设备 ID 忽略语义，使用插件 Go 全量测试和 lint 覆盖新 SDK 编译面，并启动本地服务走真实 TCP 上报、关闭上报、落库和 dashboard HTTP 统计验证；不涉及前端页面或 E2E 资产，未触发 E2E 用例新增。
+- 实际 TCP 上报准确性验证：启动`make dev`后日志确认`media collection server started addr=127.0.0.1:1911`；使用测试 ID`tenant-typed-20260718143600`、`device-typed-20260718143600`、`stream-typed-20260718143600`和`session-typed-20260718143600`执行`collection-client -action report`，库表确认`media_report_stream.device_id=device-typed-20260718143600`、`status=running`、`current_active_sessions=1`、`total_sessions_lifetime=1`、`protocol_type=HLS`，`media_report_session.device_id=device-typed-20260718143600`、`client_type=2`、`protocol_type=HLS`，实例`live_streams=1/sessions=1`。
+- 实际 dashboard 统计验证：使用本地管理员登录 token 请求`GET /api/v1/media/dashboard/streams?tenantId=tenant-typed-20260718143600&deviceId=device-typed-20260718143600`返回 1 条流，`device_id`准确，`current_active_sessions=1`且`HLS.current_sessions=1/total_sessions=1`；错误`deviceId`返回空流列表；`GET /api/v1/media/dashboard/sessions?tenantId=tenant-typed-20260718143600&deviceId=device-typed-20260718143600&streamId=stream-typed-20260718143600`返回`stream_info.device_id`准确，`HLS.session_count=1`且活跃会话`device_id`准确。
+- 关闭上报验证：执行`collection-client -action report-close`后，库表确认流和会话`device_id`保留不变，流`status=closed/current_active_sessions=0/total_sessions_lifetime=1/close_time IS NOT NULL`，会话`close_time IS NOT NULL`，实例`live_streams=0/sessions=0`；dashboard 流列表按正确设备仍命中关闭流且`HLS.current_sessions=0/total_sessions=1`，会话统计返回`status=inactive/session_count=0/active_session_list=[]`。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/collection -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./hack/tools/collection-client -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；`git diff --check`和`git -C apps/lina-plugins diff --check`通过；真实 TCP 上报、关闭上报、PostgreSQL 投影核对和 dashboard HTTP 统计核对通过。
+
+### FB-27 反馈修复记录
+
+- 根因：`FB-26`初版为了平滑切换保留了`Extra.device_id`写入和读取兜底，但用户明确确认协议已扩展后不需要在`Extra`中继续保留设备 ID。项目当前没有兼容历史负担，继续保留双来源会让设备维度语义不够明确。
+- 修复：`collection-client`流和会话上报、关闭上报只写强类型`DeviceId`，不再写`Extra.device_id`；采集服务端`normalizeStreamMetric`和`normalizeSessionMetric`只从`GetDeviceId()`读取设备维度；单元测试改为验证`Extra.device_id`和`Extra.deviceId`不会被当作设备维度来源。
+- OpenSpec：本反馈属于活跃变更`add-media-data-collection-server`对`FB-26`的实现纠偏，已同步修正任务标题和`FB-26`记录中关于`Extra`兼容的表述。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：修改限定在`media`源码插件采集服务、插件内 Go 联调工具、单元测试和 OpenSpec 记录，不修改`apps/lina-core`核心宿主契约，不新增跨模块领域依赖或抽象层。
+- API 契约：不新增或修改 HTTP API、路由、DTO、权限标签或响应结构；dashboard 的`deviceId`筛选和`device_id`响应字段不变。
+- 数据权限：不新增数据读取或写入入口，不改变 dashboard 既有`media:management:query`权限和查询过滤边界；只收敛 TCP 上报包内设备字段来源。
+- 缓存一致性：不修改共享 cache、缓存键、失效、刷新或集群一致性策略；实例实时计数仍沿用既有共享 cache。
+- i18n：不新增或修改运行时 UI 文案、API 文档源文本、插件清单、语言包或翻译缓存；`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理。
+- 数据库：不新增或修改 SQL、表、列、索引、DML、DAO、DO 或 Entity；设备字段仍复用`FB-25`已新增的投影列和索引。
+- 开发工具跨平台：修改的是插件内 Go 工具`hack/tools/collection-client`，仍使用 Go 标准库和`net-flux` client，不新增 shell、PowerShell、Makefile、CI 或平台专属脚本。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖。
+- 性能：设备 ID 读取改为单个强类型字段读取，比双来源归一更简单；不新增数据库查询、循环装配或`N+1`风险。
+- 测试策略：本次为功能行为反馈，使用单元测试验证`Extra`设备 ID 被忽略，使用插件 Go 全量测试和 lint 覆盖编译面，并重启本地服务后走真实 TCP 上报、关闭上报、落库和 dashboard HTTP 统计验证；不涉及前端页面或 E2E 资产，未触发 E2E 用例新增。
+- 实际 TCP 上报准确性验证：重启`make dev`后，使用测试 ID`tenant-typed-noextra-20260718145100`、`device-typed-noextra-20260718145100`、`stream-typed-noextra-20260718145100`和`session-typed-noextra-20260718145100`执行新版`collection-client -action report`，该 client 不再写`Extra.device_id`；库表确认`media_report_stream.device_id=device-typed-noextra-20260718145100`、`status=running`、`current_active_sessions=1`、`total_sessions_lifetime=1`、`protocol_type=HLS`，`media_report_session.device_id=device-typed-noextra-20260718145100`、`client_type=2`、`protocol_type=HLS`，实例`live_streams=1/sessions=1`。
+- 实际 dashboard 统计验证：使用本地管理员登录 token 请求`GET /api/v1/media/dashboard/streams?tenantId=tenant-typed-noextra-20260718145100&deviceId=device-typed-noextra-20260718145100`返回 1 条流，`device_id`准确，`current_active_sessions=1`且`HLS.current_sessions=1/total_sessions=1`；`GET /api/v1/media/dashboard/sessions?tenantId=tenant-typed-noextra-20260718145100&deviceId=device-typed-noextra-20260718145100&streamId=stream-typed-noextra-20260718145100`返回`stream_info.device_id`准确，`HLS.session_count=1`且活跃会话`device_id`准确。
+- 关闭上报验证：执行新版`collection-client -action report-close`后，库表确认流和会话`device_id`保留不变，流`status=closed/current_active_sessions=0/total_sessions_lifetime=1/close_time IS NOT NULL`，会话`close_time IS NOT NULL`，实例`live_streams=0/sessions=0`；dashboard 流列表按正确设备仍命中关闭流且`HLS.current_sessions=0/total_sessions=1`，会话统计返回`status=inactive/session_count=0/active_session_list=[]`。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/rules/i18n.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/architecture.md`、`.agents/rules/dev-tooling.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`goframe-v2`技能。
+- 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./backend/internal/service/collection -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./hack/tools/collection-client -count=1`通过；`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过；真实 TCP 上报、关闭上报、PostgreSQL 投影核对和 dashboard HTTP 统计核对通过。

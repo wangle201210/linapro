@@ -34,7 +34,7 @@
 
 ## 协议边界
 
-采集 server 复用`github.com/dellinger2023/net-flux`发布的`network.NewTcpServer`和`gen`协议类型。为补齐数据看板所需业务键，本次 fork 到`github.com/wangle201210/net-flux`并追加上报协议字段，通过`go generate ./...`重新生成协议代码；`media`插件仍保留原 import 路径，并通过 Go module `replace`指向 fork 版本。
+采集 server 复用`github.com/dellinger2023/net-flux`发布的`network.NewTcpServer`和`gen`协议类型。为补齐数据看板所需业务键，本次已将上报协议字段提交并合并到上游`github.com/dellinger2023/net-flux`，`media`插件保留原 import 路径，并将 Go module 依赖指向包含这些字段的上游合并 commit。
 
 实现范围限定为：
 
