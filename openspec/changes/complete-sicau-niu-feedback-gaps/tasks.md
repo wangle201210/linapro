@@ -27,6 +27,8 @@
 - [x] **FB-25**: 每日限次的自然日切分使用服务器本地时区，未按清单约定固定为北京时间`00:00`
 - [x] **FB-26**: 距离计算与接口文档把坐标系写为`WGS-84`，与前端全链路`GCJ-02`约定不一致
 - [x] **FB-27**: IOT 定位刷新在高德坐标缺失时回退写入原始`WGS-84` GPS，与牛锚点`GCJ-02`混系会让 12 米铁牛加成判定失效
+- [x] **FB-28**: 新增铁牛弹窗缺少按定位器编号将设备上报周期更新为 10 秒的操作入口
+- [x] **FB-29**: `sicau-niu`玩家端缺少小程序真实模式所需的完整配置、牛只安全地图与详情、激活照片、后到激活、好友动态和铁牛搬运接口
 
 ### 根因记录
 
@@ -47,6 +49,7 @@
 - `FB-15`根因：玩家激活表已经保存`photo_path`，但运营端激活记录列表接口没有把该字段纳入分页投影，前端表格类型和列配置也没有照片入口，导致运营人员只能看到激活文本记录，无法查看玩家打卡上传的照片证据。
 - `FB-16`根因：`manifest/sql/mock-data/001-sicau-niu-mock-data.sql`中的卡片`image_path`写入空值，荣誉`image_path`、玩家`avatar`和激活`photo_path`也没有填充可访问图片；已加载过旧示例数据的环境重复执行脚本时又会被`NOT EXISTS`跳过，导致演示页面仍然只能拿到空图或不可访问的占位路径。
 - `FB-17`根因：当前拍照打卡流程只在激活成功后写入`plugin_sicau_niu_activation`，无附近未激活牛、最近牛超出`LBS`判距等失败路径直接返回业务错误，没有独立审计表记录玩家上报坐标、最近候选、距离、阈值和照片路径；正式激活记录又承载首发、到场顺序和每日限制语义，不适合混入失败尝试。
+- `FB-29`根因：首轮只从后端路由数量判断“小程序接口已覆盖”，没有把`cow-mini`真实适配器、生产模式选择、页面消费字段、上传约束、弱网重试和运营上线准备纳入同一验收。结果是生产适配器仍被`DEBUG=true`强制绕过，配置继续使用本地常量，照片上传返回空标识，好友动态为空数组，搬运写操作为空实现；已有后端又缺少运行时公开配置、照片转码/日限额、激活/签到/搬运稳定幂等重放、激活结果聚合字段、玩家等级经验、偷草头像/当日状态，以及牛只批量导入、受保护照片审计和错误激活撤销接口。接口文档也未随实现同步，无法证明小程序真实模式可上线。最终复查又发现图鉴服务先按本人激活记录筛牛，只返回已拥有卡片，小程序只能用当前可见牛补占位且把分类硬编码为事件，导致未上线卡片、五类总量和分类进度错误；搬运响应允许`ironCow=null`，但小程序类型和面板按必填对象解引用，未配置铁牛时存在页面崩溃风险；搬运状态又只在最新`20`个公开队伍中查本人成员关系，较早但仍有效的本人队伍会被列表上限误截断。
 - `FB-18`根因：`FB-17`在`Page auto-content-height`内容区中直接嵌套`Tabs`，两个页签里的`VbenVxeGrid`又都使用`height: "auto"`；`Tabs`、`ant-tabs-content-holder`、`ant-tabs-content`、活动`TabPane`和表格外层没有完整的`height/max-height/min-height/overflow`边界，导致页面外层稳定后，页签内容区仍按 VXE 表格测量结果持续膨胀。
 - `FB-19`根因：`plugin.yaml`把院系、玩家、牛只、铁牛、卡片、金句、荣誉、结算和各类记录页面都直接挂在`plugin:sicau-niu:root`下，导致“寻牛活动”展开后出现十余个同级二级菜单，缺少按运营职责的分组目录。
 - `FB-20`根因：`FB-19`的分组实现仍保留“寻牛活动”父级，把“基础配置”“活动运营”“活动记录”作为父级下的二级目录，实际页面落到三级菜单；Vben 侧边栏对该层级不能满足运营人员分别折叠配置、运营和记录入口的使用习惯。
@@ -57,6 +60,7 @@
 - `FB-25`根因：激活、签到、偷草、赠草各自用`time.Now().Format("2006-01-02")`计算自然日键，依赖进程时区；部署镜像时区非`Asia/Shanghai`时，切日时刻偏离活动约定的北京时间零点。
 - `FB-26`根因：首版距离计算注释按通用 GPS 习惯写了`WGS-84`，接口文档也未声明坐标系；前端清单明确全链路`GCJ-02`后，文档与注释的口径未同步，存在引导混用坐标系的风险。
 - `FB-27`根因：`FB-10`实现刷新器时把“高德字段缺失就回退原始 GPS`lat/lon`”作为可用性兜底，但高德坐标是`GCJ-02`、原始 GPS 是`WGS-84`，两系在国内偏差 50~500 米；回退路径一旦触发，入库坐标与牛锚点混系，12 米的铁牛邻近加成阈值会静默失效且难以察觉。
+- `FB-28`根因：现有铁牛 IOT 对接依据 v1.0 文档只实现`getToken`和`getInfoList`定位刷新；v1.1 新增的`POST /open/device/setConfig`指令下发契约尚未进入插件后端，铁牛新增弹窗和前端客户端也仅提供本地 CRUD，因此没有安全代理设备上报周期更新的操作入口。
 
 ### 影响分析
 
@@ -85,6 +89,8 @@
 - `FB-21`补充影响：仅修改`sicau-niu`插件菜单清单、插件自有 E2E 页面对象和 OpenSpec 记录，不修改`lina-core`核心契约、HTTP API、后端 Go、SQL、DAO、数据权限过滤、缓存、运行期依赖或开发脚本。为三个根级职责目录补充唯一`path`作为前端路由和菜单开合状态 key；二级页面`path`声明为绝对子路由以避免被父目录`path`拼接，页面`key/perms/component`和最终访问 URL 保持不变。`sicau-niu`未启用插件`i18n`，本次仅延续既有中文菜单名和测试断言，不新增`manifest/i18n`资源。本次已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`；确认无数据权限、缓存、API、后端、数据库、开发工具和模块启停影响。
 
 - `FB-22`~`FB-26`补充影响：`sicau-niu`未启用插件`i18n`，新增错误码仅含英文 fallback 文案与英文`dc`源文本，不要求维护`manifest/i18n`资源；不新增缓存（防作弊阈值经既有无缓存`rules`服务读取，幂等判断直接查业务表）；数据权限边界不变（玩家写操作仍按玩家 token 隔离，规则维护仍受`sicau-niu:settlement:rules`权限保护）；不修改开发工具或脚本，数据库变更走插件`manifest/sql`与`make dao p=sicau-niu`既有入口；DI 来源检查——`rules`服务新增`ActivationGuards`访问器属既有接口扩展，激活/喂草/社交服务未新增运行期依赖，仍由`backend/plugin.go`路由装配期一次性创建并显式传入，共享同一数据库后端；新增`internal/activityday`为无状态纯函数包，不构成运行期服务依赖。
+- `FB-28`补充影响：仅修改`sicau-niu`源码插件自有管理 API、Controller、IOT 服务、前端弹窗、插件 E2E 和当前 OpenSpec 记录，不修改`lina-core`、`lina-vben`宿主文件、SQL、DAO、数据模型或开发脚本。该动作属于尚未创建本地铁牛记录时的外部平台配置操作，按平台级插件能力处理；宿主认证、租户和`sicau-niu:iron:create`权限在调用前完成校验，IOT 账号授权构成外部资源边界，失败时拒绝并保留弹窗。性能边界固定为一次新令牌请求和一次`setConfig`请求，不访问数据库、不产生`N+1`；命令更新器无状态且不新增缓存，既有后台定位刷新器的进程内 token 缓存不受影响。DI 来源检查：`ironlocation`拥有命令更新器，`backend/plugin.go`在路由装配期使用独立`8s`HTTP 客户端创建一次，经`feeding`窄接口显式注入`ControllerV1`，请求路径不临时构建服务图。`sicau-niu`未启用插件`i18n`，新增中文按钮和接口文档源文本按单语言插件处理，业务错误保留稳定英文 fallback，不新增`manifest/i18n`资源。测试策略覆盖精确平台请求、响应失败、Controller 固定`10s`、插件装配、前端成功与失败路径、弹窗保留及无隐式本地创建。
+- `FB-29`补充影响：修改`sicau-niu`源码插件后端、插件自有 SQL/DAO 生成物、`cow-mini`真实适配器与发布 OpenAPI，以及当前 OpenSpec 记录；不修改`lina-core`或`lina-vben`宿主文件。公开配置只投影校区标定、资源版本和非敏感活动参数；配置维护、批量导入、照片审计和撤销经过宿主认证、租户及既有插件权限保护，玩家接口继续按玩家 token 自隔离。照片统一转码为不超过`300KiB`的私有`WebP`，元数据与激活证据保留；撤销只软删除激活并确定性提升剩余首发。配置、照片、激活、签到和搬运幂等均由数据库唯一约束兜底并发。性能边界：配置固定单行读取；照片日限额固定最多`10`槽位；牛列表最多`200`头并批量装配；批量导入最多`200`条且单事务集合化查重；照片审计分页并批量装配；动态最多`20`条；搬运状态最多`20`队、`240`成员和`100`轨迹点，不产生随返回行数增长的`N+1`。缓存一致性：不新增缓存，数据库与插件作用域对象存储为权威数据源，配置更新后下一请求生效。DI 来源检查：公开配置、照片、激活、签到、搬运和后台运维服务均在`backend/plugin.go`路由装配期创建一次并显式注入。`sicau-niu`未启用`i18n`，新增中文 API 摘要和小程序单语言文案不新增语言包。开发工具影响：不修改脚本、`Makefile`、`make.cmd`、CI 或`linactl`；仅使用既有`make dao`、`make ctrl`与小程序既有构建工具。自动化采用 Go 数据库集成测试和小程序 Vitest 契约测试；小程序运行时不属于 Vben 浏览器工作台，`lina-e2e`的 Playwright 模块文件编号不适用，本次不新增插件管理 UI，因此不新增`TC008`。
 
 ### 执行记录
 
@@ -116,6 +122,8 @@
 - `FB-25`修复：新增`backend/internal/activityday`共享包，以固定`UTC+8`时区提供自然日键与日界区间；激活、签到、偷草名单、偷草、赠草的自然日计算全部收敛到该包，移除各服务内散落的`"2006-01-02"`本地时区格式化；附带不依赖宿主时区的纯单元测试。
 - `FB-26`修复：激活与喂草的 Haversine 文件注释、玩家/管理端经纬度`dc`标注、小程序接口文档“请求格式”统一声明全链路`GCJ-02`（同坐标系下偏移相消，活动尺度内直接套用 Haversine 不损精度），并在喂草几何注释中明确 IOT 铁牛坐标入库前必须转换为`GCJ-02`；IOT 平台实际坐标系待硬件侧确认，已在《后端反馈-接口开发注意清单.md》记录为待对齐问题 Q1。
 - `FB-27`修复：经确认 IOT 平台的高德`latitude/longitude`字段即`GCJ-02`，刷新器改为只接受高德坐标——`locatorItem`移除原始 GPS`lat/lon`字段的解码与回退分支，高德坐标缺失或非法的定位器本轮直接跳过更新，铁牛保留上一次已同步坐标，保证铁牛表永远是纯`GCJ-02`；同步更新喂草几何注释、增量规范“后台任务刷新铁牛坐标”场景，并将回退单测替换为“仅有原始 GPS 字段的条目必须被跳过”的回归用例。
+- `FB-28`修复：新增受`sicau-niu:iron:create`保护的`PUT /plugins/sicau-niu/admin/iron/reporting-cycle`，后端按 v1.1 文档获取新令牌并向`POST /open/device/setConfig`发送`LOCATOR`、`REPORTING_CYCLE_CONFIG`和`cycle=10`，仅当响应中当前设备的`status=0`时成功。新增铁牛弹窗增加“设置 10 秒上报频率”按钮，只校验并提交当前标识，不创建本地记录；成功或失败后均保留弹窗和设备编码，失败时按钮恢复可用。设备编码不写死在生产逻辑中，由表单值决定；接口示例、单元测试和 E2E 使用当前唯一真实设备`50275156712`。
+- `FB-29`修复：新增公开小程序配置、本人照片上传/读取、单牛详情、本人好友动态和铁牛搬运状态/建队/入队/离队/开始/心跳/结束接口；未激活牛列表改为只返回稳定模糊区域，已激活牛批量补齐校区、皮肤、首位激活者、喂草数和铁牛加成。激活匹配同时接受当前玩家未到访的`inactive/active`牛，首位玩家切换共享状态，后到玩家继续获得独立顺位和主卡；生产激活必须使用本人未消费照片标识并在同一事务消费。新增五张插件自有表保存照片元数据和搬运队伍、成员、会话、轨迹；路由装配复用插件作用域存储和显式注入服务。最终复查把图鉴接口改为固定上限的完整目录与本人`owned`状态，未拥有项隐藏卡面并以三次集合化查询装配，生产适配器不再用可见牛猜占位；搬运铁牛类型改为可空，未启用时隐藏入口；搬运状态先独立读取本人有效成员关系，并在公共队伍窗口已满时替换末尾项纳入本人队伍，保持最多`20`队且不丢`myTeamId`。同步将喂草榜效果值单位从“次”修正为“点”，并补全匿名嵌入响应的 OpenAPI 元数据。`lina-review`发现并修复三个回归风险：小程序倒计时改为固定东八区，超时心跳改为先提交`idle_timeout`再返回未激活业务错误，搬运状态固定保留被公共列表上限截断的本人队伍。
 
 ### 验证记录
 
@@ -257,3 +265,21 @@
 - 已执行并通过（`FB-27`）：`go build ./...`与`LINA_TEST_PGSQL_LINK=... go test ./internal/service/feeding/... -count=1`（在`apps/lina-plugins/sicau-niu/backend`内，含`ironlocation`包仅高德坐标准入的新回归用例）。
 - 已执行并通过（`FB-27`）：`openspec validate complete-sicau-niu-feedback-gaps --strict`。
 - 影响判断（`FB-27`）：仅收紧插件内部 IOT 坐标准入，不修改 HTTP API、SQL、DAO、前端、缓存、脚本或`i18n`资源；无新增运行期依赖。
+- 已执行并通过（`FB-28`）：`GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内）。
+- 已执行并通过（`FB-28`）：`PATH=/Users/wanna/go/go1.26.4/bin:/Users/wanna/Library/pnpm:$PATH GOROOT=/Users/wanna/go/go1.26.4 make lint dir=apps/lina-plugins/sicau-niu plugins=1`，`golangci-lint`与`staticcheck`均无问题。
+- 已执行并通过（`FB-28`）：`pnpm -C apps/lina-vben/apps/web-antd typecheck`。
+- 已执行并通过（`FB-28`）：`E2E_BASE_URL=http://127.0.0.1:5666 E2E_BACKEND_BASE_URL=http://127.0.0.1:9120 pnpm -C hack/tests test:module -- plugin:sicau-niu -- --grep 'TC-2f|TC-2g'`，成功与失败路径共`2`例通过。
+- 已执行并通过（`FB-28`）：Playwright 视觉回归确认`1280x720`下页面、弹窗、成功提示和失败提示无重叠，失败后弹窗、设备编码和可用按钮均保留；截图位于`temp/20260729/192400-sicau-niu-iron-page.png`至`temp/20260729/192403-sicau-niu-reporting-cycle-failure.png`。
+- 已执行但外部平台授权未通过（`FB-28`）：在真实页面对设备`50275156712`仅点击一次，宿主接口和权限链正常，IOT 测试环境令牌接口返回`9010`“没有权限，请联系管理员授权”，未进入`setConfig`下发；随后对正式环境执行只读令牌探测返回`1015`“用户不存在”。因此真实设备尚未更新，需平台为当前测试账号授权或提供有效环境凭据后再从同一按钮重试。
+- 已执行并记录（`FB-28`）：`make i18n.check plugins=1`报告的全仓单语言项，以及`pnpm -C hack/tests test:validate`报告的`TC004-page-panel-border-radius`、`TC019-plugin-management-manage-entry`和`TC009-forgot-password-and-register`既有问题均不由本任务引入；`sicau-niu`未启用`i18n`且本任务定向单测、类型检查和 E2E 均通过，因此这些全仓基线不阻断`FB-28`实现验收。
+- 已执行并通过（`FB-29`）：`make dao`与`make ctrl`（在`apps/lina-plugins/sicau-niu`内），生成五张新增表的`DAO/DO/Entity`和新增玩家接口；清理生成器对既有手工接口产生的重复文件后完成编译验证。
+- 已执行并通过（`FB-29`）：`psql ... -f manifest/sql/010-sicau-niu-miniapp-interfaces.sql`重复执行，已有表和索引均安全跳过；`information_schema.columns`确认新增表全部时间点字段均为`timestamp with time zone`。
+- 已执行并通过（`FB-29`）：`LINA_TEST_PGSQL_LINK='pgsql:postgres:postgres@tcp(127.0.0.1:5432)/linapro?sslmode=disable' GOWORK=off go test ./... -count=1`（在`apps/lina-plugins/sicau-niu`内），覆盖插件全量包及真实 PostgreSQL 的照片所有权/一次消费、失败激活照片复用、后到激活、完整图鉴目录与锁定卡面脱敏、模糊位置、好友动态、搬运生命周期、状态读取超时、超时心跳提交，以及本人队伍超出`20`队公共窗口后仍固定返回的回归。
+- 已执行并通过（`FB-29`）：`PATH=/Users/wanna/go/go1.26.4/bin:/Users/wanna/Library/pnpm:$PATH GOROOT=/Users/wanna/go/go1.26.4 make lint dir=apps/lina-plugins/sicau-niu plugins=1`，`golangci-lint`与`staticcheck`均为`0 issues`。
+- 已执行并通过（`FB-29`）：`GOWORK=off go vet ./backend/...`；`pnpm build:weapp`生产构建；`pnpm exec vitest run`共`2`个测试文件、`14`个用例全部通过。
+- 已执行并通过（`FB-29`）：从最新启动的宿主`/api.json?lang=en-US`生成`cow-mini/docs/sicau-niu-player-api.json`，包含`75`条插件路径和`249`个插件 Schema，无悬空`$ref`；图鉴条目包含布尔`owned`字段。
+- 已执行并通过（`FB-29`）：真实 HTTP 冒烟验证公开配置返回三个校区且`debug=false`；测试玩家登录后图鉴返回`10`张、五类齐全、未拥有项卡面泄漏数为`0`；铁牛不可用状态返回`code=0`、`enabled=false`，小程序生产页面按该状态隐藏搬运入口。
+- 已执行并通过（`FB-29`）：主仓、插件仓和`cow-mini`分别执行`git diff --check`；`openspec validate complete-sicau-niu-feedback-gaps --strict`。
+- 已执行并记录（`FB-29`）：主仓全量`make lint`在未改动的`cms`插件命中既有`cyclop`和`revive`各一项；本任务目标插件随后通过定向 Lint，结果为`0 issues`，该全仓基线不影响本次插件结论。
+- E2E 判断（`FB-29`）：本次修改`cow-mini`真实适配器和页面禁用态，但仓库没有微信小程序运行时的 Playwright 驱动；采用小程序生产构建、Vitest、真实 PostgreSQL 服务集成测试、运行时 OpenAPI 契约检查和真实 HTTP 冒烟完成等价验证。管理工作台未新增本反馈专属页面，不新增`lina-e2e`编号。
+- `i18n`影响判断（`FB-29`）：`sicau-niu`未启用插件`i18n`，新增 API 摘要和`cow-mini`中文文案按单语言插件/小程序处理，不新增`manifest/i18n`资源；此前全仓`i18n.check`与`test:validate`报告的既有基线问题不属于本次变更范围，不阻断目标插件验收。
