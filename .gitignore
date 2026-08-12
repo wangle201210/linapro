@@ -144,3 +144,4 @@ apps/lina-plugins/*/manifest/config/config.yaml
 # AGENTS.md is the only truth, link to it if necessary.
 /CLAUDE.md
 /GEMINI.md
+/tmp/
