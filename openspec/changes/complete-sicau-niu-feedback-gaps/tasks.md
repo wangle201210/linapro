@@ -46,6 +46,7 @@
 - [x] **FB-44**: 小程序没有消费已有的消息、赠草、激活海报和电子证书接口，通知入口固定显示无消息，分享与荣誉产物没有真实服务端闭环
 - [x] **FB-45**: 小程序单次喂草只消耗`1`单位草料，需要改为每次消耗`12`单位
 - [x] **FB-46**: 牛只只展示被喂养次数，缺少含铁牛加成的累计被喂草量
+- [x] **FB-47**: 运营端激活记录和打卡尝试的照片无法查看，页面把不透明照片标识当作图片地址渲染
 
 ### 根因记录
 
@@ -118,6 +119,8 @@
 
 - `FB-46`根因：牛只被喂养统计从一开始只按"次数"设计，`activation_map.go`的批量装配只对`plugin_sicau_niu_feeding`做`COUNT(*)`分组，公开`VisibleNiuItem`契约也只有`feedCount`；表中已持久化含铁牛加成的`effect_amount`，但从未在牛只维度聚合投影，小程序因此无法展示"这头牛被喂了多少草"。
 
+- `FB-47`根因：`plugin_sicau_niu_activation.photo_path`与`activation_attempt.photo_path`保存的是不透明照片标识（`plugin_sicau_niu_activation_photo.token`的`UUID`），照片字节存放在插件私有对象存储`activation-photos/<token>.webp`，只能通过受保护的`GET /plugins/sicau-niu/admin/audit/photos/{photoId}`读取`base64`内容。但`sicau-niu-record-activation.vue`直接把`row.photoPath`绑定到`<Image :src>`，浏览器把`UUID`当作相对地址请求，必然`404`，预览层始终空白；该审计接口从未被前端调用。`FB-15`的`TC006`用例又把`photo_path`直接种成`data:image/gif;base64,...`可渲染地址，使断言`src`等于`photoPath`在错误实现下依然通过，掩盖了这个契约错配。生产实例复核确认：`admin/records/activations`返回`photoPath: "d807612e-d35a-4645-a14f-6d1a22011538"`，同一标识经审计接口可正常取回`image/webp`、`134688`字节。
+
 ### 影响分析
 
 - 已读取规则：`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`。
@@ -154,6 +157,8 @@
 - `FB-45`补充影响：已按`AGENTS.md`重新读取`.agents/rules/openspec.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/rules/documentation.md`；`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。仅修改独立`cow-mini/miniapp`的喂草经济参数模块、真实适配器、开发 mock、稳定错误码中文映射、对应 Vitest 用例和当前 OpenSpec 记录；不修改`lina-core`、`lina-vben`、`hack`、`sicau-niu`后端、HTTP API 契约、SQL、DAO 或开发脚本。后端喂草接口`baseAmount`本就接受任意正整数并在事务内按行锁校验余额，余额不足由`CodeInsufficientBalance`整体拒绝，不存在部分扣减，因此无需后端改动。数据权限影响：喂草仍以玩家 token 自隔离，未改变可见性或写入边界。缓存一致性影响：无，客户端幂等池为进程内请求协调，未新增任何缓存。接口性能影响：无，单次喂草仍为一次写请求，未改变调用频次或数据装配路径。`DI`来源检查：无新增运行期依赖、构造函数或启动装配变化。开发工具跨平台影响：无，未修改脚本、`Makefile`、`make.cmd`、CI 或`linactl`。`i18n`影响：`sicau-niu`未在`plugin.yaml`启用`i18n`，小程序为单语言中文，新增中文错误映射消费后端稳定`errorCode`，不新增`manifest/i18n`或`apidoc i18n`资源。文档治理影响：不新增目录级说明文档，无中英文镜像文档影响。测试策略：小程序不属于 Vben 浏览器工作台的 Playwright 资产，沿用`FB-39`~`FB-44`已确认的等价自动化边界，不分配新的插件`TC`编号，改用纯模块 Vitest 契约测试覆盖消耗数量、幂等键、非法目标与余额不足提示。
 
 - `FB-46`补充影响：本次读取`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/data-permission.md`；`.agents/rules/openspec.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/rules/documentation.md`已在本次反馈会话内读取且工具确认磁盘内容未变更。`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。修改范围为`sicau-niu`插件的玩家端 API DTO、激活服务批量装配、玩家控制器投影、插件测试，以及独立`cow-mini`的类型、真实适配器、开发 mock、牛详情展示和 OpenAPI 快照；不修改`lina-core`、`lina-vben`、`hack`或开发脚本。数据库影响：不新增表、字段、索引或迁移 SQL，直接复用`plugin_sicau_niu_feeding.effect_amount`与既有`idx_sicau_niu_feeding_niu`；无`make dao`生成变化。接口性能：喂养次数与被喂草量在原有同一条`WhereIn + GROUP BY`查询中一次聚合返回，可见牛只上限仍为`120`，数据库访问次数不随牛只数增长，未引入`N+1`或前端逐项补查。数据权限：该统计是全员共享的公开牛只投影，不含玩家身份维度，未改变可见性边界，也不暴露范围外数据存在性；详情继续复用可见列表的可见性判断。缓存一致性：无影响，不新增缓存或快照。`DI`来源检查：无新增运行期依赖、构造函数或启动装配变化，仅在既有`activation`服务内部替换聚合函数。`i18n`影响：`sicau-niu`未启用插件`i18n`，新增 API 文档源文本为英文，小程序为单语言中文，不新增`manifest/i18n`或`apidoc i18n`资源。开发工具跨平台影响：无。文档治理：同步`cow-mini`OpenAPI 快照，不新增目录级说明文档，无中英文镜像文档影响。测试策略：后端新增数据库门控聚合测试；小程序沿用既有等价自动化边界，不分配新的插件`TC`编号。
+
+- `FB-47`补充影响：已按`AGENTS.md`读取`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/api-contract.md`、`.agents/rules/data-permission.md`、`.agents/rules/i18n.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`；`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。仅修改`sicau-niu`插件前端页面、前端 API 客户端和插件自有 E2E 资产；不修改后端 Go、API 契约、SQL、DAO、`lina-core`、`lina-vben`或开发脚本。数据权限：照片内容继续走既有受保护审计路由，权限标签仍为`sicau-niu:record:list`，未放宽任何边界，也未在页面暴露对象存储路径。接口性能：预览为用户点击触发的单次按需请求，列表不再为每行加载图片，未引入随行数增长的请求。缓存一致性：无影响。`DI`来源检查：无新增运行期依赖。`i18n`影响：`sicau-niu`未启用插件`i18n`，新增提示为单语言中文，不新增语言资源。开发工具跨平台影响：无。文档治理：无目录级说明文档或中英文镜像影响。测试策略：修正`TC006`原本用可渲染`data:` URL 掩盖契约的种子数据，改为种入不透明标识并在用例内桩掉审计接口，新增`TC-6f`覆盖读取失败提示。
 
 ### 执行记录
 
@@ -206,6 +211,8 @@
 - `FB-45`修复：新增`cow-mini/miniapp/src/services/feed-economy.ts`集中定义单次喂草消耗量`FEED_BASE_AMOUNT=12`、请求参数构造和包含消耗数量的幂等操作键；真实适配器改为提交该参数并使用`feed:{niuId}:12`操作键，开发 mock 同步按`12`校验余额、扣减草料并按后端同一系数公式计算普通`12`、铁牛`18`的经验，避免最小单位下加成被整数除法抹平。`PLUGIN_SICAU_NIU_GRASS_INSUFFICIENT_BALANCE`补充中文映射，消耗提高后余额不足不再展示英文 fallback。
 
 - `FB-46`修复：`activation`服务把原`batchFeedCounts`改为`batchFeedStats`，在同一条按`niu_id`分组的查询中同时返回`COUNT(*)`和`COALESCE(SUM(effect_amount), 0)`，并投影到`VisibleNiuItem.FeedEffect`；玩家端`VisibleNiuItem`契约新增`feedEffect`，可见列表与单牛详情共用同一映射。`cow-mini`的`CowMarker`、`CowDetail`、真实适配器、开发 mock 与持久化快照同步该字段，牛详情展示改为“已激活 · 被喂养 N 次 · 累计 M 草”；真实适配器对缺省或非法值归一为`0`，兼容尚未发布该字段的后端，不产生`NaN`文案。
+
+- `FB-47`修复：`record-client.ts`新增`getActivationPhoto(photoId)`调用受保护审计接口；激活记录页改为点击后异步取回`base64`内容并以`data:<contentType>;base64,`预览，按钮在读取期间显示加载态并防重复点击，失败展示“照片读取失败,请稍后重试”，关闭预览时释放数据。`TC006`种子数据改为不透明标识，`TC-6d`额外断言页面确实用该标识请求了审计接口，新增`TC-6f`覆盖读取失败提示，页面对象补充失败断言方法。
 
 ### 验证记录
 
@@ -402,3 +409,4 @@
 - `lina-review`结论（`FB-36`~`FB-44`）：按反馈级范围展开主仓、插件子仓和`cow-mini`全部增量，复核事务锁、幂等快照、数据库升级重放、玩家数据隔离、分页/聚合性能、接口文档、前端失败恢复和隐私声明；审查中发现并修复服务层请求键可空、客户端确定失败复用旧键、并发及跨日请求键丢失、写成功后二次读取误报、激活草稿重试换键或跨页丢失、云搬牛待定上报被新定位阻断、首次微信隐私授权无入口、写响应语义非法仍释放原键、云搬牛分页跳页、隐藏团死状态、到期结算回滚、旧 SQL 重放失败、响应数据残缺释放幂等键、旧幂等事实缺快照以及已上传照片因定位失败丢失等问题。最终独立静态复审和上述动态回归在非`webp`范围未发现仍开放的`BLOCKER/HIGH`；生产微信凭据已配置，真实网关负向验证通过，源码插件`v0.2.0`已由宿主生命周期显式升级并核验 registry、迁移字段和容器健康。剩余唯一发布/验收门禁为`FB-36`微信真机正向登录与隐私/相册/定位链路，不能以 Mock 或 H5 结果代替；按用户要求未执行激活/WebP依赖链编译与全量 Lint，属于本轮验证边界，不宣称该范围已动态通过。`activityPhase`规范只要求公开配置返回字段，没有定义`preview/closed`业务门禁，因此不擅自新增行为。根仓既有`go.work`中`water`工作区变更和`cow-mini/.playwright-cli/`未跟踪工具产物均不属于本轮，未修改、删除或纳入功能结论。
 - 已执行并通过（`FB-45`）：在`cow-mini/miniapp`以不超过`1024MiB`的 Node 内存上限运行`pnpm exec vitest run`，共`16`个文件`103`个用例通过，新增用例覆盖单次喂草消耗`12`单位、`feed:{niuId}:12`幂等键与`baseAmount=1`不复用同键、非法喂养目标拒绝提交、`12`与`18`两档有效效果不被整数除法抹平，以及余额不足展示中文提示而非英文 fallback；`pnpm exec tsc --noEmit`通过；`pnpm build:weapp`编译成功，仅剩既有`cow.glb`体积与异步分包提示。`openspec validate complete-sicau-niu-feedback-gaps --strict`通过，主仓与`cow-mini`的`git diff --check`均无问题。后端未改动，未运行插件 Go 测试；喂草消耗上限、余额校验和加成系数均由既有后端事务路径承担，经源码复核确认`baseAmount`为正且不超过余额即接受，余额不足由`CodeInsufficientBalance`整体拒绝。
 - 已执行并通过（`FB-46`）：以`GOWORK=off`、`GOMAXPROCS=2`、`GOFLAGS=-p=2`、`GOMEMLIMIT=3GiB`编译`activation`服务、玩家控制器和玩家 API 包；对真实本机 PostgreSQL 运行`go test ./backend/internal/service/activation -run TestVisibleNiu -count=1`，新增`TestVisibleNiuAggregatesFeedStats`实际执行并通过，覆盖三条喂草记录（普通`12`×2 与铁牛`18`×1）聚合为次数`3`、被喂草量`42`，以及无人喂养牛只两项统计均为`0`。插件启动绑定包`go test ./backend -count=1`通过。`make lint dir=apps/lina-plugins/sicau-niu plugins=1`通过，`golangci-lint`与`staticcheck`均为`0 issues`。`cow-mini/miniapp`的`pnpm exec tsc --noEmit`、Vitest`16`文件`103`用例和`pnpm build:weapp`均通过；`jq empty docs/sicau-niu-player-api.json`通过且`VisibleNiuItem.properties.feedEffect`已存在。`openspec validate complete-sicau-niu-feedback-gaps --strict`与两仓`git diff --check`通过。本次未新增 SQL 迁移和`DAO`生成变化，故未运行`make db.init`与`make dao`。
+- 已执行并通过（`FB-47`）：`apps/lina-vben/apps/web-antd`的`pnpm typecheck`（`vue-tsc --noEmit`）通过；该入口不覆盖插件目录下的`.vue`，因此另以本地`vite dev`加载源码插件页面完成运行态验证。以`LINAPRO_SOURCE_PLUGINS=1`、`LINAPRO_BACKEND_PROXY_TARGET=https://media2.scyytc.com`启动本地管理端并用`admin`登录生产后端，打开“寻牛记录 → 激活记录”：正式激活与打卡尝试两个页签点击“查看”后，预览层`src`均为`data:image/webp;base64,`且图片解码为`1279x1706`真实照片，修复前该处为不透明标识导致预览空白。移动端无关，采用桌面视口；截图经视觉检查确认照片正常显示、弹层无遮挡，验证后已删除截图、关闭浏览器与开发服务器，并清理`.playwright-cli`产物。生产实例仅执行只读接口调用，未做任何写操作。`openspec validate complete-sicau-niu-feedback-gaps --strict`与两仓`git diff --check`通过。`TC006`修正后的用例依赖宿主 E2E runner，本轮未运行完整 Playwright 套件，沿用既有`TC004/TC019`归属与`auth-state.ts`加载器基础设施问题的记录边界，改用上述真实浏览器流程作为等价验证。
