@@ -48,6 +48,7 @@
 - [x] **FB-46**: 牛只只展示被喂养次数，缺少含铁牛加成的累计被喂草量
 - [x] **FB-47**: 运营端激活记录和打卡尝试的照片无法查看，页面把不透明照片标识当作图片地址渲染
 - [x] **FB-48**: 激活海报中文全部渲染成`?`，版式空洞难看，电子证书同源缺陷
+- [x] **FB-51**: 激活日限、附近无牛等玩家端异常仍显示后端英文 fallback，未按稳定错误码转中文
 - [x] **FB-50**: 激活照片转码存在解压炸弹缺口与分钟级 CPU 占用，且无并发上限
 - [x] **FB-49**: 服务端`Go`绘图能力受限，海报观感仍不达标；海报与电子证书改为小程序按结构化字段自绘，服务端渲染下线
 
@@ -130,6 +131,8 @@
 
 - `FB-50`根因：`standardizeImage`把像素上限检查放在`decodeImage`之后，`maxDecodedPixels`只能在整图已经解进内存后才生效；一个几百`KB`、声明`20000x20000`的`PNG`会先让`png.Decode`分配约`1.6GB`，`JPEG`同理，形成解压炸弹面。转码本身也失衡：内层按质量`84`降到`28`共`8`档、外层最多`8`轮`80%`缩放，最坏对全分辨率图执行`64`次`Method 6`编码；生产容器内不存在`libwebp.so`，`gen2brain/webp`回退到`wasm2go`转译后端，比原生慢数倍。实测（同一`wasm`路径）：`12M`像素单次`Method 6`编码耗时`9.25s`，一张普通手机照片走完整条流水线耗时`2分12秒`，期间占满一个核心。此外转码路径没有并发闸门，容器也未设置`mem_limit`或`GOMEMLIMIT`，`OOM`会带走整个宿主进程而不只是当前请求。
 
+- `FB-51`根因：`FB-31`只把签到重复一条错误码接入了小程序中文映射，`FB-33`补了云搬牛八条，其余玩家端可触达的稳定错误码始终没有进`error-message.ts`的映射表；`resolveErrorMessage`对未收录的码直接回落到后端`message`，而后端按接口规范保留英文 fallback，于是"今天已激活过""附近没有牛""照片过大"等提示原样以英文弹给玩家。根因不只是漏了几条：兜底策略本身把"未收录"等同于"可以显示后端原文"，因此每新增一个错误码都会重新出现同样的问题。
+
 ### 影响分析
 
 - 已读取规则：`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`。
@@ -174,6 +177,8 @@
 - `FB-49`补充影响：已按`AGENTS.md`读取`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/data-permission.md`；`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。后端删除`posterrender`、`certrender`与`rendertext`三个包及内嵌字体资源，`activation`与`honor`服务各减少一个构造参数（`DI`来源检查：两处运行期依赖由`backend/plugin.go`装配点同步移除，无新增依赖）；玩家海报与证书响应移除`imageBase64`，证书响应新增`campusBadge`。这是破坏性契约收缩，但活动尚未上线、不存在依赖该字段的已发布客户端，因此不保留任何兼容分支；服务端与小程序按同版发布即可。数据权限：两个接口仍要求本人已激活或已持有该荣誉，边界未变。接口性能：响应体积显著减小（不再传输数百`KB`的`base64`），服务端不再有同步图像编码开销，数据库查询次数不变。缓存一致性：无影响。`i18n`影响：`sicau-niu`未启用插件`i18n`，中文文案全部落在小程序侧，服务端不再产出中文图片文本。开发工具跨平台影响：无。文档治理：同步`cow-mini`OpenAPI 快照，无目录级说明文档影响。测试策略：绘制方案与折行/截断算法抽为纯模块单测；画布落笔与相册保存依赖真机能力，由构建门禁与真机验收覆盖。
 
 - `FB-50`补充影响：改动闭环在`sicau-niu`插件的`activationphoto`服务与其错误码；不修改`API`契约、`SQL`、`DAO`、前端或框架文件（宿主`Dockerfile`装原生`libwebp`的方案未采纳，需单独授权）。数据权限：上传路径仍按玩家自隔离，未改变可见性。缓存一致性：无。`DI`来源检查：新增的转码闸门是包内进程级信号量，不是运行期依赖，无构造函数或启动装配变化。接口性能：单张照片转码从最坏`64`次全分辨率编码降为先一次性缩放再`1`次编码（超标才降质量，最多`4`档，仍超标才按`3/4`继续缩），并发转码被限制为`4`。`i18n`影响：新增两个稳定错误码保留英文`fallback`，`sicau-niu`未启用插件`i18n`，不新增语言资源；小程序按稳定错误码显示中文。开发工具跨平台影响：无。测试策略：新增纯逻辑单测，用手工构造`PNG`头部的方式验证超大图在解码前被拒。
+
+- `FB-51`补充影响：仅修改`cow-mini/miniapp`的错误文案映射与其单测，以及当前 OpenSpec 记录；不修改后端、接口契约、`SQL`或框架文件。后端继续按`.agents/rules/api-contract.md`与`.agents/rules/i18n.md`保留稳定`errorCode`加英文 fallback，中文只落在单语言小程序侧，`sicau-niu`未启用插件`i18n`，不新增语言资源。数据权限、缓存一致性、`DI`来源、接口性能、开发工具跨平台均无影响。测试策略：纯函数映射，用单测覆盖典型错误码与新的英文兜底策略。
 
 ### 执行记录
 
@@ -234,6 +239,8 @@
 - `FB-49`修复：后端删除`backend/internal/service/activation/internal/posterrender`、`backend/internal/service/honor/internal/certrender`和`backend/internal/rendertext`（含`8MB`内嵌字体与许可证），`activation`与`honor`服务构造函数不再接收渲染器，`backend/plugin.go`装配同步收敛；`PosterRes`与`CertificateRes`移除`imageBase64`，证书补充`campusBadge`供小程序绘制。小程序新增`lib/share-canvas-model.ts`（纯计算：绘制方案、身份标签、发放时间格式化、按画布度量的中文逐字折行与省略截断）与`lib/share-canvas.ts`（`Canvas 2D`落笔与导出）：海报为竖版`300×400`逻辑画布，含校庆抬头带、大字牛名、三列事实条、金句卡片与页脚带；证书为横版`300×200`，含抬头带、持证人、荣誉、编码与发放时间、金色印章圆环。导出按设备像素比再放大`2`倍，经`canvasToTempFilePath`产出临时图片，用于预览与`saveImageToPhotosAlbum`保存，相册权限被拒时给出可恢复中文提示。首页与图鉴页挂载隐藏画布并改用本地图片，删除不再使用的`lib/image-artifact*`。顺带修复`miniappintegration`测试库存在的既有缺陷：其清理列表包含`011`才创建的云搬牛表，而`011`含宿主字典`Seed DML`无法在插件专用测试库执行，改为按表存在性跳过清理。
 
 - `FB-50`修复：像素预算改为在`image.DecodeConfig`读取的文件头上判定，超限直接返回新增的`CodePhotoTooLarge`，任何解码都不会发生；上限从`40M`降到`24M`像素。转码改为先按长边`1600`一次性缩放（`ApproxBiLinear`，产物只是`300KiB`分享图，更锐利的核多花数倍`CPU`无可见收益），再以`Method 4`编码，质量梯子收敛为`82/70/58/46`，仍超标才按`3/4`继续缩到下限`640`。新增进程级信号量把并发转码限制为`4`，上下文已取消时返回`CodePhotoBusy`而不是排队。`decodeImage`的错误一律映射为稳定业务错误码，不再向调用端泄漏裸错误。
+
+- `FB-51`修复：`error-message.ts`按业务域补全玩家端可触达的稳定错误码中文映射，覆盖激活与拍照打卡、照片上传、草料账户与签到、喂草、偷草赠草与消息、云搬牛、登录手机号与身份资料、荣誉证书、牛只卡片与公开配置共`70`余条。同时收紧兜底策略：未收录的错误码若后端只给出不含中文的 fallback，改用调用方的中文兜底文案，不再把英文原文展示给玩家；后端已返回中文时仍优先使用后端文案。这样即使将来新增错误码来不及补映射，玩家看到的也是中文而不是英文。
 
 ### 验证记录
 
@@ -436,3 +443,4 @@
 
 - 已执行并通过（`FB-49`）：插件后端`go build ./backend/...`通过；对真实 PostgreSQL 运行`activation`、`honor`、`miniappintegration`服务包与插件启动绑定包`./backend`测试，全部通过（`miniappintegration`此前因既有清理列表缺陷始终失败，修复后恢复）。`make lint dir=apps/lina-plugins/sicau-niu plugins=1`为`0 issues`。`cow-mini/miniapp`的`pnpm exec tsc --noEmit`通过，Vitest`16`个文件`115`个用例通过（新增`share-canvas-model.test.ts`覆盖绘制方案字段整理、无名牛回退、身份标签兜底、发放时间格式化、中文逐字折行守住宽度与行数、拉丁词不切断、超长省略截断），`pnpm build:weapp`编译成功。`cow-mini`OpenAPI 快照已移除两处`imageBase64`并补充`campusBadge`，`jq empty`校验通过。`openspec validate complete-sicau-niu-feedback-gaps --strict`与三仓`git diff --check`通过。画布落笔、`canvasToTempFilePath`导出和相册保存依赖微信真机能力，本轮未做真机验收，属于本次验证边界；上线前需在 iOS 与 Android 各验证一次出图与保存。
 - 已执行并通过（`FB-50`）：新增`activationphoto_test.go`共`5`个用例，覆盖手工构造`PNG`头部的解压炸弹在`0.00s`内被拒（断言耗时上界，证明未走完整解码）、相机尺寸照片转码后长边不超过`1600`且产物不超过`300KiB`、非图片载荷返回`CodePhotoInvalid`、预算内图片跳过缩放且缩放保持宽高比、以及上下文取消时转码闸门返回`CodePhotoBusy`。对真实 PostgreSQL 运行`activationphoto`、`activation`、`miniappintegration`与插件启动绑定包`./backend`测试全部通过；`make lint dir=apps/lina-plugins/sicau-niu plugins=1`为`0 issues`。性能以基准实测为准（同一`wasm2go`路径、`-tags nodynamic`）：修复前一张`12M`像素照片走完流水线`2分12秒`，修复后同规格约`0.5`至`1.5s`，`12M`像素解码固定约`233ms`、缩放约`67ms`、单次编码约`300`至`900ms`；随机噪声属最坏输入，真实平滑照片在`1600`长边下产物远低于`300KiB`。基准脚本为一次性验证手段，未纳入仓库以免把机器相关耗时写成门禁。已验证「在宿主镜像安装原生`libwebp`」不是可行的镜像级优化：`gen2brain/webp`经`purego`加载动态库前会先判断自身是否为动态链接二进制（`purego_unix.go`的`isDynamicBinary`读取`ELF`动态符号表），而宿主构建默认`CGOEnabled: false`（`hack/tools/linactl/internal/config/config.go`与`imagebuilder_config.go`），生产`/app/lina`实测为静态`ET_EXEC`且不含`ld-musl`路径，因此`dlopen`根本不会被尝试，装了库也仍走`wasm2go`。要启用原生库必须改为`CGO_ENABLED=1`、为`amd64`与`arm64`准备`musl`交叉工具链、镜像安装`libwebp-dev`以提供无版本号软链，并接受宿主二进制由静态变为动态链接；该收益约为总耗时再降`0.5`秒，与框架级构建链改动不成比例，经用户确认本轮不实施。
+- 已执行并通过（`FB-51`）：以插件各`*_code.go`中的稳定错误码清单为准逐域比对，确认玩家端可触达的错误码均已收录；`cow-mini/miniapp`的`pnpm exec tsc --noEmit`通过，Vitest`16`个文件`118`个用例通过，其中`error-message.test.ts`新增覆盖激活日限、附近无牛、速度异常、照片分辨率过大、喂草牛未激活的中文映射，以及"未知错误码返回纯英文时改用中文兜底""未知错误码已是中文时保留后端文案"两条兜底策略；`pnpm build:weapp`编译通过。已核对`request.ts`各调用点传入的兜底文案均为中文，兜底策略生效后不会退化成英文。`openspec validate complete-sicau-niu-feedback-gaps --strict`与`cow-mini`的`git diff --check`通过。宿主侧错误（如请求体超限）同样只有英文 fallback，本次兜底策略一并覆盖，玩家不会再看到英文原文。
