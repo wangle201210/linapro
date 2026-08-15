@@ -48,6 +48,7 @@
 - [x] **FB-46**: 牛只只展示被喂养次数，缺少含铁牛加成的累计被喂草量
 - [x] **FB-47**: 运营端激活记录和打卡尝试的照片无法查看，页面把不透明照片标识当作图片地址渲染
 - [x] **FB-48**: 激活海报中文全部渲染成`?`，版式空洞难看，电子证书同源缺陷
+- [x] **FB-50**: 激活照片转码存在解压炸弹缺口与分钟级 CPU 占用，且无并发上限
 - [x] **FB-49**: 服务端`Go`绘图能力受限，海报观感仍不达标；海报与电子证书改为小程序按结构化字段自绘，服务端渲染下线
 
 ### 根因记录
@@ -127,6 +128,8 @@
 
 - `FB-49`根因：`FB-48`补齐字体后海报仍然观感不足，根因是渲染层选错：`image/draw`只能填矩形和画文字，没有圆角、渐变、阴影、位图合成和裁剪，版式天花板受限于绘图能力而不是版式设计。分享物料本质是端上产物，小程序`Canvas 2D`具备完整绘图 API 与设备自带中文字体，且改版只需发小程序版本。复核确认海报与证书图片只有小程序消费，`H5`大屏和运营端都不使用，接口本就同时返回全部结构化字段，因此渲染层可以整体下移而无需扩展契约。
 
+- `FB-50`根因：`standardizeImage`把像素上限检查放在`decodeImage`之后，`maxDecodedPixels`只能在整图已经解进内存后才生效；一个几百`KB`、声明`20000x20000`的`PNG`会先让`png.Decode`分配约`1.6GB`，`JPEG`同理，形成解压炸弹面。转码本身也失衡：内层按质量`84`降到`28`共`8`档、外层最多`8`轮`80%`缩放，最坏对全分辨率图执行`64`次`Method 6`编码；生产容器内不存在`libwebp.so`，`gen2brain/webp`回退到`wasm2go`转译后端，比原生慢数倍。实测（同一`wasm`路径）：`12M`像素单次`Method 6`编码耗时`9.25s`，一张普通手机照片走完整条流水线耗时`2分12秒`，期间占满一个核心。此外转码路径没有并发闸门，容器也未设置`mem_limit`或`GOMEMLIMIT`，`OOM`会带走整个宿主进程而不只是当前请求。
+
 ### 影响分析
 
 - 已读取规则：`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`。
@@ -169,6 +172,8 @@
 - `FB-48`补充影响：本次读取`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/plugin.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/data-permission.md`；`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。改动闭环在`sicau-niu`插件的`rendertext`、海报与证书渲染器、玩家海报 API 与控制器投影，以及`cow-mini`的 OpenAPI 快照；不修改`lina-core`、`lina-vben`、`hack`、Dockerfile、SQL 或 DAO。字体按用户决策内嵌完整`Noto Sans SC Regular`（`SIL OFL 1.1`，随包保留`fonts/LICENSE-OFL.txt`），插件仓库与宿主二进制各增加约`8MB`；`SICAU_NIU_RENDER_FONT`仍可覆盖，系统字体保留为最后兜底，任何镜像下渲染结果一致。接口性能：字体解析和各字号 face 各进程只做一次并缓存，海报仍为单次同步绘制；牛名与编码由原有单行查询一次取回，未新增查询。数据权限：海报仍要求玩家本人已激活该牛，未放宽边界。缓存一致性：仅新增进程内只读字体/face 缓存，无跨节点状态。`DI`来源检查：无新增运行期依赖或构造函数变化。`i18n`影响：`sicau-niu`未启用插件`i18n`，海报与证书为单语言中文产物，新增 API 字段文档为英文源文本，不新增语言资源。开发工具跨平台影响：无。文档治理：同步`cow-mini`OpenAPI 快照，不新增目录级说明文档。测试策略：渲染类为纯后端产物，采用单元测试断言内嵌字体可用、中文出墨、换行与截断守住像素预算，并以人工视觉检查渲染样张确认版式。
 
 - `FB-49`补充影响：已按`AGENTS.md`读取`.agents/rules/backend-go.md`、`.agents/rules/api-contract.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/data-permission.md`；`apps/lina-plugins/sicau-niu/AGENTS.md`不存在。后端删除`posterrender`、`certrender`与`rendertext`三个包及内嵌字体资源，`activation`与`honor`服务各减少一个构造参数（`DI`来源检查：两处运行期依赖由`backend/plugin.go`装配点同步移除，无新增依赖）；玩家海报与证书响应移除`imageBase64`，证书响应新增`campusBadge`。这是破坏性契约收缩，但活动尚未上线、不存在依赖该字段的已发布客户端，因此不保留任何兼容分支；服务端与小程序按同版发布即可。数据权限：两个接口仍要求本人已激活或已持有该荣誉，边界未变。接口性能：响应体积显著减小（不再传输数百`KB`的`base64`），服务端不再有同步图像编码开销，数据库查询次数不变。缓存一致性：无影响。`i18n`影响：`sicau-niu`未启用插件`i18n`，中文文案全部落在小程序侧，服务端不再产出中文图片文本。开发工具跨平台影响：无。文档治理：同步`cow-mini`OpenAPI 快照，无目录级说明文档影响。测试策略：绘制方案与折行/截断算法抽为纯模块单测；画布落笔与相册保存依赖真机能力，由构建门禁与真机验收覆盖。
+
+- `FB-50`补充影响：改动闭环在`sicau-niu`插件的`activationphoto`服务与其错误码；不修改`API`契约、`SQL`、`DAO`、前端或框架文件（宿主`Dockerfile`装原生`libwebp`的方案未采纳，需单独授权）。数据权限：上传路径仍按玩家自隔离，未改变可见性。缓存一致性：无。`DI`来源检查：新增的转码闸门是包内进程级信号量，不是运行期依赖，无构造函数或启动装配变化。接口性能：单张照片转码从最坏`64`次全分辨率编码降为先一次性缩放再`1`次编码（超标才降质量，最多`4`档，仍超标才按`3/4`继续缩），并发转码被限制为`4`。`i18n`影响：新增两个稳定错误码保留英文`fallback`，`sicau-niu`未启用插件`i18n`，不新增语言资源；小程序按稳定错误码显示中文。开发工具跨平台影响：无。测试策略：新增纯逻辑单测，用手工构造`PNG`头部的方式验证超大图在解码前被拒。
 
 ### 执行记录
 
@@ -227,6 +232,8 @@
 - `FB-48`修复：`rendertext`内嵌`Noto Sans SC Regular`并按"环境变量覆盖 → 内嵌字体 → 系统字体 → ASCII 兜底"顺序解析，新增按字号缓存的 face 以及`DrawText`、`DrawTextBold`、`DrawTextCentered(Bold)`、`Measure`、`Wrap`、`Fit`和`HasCJKFace`能力，中文按字断行、拉丁词整体换行、超长文本以省略号截断。海报按中文重做版式：绿色校庆抬头带、"恭喜激活"与大字牛名主视觉、牛编码、寻牛人/到场序号/身份三列事实条、独立金句卡片和页脚带；身份按`student/alumni/friend`映射为在校生/校友/川农好友，牛名经`PosterData.NiuName`接入并在无名普通牛时回退编码。证书渲染器同步获得中文能力，抬头带改为压在边框之上并右对齐校庆标识，消除顶部裁切。玩家海报接口新增`niuName`，`cow-mini`OpenAPI 快照同步。
 
 - `FB-49`修复：后端删除`backend/internal/service/activation/internal/posterrender`、`backend/internal/service/honor/internal/certrender`和`backend/internal/rendertext`（含`8MB`内嵌字体与许可证），`activation`与`honor`服务构造函数不再接收渲染器，`backend/plugin.go`装配同步收敛；`PosterRes`与`CertificateRes`移除`imageBase64`，证书补充`campusBadge`供小程序绘制。小程序新增`lib/share-canvas-model.ts`（纯计算：绘制方案、身份标签、发放时间格式化、按画布度量的中文逐字折行与省略截断）与`lib/share-canvas.ts`（`Canvas 2D`落笔与导出）：海报为竖版`300×400`逻辑画布，含校庆抬头带、大字牛名、三列事实条、金句卡片与页脚带；证书为横版`300×200`，含抬头带、持证人、荣誉、编码与发放时间、金色印章圆环。导出按设备像素比再放大`2`倍，经`canvasToTempFilePath`产出临时图片，用于预览与`saveImageToPhotosAlbum`保存，相册权限被拒时给出可恢复中文提示。首页与图鉴页挂载隐藏画布并改用本地图片，删除不再使用的`lib/image-artifact*`。顺带修复`miniappintegration`测试库存在的既有缺陷：其清理列表包含`011`才创建的云搬牛表，而`011`含宿主字典`Seed DML`无法在插件专用测试库执行，改为按表存在性跳过清理。
+
+- `FB-50`修复：像素预算改为在`image.DecodeConfig`读取的文件头上判定，超限直接返回新增的`CodePhotoTooLarge`，任何解码都不会发生；上限从`40M`降到`24M`像素。转码改为先按长边`1600`一次性缩放（`ApproxBiLinear`，产物只是`300KiB`分享图，更锐利的核多花数倍`CPU`无可见收益），再以`Method 4`编码，质量梯子收敛为`82/70/58/46`，仍超标才按`3/4`继续缩到下限`640`。新增进程级信号量把并发转码限制为`4`，上下文已取消时返回`CodePhotoBusy`而不是排队。`decodeImage`的错误一律映射为稳定业务错误码，不再向调用端泄漏裸错误。
 
 ### 验证记录
 
@@ -428,3 +435,4 @@
 - `FB-49`视觉定稿：按`frontend-design`技能的方法先并列产出三套方向（夜色纪念、阳光校园、校史册页）并在浏览器用同一份绘制代码渲染比较，用户选定「阳光校园版」。定稿版海报为顶部绿色圆角色块承载牛名、金色同心细圆环做底纹、暖金药丸压色块下沿展示到场序号、细线事实带、白色金句卡片与暖金侧栏；证书采用同族语言的绿色书脊、竖排标题、金环「百廿」印与右侧信息栏。未选中的两套方向及其专用绘制工具已删除，绘制入口收敛为单一实现。边界情况经渲染核验：超长昵称自动降档字号后再省略、无名普通牛以编码作主标题且不再重复展示编码行、空金句与空校庆标识走默认兜底。
 
 - 已执行并通过（`FB-49`）：插件后端`go build ./backend/...`通过；对真实 PostgreSQL 运行`activation`、`honor`、`miniappintegration`服务包与插件启动绑定包`./backend`测试，全部通过（`miniappintegration`此前因既有清理列表缺陷始终失败，修复后恢复）。`make lint dir=apps/lina-plugins/sicau-niu plugins=1`为`0 issues`。`cow-mini/miniapp`的`pnpm exec tsc --noEmit`通过，Vitest`16`个文件`115`个用例通过（新增`share-canvas-model.test.ts`覆盖绘制方案字段整理、无名牛回退、身份标签兜底、发放时间格式化、中文逐字折行守住宽度与行数、拉丁词不切断、超长省略截断），`pnpm build:weapp`编译成功。`cow-mini`OpenAPI 快照已移除两处`imageBase64`并补充`campusBadge`，`jq empty`校验通过。`openspec validate complete-sicau-niu-feedback-gaps --strict`与三仓`git diff --check`通过。画布落笔、`canvasToTempFilePath`导出和相册保存依赖微信真机能力，本轮未做真机验收，属于本次验证边界；上线前需在 iOS 与 Android 各验证一次出图与保存。
+- 已执行并通过（`FB-50`）：新增`activationphoto_test.go`共`5`个用例，覆盖手工构造`PNG`头部的解压炸弹在`0.00s`内被拒（断言耗时上界，证明未走完整解码）、相机尺寸照片转码后长边不超过`1600`且产物不超过`300KiB`、非图片载荷返回`CodePhotoInvalid`、预算内图片跳过缩放且缩放保持宽高比、以及上下文取消时转码闸门返回`CodePhotoBusy`。对真实 PostgreSQL 运行`activationphoto`、`activation`、`miniappintegration`与插件启动绑定包`./backend`测试全部通过；`make lint dir=apps/lina-plugins/sicau-niu plugins=1`为`0 issues`。性能以基准实测为准（同一`wasm2go`路径、`-tags nodynamic`）：修复前一张`12M`像素照片走完流水线`2分12秒`，修复后同规格约`0.5`至`1.5s`，`12M`像素解码固定约`233ms`、缩放约`67ms`、单次编码约`300`至`900ms`；随机噪声属最坏输入，真实平滑照片在`1600`长边下产物远低于`300KiB`。基准脚本为一次性验证手段，未纳入仓库以免把机器相关耗时写成门禁。已验证「在宿主镜像安装原生`libwebp`」不是可行的镜像级优化：`gen2brain/webp`经`purego`加载动态库前会先判断自身是否为动态链接二进制（`purego_unix.go`的`isDynamicBinary`读取`ELF`动态符号表），而宿主构建默认`CGOEnabled: false`（`hack/tools/linactl/internal/config/config.go`与`imagebuilder_config.go`），生产`/app/lina`实测为静态`ET_EXEC`且不含`ld-musl`路径，因此`dlopen`根本不会被尝试，装了库也仍走`wasm2go`。要启用原生库必须改为`CGO_ENABLED=1`、为`amd64`与`arm64`准备`musl`交叉工具链、镜像安装`libwebp-dev`以提供无版本号软链，并接受宿主二进制由静态变为动态链接；该收益约为总耗时再降`0.5`秒，与框架级构建链改动不成比例，经用户确认本轮不实施。
