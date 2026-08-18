@@ -44,6 +44,9 @@
 - [x] FB-30 删除视频网关服务监测拓扑响应中数据库无法真实获取的字段。
 - [x] FB-31 为单设备拓扑查询补充有效的活跃流和活跃会话索引。
 - [x] FB-32 补齐仅按租户 ID 查询的租户媒体节点拓扑聚合接口。
+- [x] FB-33 将`media`插件的`github.com/dellinger2023/net-flux`依赖升级到最新正式 tag，并验证现有 TCP 采集与 Nacos discovery 适配。
+- [x] FB-34 通过 media TCP 采集接口向指定 Nacos 注册持久测试实例并上报一组活跃看板数据，保留注册和上报结果供人工检查。
+- [x] FB-35 将联调 Nacos 命名空间从误读的`qinju`纠正为`qiniu`，通过 media TCP 接口重新注册持久实例并保留结果。
 
 ### FB-13 反馈修复记录
 
@@ -420,3 +423,49 @@
 - 审查：已执行`lina-review`反馈级审查，范围来自主仓和插件子仓`git status --short`及未跟踪文件展开，共`15`个文件；发现的参数/授权晚于表检查、service 接口注释缺少租户隔离调用边界两项问题均已修复，复审未发现阻塞问题。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/data-permission.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/database.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能；前端、E2E、开发工具长期入口和宿主插件 README 均无变更影响。
 - 验证：`GOWORK=off GONOSUMDB=github.com/dellinger2023/net-flux go test ./... -count=1 -parallel 1`通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`；PostgreSQL SQL 脚本连续执行通过且第二次提示新增索引已存在；`pg_indexes`确认两个租户活跃部分索引定义正确；`EXPLAIN`确认活跃流节点协议聚合使用`idx_media_report_stream_active_tenant_node_protocol`，活跃会话节点聚合使用`idx_media_report_session_active_tenant_node`；`openspec validate add-media-data-collection-server --strict`通过；主仓和插件子仓`git diff --check`通过。
+
+### FB-33 反馈修复记录
+
+- 根因：`media`插件仍依赖`github.com/dellinger2023/net-flux v0.0.8-0.20260718061636-316ef59c9e05`伪版本，上游已经发布`v0.0.18`正式 tag。对比`316ef59c9e05..v0.0.18`确认`gen`上报协议、`network.NewTcpServer`和`network.EventHandler`接口未变，新增内容主要位于 naming、balancer、cache 及 TCP client 重连修复，现有采集 server 无需 API 迁移；但用户提供的`collectionServer.discovery.host`为`http://10.157.225.139/`完整 URL，既有适配直接把该值写入 Nacos SDK 的`IpAddr`，SDK 会在尾部斜杠后再次拼接端口并生成错误地址。
+- 修复：将`net-flux`依赖升级到`v0.0.18`并刷新`go.sum`；新增 Nacos server config 规范化，将裸主机名或`http/https` URL 映射为 SDK 独立的`Scheme`、`IpAddr`和`Port`字段，拒绝 URL 凭据、查询参数、片段、额外路径和与`collectionServer.discovery.port`冲突的 URL 端口；配置加载阶段提前校验，避免首次 discovery 报文到达时才暴露错误。
+- OpenSpec：本反馈直接维护活跃变更`add-media-data-collection-server`引入的 TCP 采集与 Nacos discovery 实现，不新增能力或改变既有采集协议规范，仅在`tasks.md`记录依赖升级和实现适配。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行；根目录不存在`.contributing`，变更全部限定在`media`插件与对应 OpenSpec 记录内，未修改`apps/lina-core`、`apps/lina-vben`或`hack`。
+- 架构边界：继续由`media`源码插件内部`collection`服务持有 TCP 与 Nacos 适配，不新增模块、跨模块契约、抽象层或宿主能力；URL 解析是 Nacos SDK 边界前的局部值适配。
+- API、数据权限与数据库：不新增或修改 HTTP API、路由、DTO、权限标签、数据读写入口、租户可见性、SQL、DAO、DO、Entity、索引或查询路径，无数据权限、数据库性能和`N+1`影响。
+- 缓存一致性：虽然新版`net-flux`新增 cache 包，但`media`未导入或启用该能力；既有宿主共享 cache、生命周期计数、缓存键、失效和跨实例策略均未修改，无缓存一致性影响。
+- i18n：不修改运行时用户可见文案、前端 UI、API 文档源文本、插件清单、语言包、`apidoc`资源或翻译缓存，无 i18n 影响。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或开发入口；依赖与代码继续使用插件既有`Go 1.25`基线。定向 lint 初次因环境中的`go1.25.8`可执行文件错误搭配`go1.26.4 GOROOT`失败，显式设置匹配的`GOROOT=/Users/wanna/sdk/go1.25.8`和`GOTOOLCHAIN=local`后通过，确认失败与代码无关。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数、启动装配、插件宿主服务适配器或`WASM host service`依赖；仅升级 collection 服务已经直接使用的模块版本。
+- 测试策略：新增单元测试覆盖截图中的 URL host 规范化和非法 URL path 启动期拒绝；真实 Nacos 集成测试新增命名空间、用户名和密码环境参数，并使用用户提供的主机、端口、`qinju`命名空间及凭据完成持久实例注册、查询和注销。变更不涉及页面、路由、前端接口联动或 E2E 资产，未触发页面 E2E 和截图验证。
+- 审查：已执行`lina-review`反馈级审查，范围来自主仓和插件子仓`git status --short`、已跟踪差异及未跟踪文件扫描，共`7`个文件；未发现严重或警告问题。HTTP Nacos 已完成真实验证，HTTPS Nacos 未单独实测，保留为非阻塞剩余风险。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；API contract、数据权限、数据库、缓存一致性、i18n、前端 UI 和开发工具规则域确认无变更影响。
+- 验证：`go list -m -versions github.com/dellinger2023/net-flux`和上游 Git tags 均确认最新正式 tag 为`v0.0.18`；`GOWORK=off go test ./backend/internal/service/collection ./hack/tools/collection-client -count=1`通过；使用给定 Nacos 配置执行`TestNacosDiscoveryClientIntegration`通过，完成注册、查询和注销，测试后经认证只读扫描未发现`linapro-media-collection-test-`残留服务；`GOWORK=off go test ./... -count=1 -parallel 1`通过；`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local make lint dir=apps/lina-plugins/media plugins=1`通过；`openspec validate add-media-data-collection-server --strict`通过；主仓与插件子仓`git diff --check`通过。
+
+### FB-34 反馈执行记录
+
+- 现状：执行前本机没有进程监听`1911`，本地数据库中的`media`插件处于未安装状态。为确保联调经过项目真实 TCP 采集入口，而不是直接写 Nacos 或数据库，在`temp/20260818/nacos-report-155822/`创建忽略跟踪的临时运行配置，关闭本机缺失 Redis 时的集群模式、自动安装并启用`media`插件，并使用用户提供的 Nacos 主机、`8848`端口、`qinju`命名空间和账号配置启动临时官方插件后端。
+- Nacos 注册：通过`collection-client -action register`向`127.0.0.1:1911`发送 discovery 注册报文，保留命名空间`qinju`、分组`1`、服务`linapro-media-report-20260818-160000`、实例`127.0.0.1:19191`；Nacos 查询确认`enabled=true`且`ephemeral=false`。该地址是仅供记录检查的本机测试端点，Nacos 服务端无法探测，因此显示`healthy=false`，不代表注册失败。
+- 指标上报：通过`collection-client -action report`发送实例、网络、流、会话指标及流/会话新增事件。保留实例`linapro-media-report-20260818-160000`、租户`tenant-nacos-demo`、设备`device-nacos-demo-20260818-160000`、节点`node-nacos-demo-1`、流`stream-nacos-demo-20260818-160000`和会话`session-nacos-demo-20260818-160000`；数据库确认实例`live_streams=1`、`sessions=1`，流状态为`running`，流和会话`close_time`均为空。
+- 保留策略：遵循用户“不用清理”的要求，未发送 discovery deregister、Nacos 服务删除、`STREAM_DELETE`、`SESSION_DELETE`或数据库删除；只停止占用本机`1911`和`19120`端口的临时后端进程。停止后再次查询确认 Nacos 持久实例、数据库实例计数、活跃流和活跃会话仍存在，本地临时配置和构建产物保留在已忽略的`temp/`目录。
+- 插件与架构边界：未修改`apps/lina-core`、`apps/lina-vben`、`hack`或`media`生产代码和运行配置；联调复用`media`插件既有 TCP handler、Nacos discovery adapter、report writer 和宿主发布的 cache 服务，不新增模块、接口、依赖或抽象。
+- API、数据权限与数据库：不改变 HTTP API、DTO、权限标签、租户可见性、SQL、DAO、DO、Entity 或索引。此次按用户授权向本地开发数据库写入命名唯一的测试投影，并向指定 Nacos 写入一个持久实例；不存在批量查询、循环数据库访问或`N+1`影响。
+- 缓存一致性：临时后端使用`cluster.enabled=false`单机分支，生命周期事件通过既有宿主 cache 能力维护实例实时计数；未修改缓存键、TTL、失效、共享后端或分布式策略。
+- i18n：不修改运行时文案、前端 UI、API 文档、插件清单、语言包或翻译缓存，无 i18n 影响。
+- 开发工具跨平台：仅使用现有 Go 构建、`collection-client`、`curl`和`psql`执行联调；没有修改`Makefile`、脚本、CI、`linactl`或跨平台入口。临时构建显式使用项目要求的`Go 1.25.8`工具链和`temp/go.work.plugins`官方插件工作区。
+- DI 来源检查：不修改运行期依赖或构造函数；临时后端按正常启动装配发布 plugin config、cache 和数据库服务，`media`插件在`system.started`hook 中启动 collection server。
+- 测试策略：这是后端 TCP/Nacos/数据库端到端联调，不涉及页面、路由、表单、权限交互或 E2E 测试资产，未触发页面 E2E 与截图验证。验证链路覆盖 TCP 注册报文、Nacos 只读查询、四类指标与生命周期报文、数据库投影查询以及停止临时后端后的持久性复查。
+- 审查：已执行`lina-review`反馈级审查，范围为`FB-34`的 OpenSpec 执行记录、忽略跟踪的临时配置和外部写入证据；确认核心目录无差异、临时配置未进入 Git、联调结果与记录一致，未发现严重或警告问题。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`lina-review`技能；插件、后端 Go、API contract、数据权限、数据库、缓存一致性、i18n、前端 UI 和开发工具文件均无变更影响。
+- 验证：临时后端日志确认`media collection server started addr=:1911`并接收 discovery、MachineMetric、NetworkMetric、StreamMetric 和 SessionMetric 报文；Nacos HTTP 查询确认服务`1@@linapro-media-report-20260818-160000`包含一个持久实例；PostgreSQL 查询确认实例、节点、流和会话投影写入成功；临时后端停止后`1911`和`19120`无监听，Nacos 与数据库复查结果仍保留。
+
+### FB-35 反馈修复记录
+
+- 根因：上一轮根据截图把目标 Nacos 命名空间误读为`qinju`，并按该错误值启动临时 media 后端，因此用户在正确的`qiniu`命名空间中无法看到服务。Nacos 命名空间接口确认`qiniu`真实存在，纠正前在`qiniu`查询服务`linapro-media-report-20260818-160000`返回`0`个实例。
+- 修复：将忽略跟踪的临时 media 配置`collectionServer.discovery.namespace`改为`qiniu`，重新启动既有官方插件临时后端，并再次通过`collection-client -action register`向 media TCP `127.0.0.1:1911`发送同名 discovery 注册报文；未直接调用 Nacos 写接口。
+- 验证结果：Nacos 在`qiniu`命名空间、分组`1`下返回服务`1@@linapro-media-report-20260818-160000`和实例`127.0.0.1#19191#DEFAULT#1@@linapro-media-report-20260818-160000`，状态为`enabled=true`、`ephemeral=false`。实例使用本机回环测试地址，Nacos 服务端无法探测，因此显示`healthy=false`。
+- 数据边界：Nacos discovery 只保存服务与实例注册，不保存`MachineMetric`、`NetworkMetric`、`StreamMetric`或`SessionMetric`业务指标；上一轮这些指标已经通过 TCP 上报并保留在本地 PostgreSQL 的`media_report_*`读模型中。
+- 保留策略：遵循用户“不用清理”的要求，没有注销或删除`qiniu`新实例，也没有删除先前误写到`qinju`的旧实例和数据库指标；只停止本地临时后端。停止后再次查询确认`qiniu`持久实例仍存在，`1911`和`19120`均无监听进程。
+- 影响分析：未修改生产代码、HTTP API、DTO、权限、数据库结构、缓存实现、运行期依赖、前端 UI、i18n、构建脚本或跨平台入口；只更新 OpenSpec 执行记录和已忽略的临时配置，无数据权限、缓存一致性、`N+1`、DI 或开发工具交付影响。
+- 测试策略：使用 Nacos 命名空间只读列表、纠正前实例查询、media TCP 注册、服务端接收日志、纠正后实例查询和停止进程后的持久性复查完成闭环；不涉及页面或 E2E 测试资产，未触发页面 E2E 与截图验证。
+- 审查：已执行`lina-review`反馈级审查，范围为`FB-35`的 OpenSpec 记录、忽略跟踪的临时配置和 Nacos 查询证据；确认`qiniu`值与持久实例反查一致、生产文件无新增变更、本地无遗留监听进程，未发现严重或警告问题。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`lina-review`技能；其余规则域确认无文件变更影响。
