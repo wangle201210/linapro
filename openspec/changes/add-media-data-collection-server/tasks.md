@@ -47,6 +47,8 @@
 - [x] FB-33 将`media`插件的`github.com/dellinger2023/net-flux`依赖升级到最新正式 tag，并验证现有 TCP 采集与 Nacos discovery 适配。
 - [x] FB-34 通过 media TCP 采集接口向指定 Nacos 注册持久测试实例并上报一组活跃看板数据，保留注册和上报结果供人工检查。
 - [x] FB-35 将联调 Nacos 命名空间从误读的`qinju`纠正为`qiniu`，通过 media TCP 接口重新注册持久实例并保留结果。
+- [x] FB-36 在 Nacos discovery 集成测试中增加显式 opt-in 的只注册不注销入口，供人工联调保留实例且不影响默认测试。
+- [x] FB-37 将只注册不注销的 Nacos 测试隔离到`manual_nacos`构建标签，确保任何常规全量测试都不会编译或执行该测试。
 
 ### FB-13 反馈修复记录
 
@@ -469,3 +471,33 @@
 - 测试策略：使用 Nacos 命名空间只读列表、纠正前实例查询、media TCP 注册、服务端接收日志、纠正后实例查询和停止进程后的持久性复查完成闭环；不涉及页面或 E2E 测试资产，未触发页面 E2E 与截图验证。
 - 审查：已执行`lina-review`反馈级审查，范围为`FB-35`的 OpenSpec 记录、忽略跟踪的临时配置和 Nacos 查询证据；确认`qiniu`值与持久实例反查一致、生产文件无新增变更、本地无遗留监听进程，未发现严重或警告问题。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`和`lina-review`技能；其余规则域确认无文件变更影响。
+
+### FB-36 反馈修复记录
+
+- 根因：现有`TestNacosDiscoveryClientIntegration`固定执行注册、查询、注销和服务删除，适合自动回归但无法承载人工联调需要保留 Nacos 实例的场景；此前保留实例只能临时运行`collection-client`命令，没有固化为可重复执行的测试入口。
+- 修复：在`collection_discovery_test.go`新增`TestNacosDiscoveryClientRegisterWithoutCleanup`。测试只创建 discovery runtime 并调用`Register`，不创建 deregister runtime、不调用`Deregister`或`deleteNacosTestService`；`runtime.Close()`仅释放 Nacos SDK client，不会注销由服务端强制注册为`ephemeral=false`的持久实例。
+- 安全门禁：新测试默认跳过，只有显式设置`LINAPRO_TEST_NACOS_KEEP=1`才执行并接受外部残留；支持`LINAPRO_TEST_NACOS_KEEP_SERVICE`、`LINAPRO_TEST_NACOS_KEEP_IP`和`LINAPRO_TEST_NACOS_KEEP_PORT`指定保留实例，并复用现有 Nacos host、port、namespace、username、password 环境参数。新增`LINAPRO_TEST_NACOS_NODE`设置分组节点，并校验节点为正数、实例端口位于`1..65535`。
+- 配置复用：抽取`newNacosIntegrationConfig`统一两个真实 Nacos 集成测试的配置读取、临时日志目录和缓存目录，避免保留测试与清理测试复制环境参数装配逻辑。
+- 实测结果：使用`qiniu`命名空间运行新测试通过，保留命名空间`qiniu`、分组`1`、服务`linapro-media-kept-test-20260819-144000`和实例`127.0.0.1:19191`；Nacos HTTP 反查确认实例`enabled=true`、`ephemeral=false`。实例使用回环测试地址，Nacos 服务端无法探测，因此`healthy=false`。
+- 插件与架构边界：修改限定在`media`插件既有 Nacos 测试文件和 OpenSpec 记录，不修改生产代码、`apps/lina-core`、模块契约、运行期依赖或启动装配；`apps/lina-plugins/media/AGENTS.md`不存在，继续遵守仓库顶层规范。
+- API、数据权限、数据库与缓存：不修改 HTTP API、DTO、权限、业务数据读写、SQL、DAO、DO、Entity、索引、缓存键、TTL、失效或分布式策略，无数据权限、数据库性能、`N+1`和缓存一致性影响。
+- i18n 与前端：不修改运行时文案、API 文档、插件清单、语言包、翻译缓存、前端页面或交互，无 i18n 和前端影响。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或工具入口；测试使用标准 Go 环境变量，适用于支持 Go 的平台。首次测试因本机`GOROOT`错误指向`go1.26.4`而未进入编译，显式设置匹配`Go 1.25.8`的`GOROOT`后通过。
+- DI 来源检查：未新增生产运行期依赖、构造函数参数、插件宿主服务适配器或`WASM host service`依赖；测试继续直接构造包内 discovery runtime。
+- 测试策略：默认运行验证新测试明确跳过且不产生外部残留；opt-in 运行验证真实 Nacos 注册成功并刻意保留实例；media 全量 Go 测试和定向 lint 覆盖当前工作区。变更不涉及页面或 E2E 资产，未触发页面 E2E 与截图验证。
+- 审查：已执行`lina-review`反馈级审查，范围为新增 Nacos 保留测试、共享测试配置 helper、OpenSpec 记录和真实 Nacos 反查证据；确认 opt-in 门禁、默认无副作用、显式保留语义和验证覆盖符合本次用户要求，未发现严重或警告问题。操作者显式启用后需自行管理外部残留，这是该入口的预期行为。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；其余规则域确认无变更影响。
+- 验证：`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local GOWORK=off go test ./backend/internal/service/collection -count=1 -v`通过且保留测试默认跳过；设置完整 Nacos 环境和`LINAPRO_TEST_NACOS_KEEP=1`后定向运行`TestNacosDiscoveryClientRegisterWithoutCleanup`通过；Nacos API 反查保留实例成功；`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local GOWORK=off go test ./... -count=1 -parallel 1`通过；`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`；`openspec validate add-media-data-collection-server --strict`和主仓、插件子仓`git diff --check`通过。
+
+### FB-37 反馈修复记录
+
+- 根因：`FB-36`初版仅依赖`LINAPRO_TEST_NACOS_KEEP=1`在测试运行期决定跳过；正常环境不会执行，但如果全量测试进程误带该环境变量，保留测试仍会被发现并执行，无法满足“只能手动执行、全量测试绝不执行”的强隔离要求。
+- 修复：将`TestNacosDiscoveryClientRegisterWithoutCleanup`从常规`collection_discovery_test.go`移动到独立`collection_discovery_manual_test.go`，文件使用`//go:build manual_nacos`构建约束。常规测试不传该 tag 时文件不参与编译，测试列表中不存在该方法。
+- 双重门禁：即使操作者显式加入`-tags=manual_nacos`，测试仍要求`LINAPRO_TEST_NACOS_KEEP=1`才执行，防止带 tag 的静态检查或误运行直接写入共享 Nacos。两个条件同时满足后，测试按用户要求只注册持久实例，不执行注销或删除。
+- 手工入口：运行命令必须包含`go test -tags=manual_nacos ./backend/internal/service/collection -run '^TestNacosDiscoveryClientRegisterWithoutCleanup$' -count=1 -v`，并提供`LINAPRO_TEST_NACOS_KEEP=1`及 Nacos 连接、命名空间和保留实例环境参数。
+- 实测结果：使用双重门禁在`qiniu`命名空间重新运行服务`linapro-media-kept-test-20260819-144000`成功，复用并保留`group=1`、`127.0.0.1:19191`持久实例，没有注销或删除。
+- 影响分析：仅调整`media`插件测试文件组织和 OpenSpec 记录，不修改生产代码、API、权限、数据库、缓存、DI、i18n、前端或开发工具入口，无数据权限、缓存一致性、数据库性能、`N+1`和跨平台交付影响；`apps/lina-plugins/media/AGENTS.md`不存在。
+- 测试策略：在环境中故意设置`LINAPRO_TEST_NACOS_KEEP=1`但不传 tag，执行`go test -list '^TestNacosDiscoveryClient'`确认列表中不存在保留测试；传 tag 但不设置确认变量，定向测试明确跳过；同时提供 tag 和确认变量，定向真实 Nacos 测试通过。随后在误带确认变量的环境中运行 media 全量测试通过，证明全量测试不会执行保留入口；常规 lint 和带`manual_nacos`tag 的 lint 均为`0 issues`。变更不涉及页面或 E2E 资产，未触发页面 E2E 与截图验证。
+- 审查：已执行`lina-review`反馈级审查，范围为常规测试文件、`manual_nacos`构建标签测试文件、OpenSpec 记录和 Nacos 保留实例证据；确认常规测试不编译手工文件、双门禁有效、带 tag 代码可编译且静态检查通过，未发现严重或警告问题。显式手工执行后的 Nacos 残留由操作者按预期管理。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；其余规则域确认无变更影响。
+- 验证：`LINAPRO_TEST_NACOS_KEEP=1 go test ./backend/internal/service/collection -list '^TestNacosDiscoveryClient'`仅列出清理型`TestNacosDiscoveryClientIntegration`；`go test -tags=manual_nacos ./backend/internal/service/collection -run '^TestNacosDiscoveryClientRegisterWithoutCleanup$' -count=1 -v`在缺少确认变量时跳过；完整手工环境下同一命令通过；`LINAPRO_TEST_NACOS_KEEP=1 GOWORK=off go test ./... -count=1 -parallel 1`通过；常规及`GOFLAGS='-tags=manual_nacos'`的`make lint dir=apps/lina-plugins/media plugins=1`均通过且为`0 issues`。
