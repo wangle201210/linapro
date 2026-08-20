@@ -49,6 +49,7 @@
 - [x] FB-35 将联调 Nacos 命名空间从误读的`qinju`纠正为`qiniu`，通过 media TCP 接口重新注册持久实例并保留结果。
 - [x] FB-36 在 Nacos discovery 集成测试中增加显式 opt-in 的只注册不注销入口，供人工联调保留实例且不影响默认测试。
 - [x] FB-37 将只注册不注销的 Nacos 测试隔离到`manual_nacos`构建标签，确保任何常规全量测试都不会编译或执行该测试。
+- [x] FB-38 适配`net-flux`最新`v0.0.19` discovery example，复用每个 TCP 连接/服务的`naming.DiscoClient`并让 Lookup 返回完整实例列表，修复上报实例`healthy=false`。
 
 ### FB-13 反馈修复记录
 
@@ -501,3 +502,20 @@
 - 审查：已执行`lina-review`反馈级审查，范围为常规测试文件、`manual_nacos`构建标签测试文件、OpenSpec 记录和 Nacos 保留实例证据；确认常规测试不编译手工文件、双门禁有效、带 tag 代码可编译且静态检查通过，未发现严重或警告问题。显式手工执行后的 Nacos 残留由操作者按预期管理。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；其余规则域确认无变更影响。
 - 验证：`LINAPRO_TEST_NACOS_KEEP=1 go test ./backend/internal/service/collection -list '^TestNacosDiscoveryClient'`仅列出清理型`TestNacosDiscoveryClientIntegration`；`go test -tags=manual_nacos ./backend/internal/service/collection -run '^TestNacosDiscoveryClientRegisterWithoutCleanup$' -count=1 -v`在缺少确认变量时跳过；完整手工环境下同一命令通过；`LINAPRO_TEST_NACOS_KEEP=1 GOWORK=off go test ./... -count=1 -parallel 1`通过；常规及`GOFLAGS='-tags=manual_nacos'`的`make lint dir=apps/lina-plugins/media plugins=1`均通过且为`0 issues`。
+
+### FB-38 反馈修复记录
+
+- 根因：media 之前直接创建 Nacos SDK naming client，并在每个 Register、Deregister、Lookup 报文处理后关闭 client。上游`net-flux`最新`v0.0.19` example 已明确通过`discoClientFactory`按 TCP `conn.ID()`和服务名复用一个`naming.DiscoClient`；旧实现关闭 client 后无法维持上游实例心跳，导致 Nacos 中实例出现`healthy=false`。旧 Lookup 还调用`GetServiceInstanceByGroup`，只能返回单个实例。
+- 修复：将`github.com/dellinger2023/net-flux`升级到`v0.0.19`，新增`disco_cli_factory.go`，按连接 ID和服务名缓存`naming.DiscoClient`，Register/Deregister/Lookup复用对应 client，TCP `OnClose`统一释放该连接的全部 client；Deregister成功后释放对应服务 client。Lookup改为`GetServiceInstances(serviceName, group, []string{})`，清洗并返回全部非空实例，服务组名使用请求节点组。
+- 配置适配：使用上游`naming.DiscoSetting`替代 media 自有 Nacos SDK adapter，保留命名空间、账号、密码、日志目录、缓存目录、超时和 URL host 校验；URL host 在传给上游 gRPC client 前规范化为裸主机名，避免把`http://`前缀当作 gRPC 地址的一部分。Register 对上游 client 初始化期间的`client not connected`启动竞态做最多`10`次、每次`100ms`的有界重试，其他错误立即返回。
+- 测试：更新 handler fake 以实现上游`naming.DiscoClient`契约，新增同一 TCP 连接复用 client 测试和两个实例 Lookup 响应测试；真实 Nacos 集成测试使用`qiniu`命名空间验证注册实例返回`healthy=true`，再执行 Lookup 全实例列表和 Deregister；常规测试不涉及手工保留测试。
+- 插件与架构边界：修改限定在`media`插件 collection discovery 生产/测试代码、依赖文件和本 OpenSpec 记录，不修改`apps/lina-core`、`apps/lina-vben`或`hack`；`apps/lina-plugins/media/AGENTS.md`不存在，继续遵守仓库顶层规则。新增 factory 是上游 example 要求的生命周期适配，不引入额外跨模块契约。
+- API、数据权限、数据库：不修改 HTTP API、DTO、权限、租户边界、SQL、DAO、DO、Entity、索引或报表写入路径，无数据权限和`N+1`影响。
+- 缓存一致性：新增的是上游 Nacos naming client 的连接/订阅生命周期复用，不使用 media 业务 cache 保存 discovery 状态；既有宿主共享 cache、生命周期计数、缓存键、TTL、失效和集群策略未修改，无 media cache 一致性影响。
+- i18n 与前端：不修改运行时用户文案、API 文档、插件清单、语言包、翻译缓存、前端页面或交互，无 i18n、前端和 E2E 影响。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或工具入口；只更新 Go 依赖、Go 源码和测试，使用标准 Go build tag 与既有插件 lint 入口。
+- DI 来源检查：未新增生产运行期依赖或服务构造函数参数；`discoClientFactory`由 collection runtime 创建并在 TCP server 生命周期内持有，底层 owner 是上游`naming.NewNacosDiscoverClient`，通过连接关闭和插件上下文关闭释放，不创建宿主独立服务图。
+- 测试策略：后端纯 discovery 生命周期和协议行为使用单元测试；真实 Nacos 集成测试验证健康注册和全实例 Lookup；media 全量测试覆盖常规路径。手工保留测试仍由`manual_nacos` build tag隔离，不参与常规全量测试。
+- 审查：已执行`lina-review`反馈级审查，范围为`collection_discovery.go`、新增`disco_cli_factory.go`、handler、相关测试、`go.mod/go.sum`和 OpenSpec 记录；确认 client owner、连接生命周期、列表 Lookup、错误处理和测试覆盖符合规则，未发现严重或警告问题。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；API contract、数据权限、数据库、i18n、前端 UI 和开发工具长期入口确认无文件变更影响。
+- 验证：`go list -m -versions github.com/dellinger2023/net-flux`和上游 tags确认最新正式版本为`v0.0.19`；`LINAPRO_TEST_NACOS=1`配合`http://10.157.225.139/`、`qiniu`、`nacos/nacos`的真实 Nacos 集成测试通过，并断言 Lookup 实例`healthy=true`；`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local GOWORK=off go test ./... -count=1 -parallel 1`通过；常规和`GOFLAGS='-tags=manual_nacos'`的`make lint dir=apps/lina-plugins/media plugins=1`均通过且为`0 issues`；`openspec validate add-media-data-collection-server --strict`、主仓和插件子仓`git diff --check`通过。
