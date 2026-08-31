@@ -18,6 +18,8 @@
 - [x] **FB-4**: 为`water`插件补充 Kubernetes 部署清单和中英文部署说明。
 - [x] **FB-5**: 调整`water`Kubernetes 部署为默认 10 副本，并确保自动安装插件仅包含`water`。
 - [x] **FB-6**: 补齐`media`插件 Tieta 与内部接口配置闭环。
+- [x] **FB-7**: `UserDeviceStrategyByTokenRes.userInfo`新增`phone`字段，并保证其值与`mobile`一致。
+- [x] **FB-8**: 将`UserDeviceStrategyByTokenRes.userInfo`收敛为仅返回`customerName`和`phone`，并接入铁塔鉴权响应的`customerName`。
 
 ### FB-2 反馈修复记录
 
@@ -102,3 +104,37 @@
 - 测试策略：本次涉及 Go 生产代码和运行时配置读取路径，已新增服务层单元测试覆盖 Tieta 配置从插件`ConfigService`读取，以及缺失 base URL 返回稳定错误码；未涉及前端页面或 E2E 资产，未触发 E2E 质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/plugin.md`、`.agents/rules/documentation.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`、`.agents/rules/architecture.md`、`.agents/rules/backend-go.md`，并使用`lina-feedback`和`goframe-v2`技能；确认`.agents/rules/api-contract.md`、`.agents/rules/database.md`、`.agents/rules/data-permission.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/dev-tooling.md`无本次文件变更影响。
 - 验证：`GOWORK=off go test ./backend/internal/service/media -count=1`通过；`GOWORK=off go test ./backend/provider/strategy -count=1`通过；`GOWORK=off go test ./backend -count=1`通过；`GOWORK=off go test ./... -count=1`在`apps/lina-plugins/media`通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过编译门禁；`go test ./internal/cmd -count=1`仍因当前工作区既有 panic allowlist 不匹配失败，失败项包含`apps/lina-plugins/cms/backend/plugin.go:init`、`apps/lina-plugins/media/backend/plugin.go:init`、`apps/lina-plugins/sicau-niu/backend/plugin.go:init`和`apps/lina-plugins/water/backend/plugin.go:init`，其中完整测试失败点不是本次构造函数编译问题；`ruby -e 'require "yaml"; ...' apps/lina-plugins/media/deploy/kubernetes/linapro-k8s.yaml apps/lina-plugins/media/deploy/kubernetes/linapro-k8s-external-pgsql.yaml`解析出 18/15 个 Kubernetes 文档并断言插件配置 Secret 内存在`tieta.baseUrl`、`innerapi.apiKey`和`collectionServer`；`ruby -e 'require "yaml"; ...' apps/lina-plugins/media/manifest/config/config.example.yaml`通过；`kubectl create --dry-run=client --validate=false -f apps/lina-plugins/media/deploy/kubernetes/linapro-k8s.yaml`通过；`kubectl create --dry-run=client --validate=false -f apps/lina-plugins/media/deploy/kubernetes/linapro-k8s-external-pgsql.yaml`通过；`git diff --check -- ...`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-7 反馈修复记录
+
+- 根因：`UserDeviceStrategyByTokenRes.userInfo`使用`TietaUserInfo`响应 DTO，原 DTO 只声明`mobile`字段，`buildCompatTietaUserInfo`也只映射`Mobile`，因此调用方无法按兼容字段名`phone`读取相同的手机号。
+- 修复：在`TietaUserInfo`中新增字符串字段`phone`，API 文档明确其内容与`mobile`一致；controller 映射直接使用已有`user.Mobile`同时填充`Mobile`和`Phone`，不修改铁塔用户 service 模型或上游协议。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：变更限定在`media`源码插件拥有的兼容 HTTP DTO 和 controller 投影，不修改`apps/lina-core`核心宿主契约，不新增抽象、跨插件依赖或内部模型暴露。
+- 数据权限：`phone`仅复制已通过铁塔 token、租户设备权限和节点限流边界返回的`mobile`内容，不新增用户数据种类、查询入口或其他租户数据暴露。
+- 缓存一致性：不修改铁塔用户缓存对象、缓存 key、TTL、失效或共享后端；`phone`在响应投影阶段从已解析的`Mobile`即时赋值，无缓存一致性影响。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次只新增单语言 API 文档字段，不新增运行时 UI 文案、语言包或`apidoc i18n JSON`资源。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity、索引和查询路径；API 代码生成未产生数据库工件变化。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或开发工具入口，仅调用既有`make ctrl dir=...`生成门禁。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数或共享状态实例；controller 继续复用启动期注入的`media.Service`。
+- 性能：新增一个固定字符串字段赋值和 JSON 字段，不增加铁塔 HTTP 调用、数据库查询、缓存访问或随数据量增长的装配成本，不引入`N+1`。
+- 测试策略：新增 controller 单元测试验证 Go DTO 与 JSON 中`phone == mobile`；新增 mediaopen HTTP 路由集成测试验证真实响应字段。该变更不涉及前端页面、E2E 测试资产或用户可见 UI，未触发页面 E2E 与截图质量审查；路由集成测试提供等价接口自动化覆盖。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；确认缓存、前端生产代码和开发工具规则域无文件变更影响。
+- 验证：`make ctrl dir=apps/lina-plugins/media/backend`通过；`GOWORK=off go test ./backend/api/mediaopen/v1 -count=1`、`GOWORK=off go test ./backend/internal/controller/mediaopen -count=1`、定向 mediaopen 路由测试和`GOWORK=off go test ./... -count=1`均通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`，dead-code 检查通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过宿主启动绑定编译门禁；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-8 反馈修复记录
+
+- 根因：上一轮只为`TietaUserInfo`增加了`phone`兼容字段，响应仍保留其他用户字段；同时铁塔鉴权响应模型和`TietaUser`服务投影尚未声明新增的`customerName`，导致策略响应无法稳定返回最终要求的精简用户信息。
+- 修复：将`UserDeviceStrategyByTokenRes.userInfo`的`TietaUserInfo`收敛为仅包含`customerName`和`phone`；在铁塔原始响应`tietaUserInfo`和服务模型`TietaUser`中增加`CustomerName`，`buildTietaUser`从上游`customerName`解析并清理空白，controller 只投影`CustomerName`和已有`Mobile`承载的手机号。同步更新铁塔 mock 用户的客户名称。
+- 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
+- 架构边界：变更闭环在`media`源码插件的铁塔客户端模型、服务投影和公开兼容 HTTP DTO 内，不修改`apps/lina-core`核心宿主契约，不新增跨插件依赖、抽象层或内部数据库模型暴露。
+- 数据权限：响应字段由原有用户投影收窄为两个字段，减少数据暴露面；接口仍先执行铁塔 token 身份解析、租户设备权限和节点限流校验，不新增查询入口或其他租户数据可见性。
+- 缓存一致性：用户身份权威源仍为铁塔`open-apis/user/info`接口，缓存继续使用宿主共享后端和 1 分钟 TTL。由于缓存值新增`CustomerName`，缓存 key 前缀升级为`token:v2:`，新版本立即绕过缺少该字段的旧条目并回源重建；旧版本条目在原 TTL 内自然回收。集群实例共享同一版本化 key，铁塔内容更新的最大可接受陈旧时间仍为 1 分钟；缓存不可用时既有逻辑记录告警并直接回源，恢复后由后续成功请求重建。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次修改单语言 API 文档字段，不新增运行时 UI 文案、语言包或`apidoc i18n JSON`资源。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity、索引和查询路径；API 代码生成未产生数据库工件变化。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或开发工具入口，仅调用既有`make ctrl dir=...`生成门禁。
+- DI 来源检查：未新增运行期依赖、服务构造函数参数或共享状态实例；铁塔客户端和 controller 继续复用启动期注入的插件配置服务、宿主缓存和`media.Service`。
+- 性能：响应字段收窄且映射为固定字符串赋值，不增加铁塔 HTTP、数据库或缓存访问次数，不存在循环装配或`N+1`；缓存版本升级只使每个活跃 token 在首次访问时回源一次。
+- 测试策略：新增上游 JSON 解析测试覆盖`customerName`和`phone`进入`TietaUser`；更新 controller JSON 测试断言`userInfo`严格只有两个字段；更新 mediaopen HTTP 路由集成测试验证真实响应的`customerName`和`phone`。缓存测试新增`token:v2:`版本断言。该变更无前端页面或 E2E 测试资产，未触发页面 E2E 与截图质量审查；HTTP 路由集成测试提供等价接口自动化覆盖。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；确认前端生产代码和开发工具规则域无文件变更影响。
+- 验证：`make ctrl dir=apps/lina-plugins/media/backend`通过；`GOWORK=off go test ./backend/internal/service/media -run 'TestBuildTietaUserMapsCustomerName|TestAuthenticateTietaTokenCachesUserInfo' -count=1`、`GOWORK=off go test ./backend/internal/controller/mediaopen -run TestBuildCompatTietaUserInfoReturnsOnlyCustomerNameAndPhone -count=1`、`GOWORK=off go test ./backend -run TestMediaOpenUserDeviceStrategyReturnsNarrowedUserInfo -count=1`和`GOWORK=off go test ./... -count=1`均通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`，dead-code 检查通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过宿主启动绑定编译门禁；`openspec validate add-media-strategy-tenant-lookup --strict`通过。

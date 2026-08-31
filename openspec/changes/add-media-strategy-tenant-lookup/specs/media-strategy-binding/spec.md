@@ -70,6 +70,13 @@
 - **AND** 历史会话的`close_time`不为空
 - **THEN** 系统统计限制时不得将这些已关闭会话计入当前流数量。
 
+#### Scenario: Token 策略响应返回精简用户信息
+
+- **WHEN** 调用方携带有效 token、设备 ID 和节点 ID 查询策略
+- **THEN** 响应的`userInfo`应只包含`customerName`和`phone`字段
+- **AND** `customerName`应使用铁塔鉴权用户信息响应中的同名字段
+- **AND** `phone`应使用铁塔鉴权用户信息中的手机号内容，不得为响应投影发起额外用户查询
+
 ### Requirement: 跨集群内部策略解析接口
 
 `mediaopen` SHALL 提供受内部 API Key 保护的只读策略解析接口，允许`water`等跨集群服务按租户 ID 和设备 ID 获取当前生效媒体策略，而不依赖`media`源码插件的本地 Go provider。
