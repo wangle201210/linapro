@@ -73,7 +73,8 @@
 #### Scenario: Token 策略响应返回精简用户信息
 
 - **WHEN** 调用方携带有效 token、设备 ID 和节点 ID 查询策略
-- **THEN** 响应的`userInfo`应只包含`customerName`和`phone`字段
+- **THEN** 响应的`userInfo`应只包含`id`、`customerName`和`phone`字段
+- **AND** `id`应使用铁塔鉴权用户信息响应中的用户 ID
 - **AND** `customerName`应使用铁塔鉴权用户信息响应中的同名字段
 - **AND** `phone`应使用铁塔鉴权用户信息中的手机号内容，不得为响应投影发起额外用户查询
 

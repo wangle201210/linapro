@@ -21,6 +21,7 @@
 - [x] **FB-7**: `UserDeviceStrategyByTokenRes.userInfo`新增`phone`字段，并保证其值与`mobile`一致。
 - [x] **FB-8**: 将`UserDeviceStrategyByTokenRes.userInfo`收敛为仅返回`customerName`和`phone`，并接入铁塔鉴权响应的`customerName`。
 - [x] **FB-9**: 移除未上线项目不需要的用户缓存`v2`兼容假设，保持既有`token:`缓存键。
+- [x] **FB-10**: 在精简的`UserDeviceStrategyByTokenRes.userInfo`中保留铁塔用户 ID 字段`id`。
 
 ### FB-2 反馈修复记录
 
@@ -156,3 +157,20 @@
 - 测试策略：源仓和目标仓删除同一条错误断言；两边 media 全量 Go 测试均通过，目标 media lint 和宿主编译通过。该纠偏无前端页面或 E2E 资产，不触发页面 E2E 与截图质量审查。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/testing.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能；确认 API、数据权限、数据库、i18n、开发工具和前端规则域无文件变更影响。
 - 验证：LinaPro 源执行`GOWORK=off go test ./... -count=1`和`make lint dir=apps/lina-plugins/media plugins=1`通过；media 目标执行`GOWORK=off go mod tidy -diff`、`GOWORK=off go test ./... -count=1`、`make lint dir=apps/lina-plugins/media plugins=1`和`go test ./internal/cmd -run '^$' -count=1`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-10 反馈修复记录
+
+- 根因：FB-8 收窄`TietaUserInfo`响应 DTO 时删除了原有`Id`字段和 controller 投影，虽然铁塔鉴权响应、`TietaUser`服务模型与用户缓存仍保留用户 ID，但`UserDeviceStrategyByTokenRes.userInfo`无法再向水印变量提供该值。
+- 修复：在精简的`TietaUserInfo`中恢复`Id int64`及`json:"id"`契约，controller 直接映射已有`user.Id`；响应仍只包含`id`、`customerName`和`phone`三个字段，不恢复其他已删除用户字段。
+- 插件本地规范：LinaPro 源和 media 目标的`apps/lina-plugins/media/AGENTS.md`均不存在，按 LinaPro 顶层规范执行。
+- 架构边界：变更闭环在`media`源码插件的公开响应 DTO、controller 投影和测试，不修改`apps/lina-core`核心宿主契约，不新增跨模块调用、抽象层或内部模型暴露。
+- 数据权限：`id`来自当前请求 token 已通过铁塔鉴权得到的同一用户，不接受调用方覆盖，不新增查询入口、其他用户或其他租户数据可见性；既有租户设备权限和节点限流校验顺序保持不变。
+- 缓存一致性：不修改铁塔用户缓存对象、缓存键、TTL、失效策略或共享后端；`TietaUser.Id`此前已在缓存对象中，响应投影只读取现有值，无缓存迁移或额外回源。
+- i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；仅恢复单语言 API 文档字段，不新增运行时 UI 文案、语言包或`apidoc i18n JSON`资源。
+- 数据库：不新增或修改 SQL、DAO、DO、Entity、索引或查询路径；`make ctrl`未产生数据库工件变化。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或工具入口，仅调用既有`make ctrl dir=apps/lina-plugins/media/backend`生成门禁，无跨平台影响。
+- DI 来源检查：未新增或修改运行期依赖、构造函数或共享实例；controller 继续复用启动期注入的`media.Service`。
+- 性能：新增一个固定`int64`字段赋值和 JSON 字段，不增加铁塔 HTTP、数据库或缓存访问次数，不涉及循环装配或`N+1`。
+- 测试策略：更新 controller JSON 单元测试，严格断言响应只有`id`、`customerName`和`phone`；更新真实 mediaopen HTTP 路由集成测试验证`id == 13`。本次触发接口行为质量审查，现有 HTTP 路由集成测试提供等价自动化覆盖；不涉及前端页面、Playwright E2E 资产或截图验证。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；确认前端生产代码和开发工具规则域无文件变更影响。
+- 验证：`make ctrl dir=apps/lina-plugins/media/backend`通过；`GOWORK=off go test ./backend/internal/controller/mediaopen -run TestBuildCompatTietaUserInfoReturnsOnlyIdCustomerNameAndPhone -count=1`、`GOWORK=off go test ./backend -run TestMediaOpenUserDeviceStrategyReturnsNarrowedUserInfo -count=1`和`GOWORK=off go test ./... -count=1`均通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`，dead-code 检查通过；`GOWORK=off go mod tidy -diff`通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过宿主启动绑定编译门禁；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
