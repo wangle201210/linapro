@@ -20,6 +20,7 @@
 - [x] **FB-6**: 补齐`media`插件 Tieta 与内部接口配置闭环。
 - [x] **FB-7**: `UserDeviceStrategyByTokenRes.userInfo`新增`phone`字段，并保证其值与`mobile`一致。
 - [x] **FB-8**: 将`UserDeviceStrategyByTokenRes.userInfo`收敛为仅返回`customerName`和`phone`，并接入铁塔鉴权响应的`customerName`。
+- [x] **FB-9**: 移除未上线项目不需要的用户缓存`v2`兼容假设，保持既有`token:`缓存键。
 
 ### FB-2 反馈修复记录
 
@@ -129,12 +130,29 @@
 - 插件本地规范：`apps/lina-plugins/media/AGENTS.md`不存在，按仓库顶层`AGENTS.md`和命中规则执行。
 - 架构边界：变更闭环在`media`源码插件的铁塔客户端模型、服务投影和公开兼容 HTTP DTO 内，不修改`apps/lina-core`核心宿主契约，不新增跨插件依赖、抽象层或内部数据库模型暴露。
 - 数据权限：响应字段由原有用户投影收窄为两个字段，减少数据暴露面；接口仍先执行铁塔 token 身份解析、租户设备权限和节点限流校验，不新增查询入口或其他租户数据可见性。
-- 缓存一致性：用户身份权威源仍为铁塔`open-apis/user/info`接口，缓存继续使用宿主共享后端和 1 分钟 TTL。由于缓存值新增`CustomerName`，缓存 key 前缀升级为`token:v2:`，新版本立即绕过缺少该字段的旧条目并回源重建；旧版本条目在原 TTL 内自然回收。集群实例共享同一版本化 key，铁塔内容更新的最大可接受陈旧时间仍为 1 分钟；缓存不可用时既有逻辑记录告警并直接回源，恢复后由后续成功请求重建。
+- 缓存一致性：用户身份权威源仍为铁塔`open-apis/user/info`接口，缓存继续使用宿主共享后端、既有`token:`键前缀和 1 分钟 TTL。项目尚未上线，不存在需要迁移的旧生产缓存；本地开发缓存中的旧投影最多在 1 分钟内自然过期并由后续请求回源重建。缓存不可用时既有逻辑记录告警并直接回源，恢复后由后续成功请求重建。
 - i18n：`media`插件`plugin.yaml`未配置`i18n.enabled: true`，按单语言插件处理；本次修改单语言 API 文档字段，不新增运行时 UI 文案、语言包或`apidoc i18n JSON`资源。
 - 数据库：不新增或修改 SQL、DAO、DO、Entity、索引和查询路径；API 代码生成未产生数据库工件变化。
 - 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或开发工具入口，仅调用既有`make ctrl dir=...`生成门禁。
 - DI 来源检查：未新增运行期依赖、服务构造函数参数或共享状态实例；铁塔客户端和 controller 继续复用启动期注入的插件配置服务、宿主缓存和`media.Service`。
-- 性能：响应字段收窄且映射为固定字符串赋值，不增加铁塔 HTTP、数据库或缓存访问次数，不存在循环装配或`N+1`；缓存版本升级只使每个活跃 token 在首次访问时回源一次。
-- 测试策略：新增上游 JSON 解析测试覆盖`customerName`和`phone`进入`TietaUser`；更新 controller JSON 测试断言`userInfo`严格只有两个字段；更新 mediaopen HTTP 路由集成测试验证真实响应的`customerName`和`phone`。缓存测试新增`token:v2:`版本断言。该变更无前端页面或 E2E 测试资产，未触发页面 E2E 与截图质量审查；HTTP 路由集成测试提供等价接口自动化覆盖。
+- 性能：响应字段收窄且映射为固定字符串赋值，不增加铁塔 HTTP、数据库或缓存访问次数，不存在循环装配或`N+1`；缓存键和 TTL 保持不变，不引入额外回源。
+- 测试策略：新增上游 JSON 解析测试覆盖`customerName`和`phone`进入`TietaUser`；更新 controller JSON 测试断言`userInfo`严格只有两个字段；更新 mediaopen HTTP 路由集成测试验证真实响应的`customerName`和`phone`。缓存测试继续验证既有哈希缓存 key 和 1 分钟 TTL。该变更无前端页面或 E2E 测试资产，未触发页面 E2E 与截图质量审查；HTTP 路由集成测试提供等价接口自动化覆盖。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；确认前端生产代码和开发工具规则域无文件变更影响。
 - 验证：`make ctrl dir=apps/lina-plugins/media/backend`通过；`GOWORK=off go test ./backend/internal/service/media -run 'TestBuildTietaUserMapsCustomerName|TestAuthenticateTietaTokenCachesUserInfo' -count=1`、`GOWORK=off go test ./backend/internal/controller/mediaopen -run TestBuildCompatTietaUserInfoReturnsOnlyCustomerNameAndPhone -count=1`、`GOWORK=off go test ./backend -run TestMediaOpenUserDeviceStrategyReturnsNarrowedUserInfo -count=1`和`GOWORK=off go test ./... -count=1`均通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`，dead-code 检查通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过宿主启动绑定编译门禁；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+### FB-9 反馈修复记录
+
+- 根因：项目尚未上线且没有历史兼容负担，生产代码已经按最终方案继续使用既有`token:`缓存键；但反馈实现中的测试和`FB-8`记录错误引入了`token:v2:`上线迁移假设，导致源仓与同步后的目标仓都出现不符合实际设计的测试失败。
+- 修复：删除 media 用户缓存测试中对`token:v2:`前缀的错误断言，保留既有哈希缓存 key、命名空间和 1 分钟 TTL 断言；同步修正`FB-8`缓存一致性与测试记录，不修改生产缓存实现。
+- 插件本地规范：LinaPro 源和 media 目标的`apps/lina-plugins/media/AGENTS.md`均不存在，按 LinaPro 顶层规范执行。
+- 架构边界：仅纠正测试和 OpenSpec 记录，不修改宿主、插件领域契约、跨模块调用或运行期抽象。
+- 数据权限：不修改 API、用户字段、鉴权、租户设备权限或数据读取路径，无数据权限影响。
+- 缓存一致性：权威源仍为铁塔`open-apis/user/info`，缓存继续使用宿主共享后端、`token:`加 token 哈希的 key 和 1 分钟 TTL。项目未上线，不存在旧生产缓存迁移；本地开发缓存按 TTL 自然重建，缓存故障仍按既有逻辑告警并回源。
+- i18n：不修改 API 文档、运行时 UI、错误消息、插件清单或语言资源，无 i18n 影响。
+- 数据库：不修改 SQL、DAO、DO、Entity、索引或查询路径，无数据库影响。
+- 开发工具跨平台：不修改`Makefile`、脚本、CI、`linactl`或工具入口，无跨平台影响。
+- DI 来源检查：未新增或修改运行期依赖、构造函数或共享实例。
+- 性能：不修改运行时代码，不增加 HTTP、数据库或缓存访问次数，不涉及`N+1`。
+- 测试策略：源仓和目标仓删除同一条错误断言；两边 media 全量 Go 测试均通过，目标 media lint 和宿主编译通过。该纠偏无前端页面或 E2E 资产，不触发页面 E2E 与截图质量审查。
+- 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/testing.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`和`goframe-v2`技能；确认 API、数据权限、数据库、i18n、开发工具和前端规则域无文件变更影响。
+- 验证：LinaPro 源执行`GOWORK=off go test ./... -count=1`和`make lint dir=apps/lina-plugins/media plugins=1`通过；media 目标执行`GOWORK=off go mod tidy -diff`、`GOWORK=off go test ./... -count=1`、`make lint dir=apps/lina-plugins/media plugins=1`和`go test ./internal/cmd -run '^$' -count=1`通过；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
