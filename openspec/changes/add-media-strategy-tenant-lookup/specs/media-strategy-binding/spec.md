@@ -1,5 +1,28 @@
 ## ADDED Requirements
 
+### Requirement: 以铁塔客户编码作为媒体租户标识
+
+`media` SHALL 将铁塔用户信息中的`customerCode`作为内部`TenantId`和业务数据`tenant_id`的取值，保留既有表结构、接口字段名和字符串类型，不回退到`customerId`。
+
+#### Scenario: 客户编码驱动策略和节点限流
+
+- **WHEN** 铁塔用户信息同时返回不同的`customerId`和`customerCode`
+- **THEN** 系统应使用去除首尾空白后的`customerCode`匹配租户策略、租户设备策略、租户白名单和节点并发配置
+- **AND** 会话并发统计、看板和内部策略查询的`tenant_id`或`tenantId`应使用同一客户编码
+- **AND** 节点上报端应直接提供客户编码，采集服务不得猜测或转换未知的客户 ID
+
+#### Scenario: 客户编码缺失或租户不匹配
+
+- **WHEN** 铁塔用户信息的`customerCode`为空，或者请求租户与该客户编码不一致
+- **THEN** 租户相关鉴权接口应沿用租户缺失或租户不匹配的业务错误拒绝请求
+- **AND** 即使`customerId`存在也不得用于兜底
+
+#### Scenario: 缓存命中使用相同租户语义
+
+- **WHEN** token 用户信息命中宿主缓存
+- **THEN** 内部租户标识应从缓存用户的`CustomerCode`派生，不能直接信任缓存中的其他`TenantId`值
+- **AND** 缓存键、共享后端、1 分钟 TTL 和缓存故障回源机制保持不变
+
 ### Requirement: 按策略 ID 反查租户策略绑定
 
 `media`插件 SHALL 提供只读接口，允许调用方按媒体策略 ID 分页查询绑定到该策略的租户策略绑定记录。

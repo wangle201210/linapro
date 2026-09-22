@@ -22,6 +22,7 @@
 - [x] **FB-8**: 将`UserDeviceStrategyByTokenRes.userInfo`收敛为仅返回`customerName`和`phone`，并接入铁塔鉴权响应的`customerName`。
 - [x] **FB-9**: 移除未上线项目不需要的用户缓存`v2`兼容假设，保持既有`token:`缓存键。
 - [x] **FB-10**: 在精简的`UserDeviceStrategyByTokenRes.userInfo`中保留铁塔用户 ID 字段`id`。
+- [x] **FB-11**: 将铁塔`customerCode`统一作为`media`内部租户标识，覆盖缓存命中、策略、白名单、节点限流和缺失或不匹配拒绝场景，保持表结构不变。
 
 ### FB-2 反馈修复记录
 
@@ -174,3 +175,28 @@
 - 测试策略：更新 controller JSON 单元测试，严格断言响应只有`id`、`customerName`和`phone`；更新真实 mediaopen HTTP 路由集成测试验证`id == 13`。本次触发接口行为质量审查，现有 HTTP 路由集成测试提供等价自动化覆盖；不涉及前端页面、Playwright E2E 资产或截图验证。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`和`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；确认前端生产代码和开发工具规则域无文件变更影响。
 - 验证：`make ctrl dir=apps/lina-plugins/media/backend`通过；`GOWORK=off go test ./backend/internal/controller/mediaopen -run TestBuildCompatTietaUserInfoReturnsOnlyIdCustomerNameAndPhone -count=1`、`GOWORK=off go test ./backend -run TestMediaOpenUserDeviceStrategyReturnsNarrowedUserInfo -count=1`和`GOWORK=off go test ./... -count=1`均通过；`make lint dir=apps/lina-plugins/media plugins=1`通过且为`0 issues`，dead-code 检查通过；`GOWORK=off go mod tidy -diff`通过；`go test ./internal/cmd -run '^$' -count=1`在`apps/lina-core`通过宿主启动绑定编译门禁；`openspec validate add-media-strategy-tenant-lookup --strict`通过。
+
+
+### FB-11 反馈修复记录
+
+- 处理路径：`openspec-existing`。该反馈改变既有 token 租户鉴权、策略绑定与节点并发限制的标识来源，归入本活跃变更；用户确认`customerCode`稳定、唯一，不需要新增表结构。
+- 根因：`buildTietaUser`原来把铁塔`customerId`映射到`TenantId`，与用户要求的客户编码口径不一致；缓存读取直接使用序列化的`TenantId`，未统一从`CustomerCode`派生。
+- 修复：生产响应映射、缓存读取和本地 mock 均以去除首尾空白的`customerCode`作为租户标识。字段名、数据库类型、查询路径及公开响应结构保持不变；code 缺失仍由既有租户缺失错误拒绝，不回退到`customerId`。铁塔设备权限请求实际只发送 token 和设备 ID，不需要新增 ID 转换或上游查询。
+- 数据与上报边界：租户策略、租户设备策略、白名单、节点限流配置、内部策略请求、看板和上报数据统一使用客户编码。采集服务按上报值写入，无法推断客户 ID 到 code 的映射；已有数据的转换需要经过核实的映射和上报客户端协同，本次不连接或改写部署数据库。
+- 缓存一致性：权威源为铁塔用户信息，继续复用宿主注入的共享缓存后端、既有`token:`哈希键和 1 分钟 TTL；每次缓存命中均从`CustomerCode`派生`TenantId`，无需版本键或跨实例失效事件。对已缓存原始客户编码的身份，映射切换即时生效；上游编码变化的陈旧窗口仍最多为缓存 TTL。缓存故障沿用告警和回源，成功请求重建缓存。
+- 数据权限：请求租户必须匹配已鉴权用户的客户编码，code 缺失或不匹配时拒绝。设备权限校验及限流顺序不变，没有放宽宿主权限或数据可见性。
+- 架构与 DI：变更闭环在`media`源码插件，不修改核心宿主，不新增接口抽象、运行期依赖、构造函数参数或服务实例。映射和缓存读取只增加固定字符串赋值，不增加数据库或 HTTP 调用，不产生`N+1`。
+- 数据库：无 SQL、DAO、DO、Entity、索引或数据库类型变更；不自动转换现存租户标识。
+- i18n：`media`为单语言插件，本次无 API DTO 文案、错误文案、语言资源或前端 UI 变更；中英文 README 同步说明同一租户标识契约。
+- 测试策略：新增原始 JSON 映射测试覆盖 ID 与 code 不同、仅 code、code 缺失和空白；新增缓存测试覆盖同一共享缓存多次读取、空 code 拒绝和不增加回源次数；mock 覆盖 code 一致性。已有策略、白名单、限流、设备权限拒绝和租户不匹配测试改用真实映射结果，确保以 code 匹配配置。功能行为质量审查通过这些服务级自动化和插件现有 HTTP 路由回归覆盖；无前端页面或 Playwright 资产，页面截图不适用。
+- 插件本地规范：`media`和`water`根目录均无`AGENTS.md`。用户要求已记录在主仓`AGENTS.md`：独立`media`仓库仅接收从`linapro`同步的代码，禁止直接在目标仓库开发或修复。
+- 规则加载：本次读取`AGENTS.md`及`.agents/rules/openspec.md`、`architecture.md`、`backend-go.md`、`api-contract.md`、`data-permission.md`、`plugin.md`、`cache-consistency.md`、`testing.md`、`documentation.md`、`i18n.md`、`dev-tooling.md`和 Markdown 格式细则，应用`lina-feedback`、`lina-review`、`goframe-v2`、`use-modern-go`及`karpathy-guidelines`。
+- 验证：在`apps/lina-plugins/media`执行`GOWORK=off go test ./backend/internal/service/media -count=1`与`GOWORK=off go test ./... -count=1`均通过；根目录`make lint dir=apps/lina-plugins/media plugins=1`通过，`golangci-lint`为`0 issues`且 dead-code 检查通过；`openspec validate add-media-strategy-tenant-lookup --strict`及主仓、插件仓`git diff --check`通过。未修改依赖或路由签名，无需代码生成。
+- Lina 审查：范围由主仓与子模块状态、未跟踪文件展开和本轮 diff 确认，共 10 个文件；新增测试已纳入。已读取规则见上文；租户权限、缓存一致性、测试覆盖、插件边界和文档镜像检查通过，未发现阻塞问题。剩余部署条件是配置与上报端使用相同客户编码，完整应用镜像未构建；未执行真实铁塔或生产数据库联调。
+
+### 同轮构建与同步约束修正
+
+- 处理路径：`direct-fix`。water Dockerfile 的 npm 下载问题为单文件构建配置遗漏；在`linapro`的 builder 阶段配置`npm_config_registry`与`COREPACK_NPM_REGISTRY`为`https://registry.npmmirror.com`，让安装 Corepack 和下载 pnpm 使用同一镜像源。
+- 跨平台：命令仅在 Linux 构建容器内执行，Windows、macOS 和 Linux 宿主继续通过 Docker 运行；无新增宿主脚本。未改变应用运行期依赖、DI、数据权限、业务缓存或 i18n。
+- 验证：Dockerfile 构建检查无警告；干净 Alpine 3.22 容器成功安装 Node/npm、Corepack 并激活`pnpm@10.30.3`，版本断言通过；未完整构建应用镜像。
+- 同步范围：本轮只修改`linapro`，独立`media`仓库未被修改；本轮未执行提交、推送或发布。
