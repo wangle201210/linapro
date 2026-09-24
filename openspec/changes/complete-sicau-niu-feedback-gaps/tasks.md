@@ -51,6 +51,9 @@
 - [x] **FB-59**: 地图平移边界贴着底图边缘，位于边角的牛（如至善牛）无法被移到屏幕中心，纵向甚至完全不能拖动
 - [x] **FB-60**: 地图牛只详情仍展示“查看 3D 牛”按钮，地图标记也保留`3D`角标，需要隐藏全部 3D 入口信号
 - [x] **FB-61**: 喂草榜只有个人贡献排行，缺少按牛只累计有效喂草效果聚合的牛只排行
+- [x] **FB-62**: 安装初始化缺少成都校区可被玩家发现的首批`12`只牛及重复执行验证
+- [x] **FB-63**: 铁牛初始化仍使用`IRON-*`演示编号，需改为运营指定的`21`个真实定位器编号并移除旧演示登记
+- [ ] **FB-64**: 铁牛加成缺少逐只开关，运营无法决定哪些定位器参与后续喂草加成及地图提示
 - [x] **FB-58**: 成都校区标定与初始牛只坐标偏离真实校区约`2.9km`，且比例尺把一个校区放大成`9.3km`见方
 - [x] **FB-57**: 农场、图鉴、我的三个页面底部内容被固定导航栏遮挡且无法继续上滑
 - [x] **FB-56**: 完善资料提醒条压在状态栏与胶囊下方无法点击，云搬牛地图保留了后端不存在的“等待出发”状态与“轨迹”工具
@@ -64,6 +67,8 @@
 
 ### 根因记录
 
+- `FB-64`根因：铁牛表只有编号、展示信息及定位，没有逐只加成状态；喂草位置网关和地图铁牛投影只按可用坐标读取所有登记铁牛，因此任何已定位铁牛都会自动参与加成，运营端也没有开关可维护。
+- `FB-63`根因：安装 SQL 没有真实铁牛定位器目录，演示 Mock 仍写入`IRON-01`至`IRON-03`虚构定位器和坐标；线上有两个有效真实登记，其中`50275126210`不在运营指定的`21`个编号内。单独重跑初始化 Seed 不会清理既有登记，必须在部署时核对后单独停用名单外编号。
 - `FB-1`根因：首版渲染器只验证`PNG`可解码和不同玩家输出有差异，没有把海报/证书作为最终视觉产物处理，导致输出缺少可读活动信息和个人信息。
 - `FB-2`根因：签到、偷草、送草、排行榜和风控阈值通过插件启动配置读取，配置服务本身为只读能力，运营端无法在管理工作台查看或修改，也无法在请求路径实时生效。
 - `FB-3`根因：排行榜服务已提供玩家端喂草榜、院系榜和好友榜，但路由和前端仅面向玩家端，运营结算页没有管理端表格投影。
@@ -157,6 +162,9 @@
 
 ### 影响分析
 
+- `FB-64`影响：逐只布尔开关仅属于`sicau-niu`插件数据与运营编辑契约，新增插件迁移`015`、生成的铁牛`DAO/DO/Entity`、现有铁牛列表/新增/更新 DTO 与服务、管理页和插件自身测试；不修改宿主、跨模块接口、脚本、插件启停或运行时依赖。创建默认关闭，已登记的`21`个真实编号升级后同样关闭，待运营逐只开启；权限沿用原有`iron:create`、`iron:list`和`iron:update`，无权修改的请求由宿主统一权限门禁拒绝，平台上下文及数据权限边界不变。喂草与地图仍各用一次现有集合查询在数据库中过滤`bonus_enabled`，IOT 定时刷新仍读取全部登记铁牛，无额外远程调用或`N+1`；数据库是权威数据源、请求实时读取，无新增缓存、快照、跨实例失效或可接受陈旧窗口。新文案使用单语言中文，插件未启用`i18n`，不新增语言包；未触发字典、开发工具跨平台、DI 或宿主核心边界变更。只修改本地代码和本地开发库，线上代码/数据库均未部署本变更。
+
+- `FB-63`影响：只修改`sicau-niu`插件铁牛安装 Seed、Mock 演示目录和 SQL 测试，及当前 OpenSpec；不修改宿主、Go、前端、HTTP 契约、DAO、开发脚本或运行期依赖。铁牛编号是业务标识，初始名称为原样编号，不新增翻译文案，`i18n`无影响；沿用现有未删除编号唯一索引和 IOT 集合刷新，不新增接口查询、`N+1`、数据权限、缓存或跨平台影响。线上停用名单外编号采用软删除，保留历史及已登记编号的名称、坐标和同步时间。
 - 已读取规则：`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/documentation.md`、`.agents/rules/architecture.md`、`.agents/rules/data-permission.md`、`.agents/rules/plugin.md`、`.agents/rules/api-contract.md`、`.agents/rules/backend-go.md`、`.agents/rules/database.md`、`.agents/rules/cache-consistency.md`、`.agents/rules/frontend-ui.md`、`.agents/rules/testing.md`、`.agents/rules/i18n.md`。
 - 插件本地规范：`apps/lina-plugins/sicau-niu/AGENTS.md`不存在，按仓库顶层规范和规则文件执行。
 - `i18n`影响：`sicau-niu`插件未在`plugin.yaml`启用`i18n`，新增单语言中文页面文案、菜单按钮和接口文档源文本不要求维护插件`manifest/i18n`资源。
@@ -216,6 +224,9 @@
 
 ### 执行记录
 
+- `FB-64`修复：`015`以可重入 DDL 为铁牛表增加`BOOLEAN NOT NULL DEFAULT FALSE`，不手写自增主键或历史更新；本地开发库应用后执行插件`make dao`，仅铁牛生成文件有差异。现有铁牛新增/编辑表单增加默认关闭的`Switch`，列表展示开关状态；列表、创建和更新 API 透传布尔字段。喂草位置网关与寻牛地图只投影已开启且具有有效定位的铁牛；IOT 定位刷新不读开关，继续维护所有已登记铁牛。沿用原更新权限，不新增修改路径或前端逐项请求。API 只增加字段、没有新增控制器方法或路由，因此沿用现有生成骨架而无需执行`make ctrl`。
+
+- `FB-63`修复：新增`014-sicau-niu-iron-registry-seed.sql`，按运营给定列表一次登记`21`个编号，不伪造定位；Mock 删除`IRON-*`占位登记。经用户要求，把`013`的`12`只成都校区牛和`014`的铁牛目录在`2026-09-24`同步到`root@47.108.251.244`的`linapro`数据库：已有`10`只牛不覆盖、补入`2`只；已有目标编号`50275156712`的运营名称及定位不覆盖、补入`20`个新编号；确认唯一名单外有效编号`50275126210`后软删除。执行前对两张业务表建立仅 root 可读的备份`/root/linapro-sicau-niu-20260924T070727Z.dump`，同步在单个可回滚事务内完成。此前`FB-62`记录的“未执行线上 SQL”是该阶段状态，本次同步后不再适用。
 - `FB-1`修复：升级`posterrender`和`certrender`默认实现，输出带活动标题、玩家/奖项字段、编号、纪念标识、版式边框和个性化装饰的`PNG`；新增`rendertext`工具，优先使用`SICAU_NIU_RENDER_FONT`或系统`CJK`字体，缺失字体时回退基础字体并保持可解码输出；补充海报和证书渲染器像素级单测，防止退回纯占位图。
 - `FB-2`修复：新增`plugin_sicau_niu_rule_config`迁移、卸载 SQL、DAO/DO/Entity 生成入口和`rules`服务；运营端新增规则查询/更新接口，关键玩家和运营路径读取同一个运行规则服务，覆盖`LBS`判距、海报/证书标识、签到草量、偷草/送草限制、铁牛加成阈值、排行榜`TopN`、异常阈值和小程序回跳地址。
 - `FB-3`修复：运营端新增喂草榜、好友榜、院系榜接口和结算页“排行榜数据”表格区；前端客户端、页面对象和`TC004`可见性断言同步更新。
@@ -290,6 +301,11 @@
 
 ### 验证记录
 
+- `FB-64`验证：本地`psql -d postgres -v ON_ERROR_STOP=1 -f apps/lina-plugins/sicau-niu/hack/tests/sql/iron-bonus-toggle.sql`覆盖旧行和新行默认关闭、重复迁移不覆盖已启用状态，事务回滚；本地开发库应用`015`后`make dao`仅变更铁牛生成文件。设置`LINA_TEST_PGSQL_LINK`运行`cattle`、`feeding`、`activation`和运营控制器包完整数据库测试均通过，覆盖逐只编辑开关和保留定位、关闭/开启/再关闭实时喂草与地图提示、IOT 在关闭时仍刷新定位及历史喂草快照不变；`make lint dir=apps/lina-plugins/sicau-niu plugins=1`通过，`web-antd`的`typecheck`、生产构建、两份铁牛 Vue 页面脚本/模板编译及改动的`TC002`/页面对象定向 TypeScript 检查通过。已在插件`TC002`新增默认关闭、开启、后端失败保留原状态、再次关闭及删除清理的 E2E 子场景，但本地没有运行中的管理应用，Playwright 测试加载阶段被仓库既有`auth-state.ts`的`exports is not defined`错误阻断；全库测试 TypeScript 检查也被其他插件缺少`@playwright/test`等既有问题阻断。未因无 Docker 依赖而启动新容器；UI 真机/线上验收仍需环境修复后执行。SQL/Mock 分类、软删除、索引和单次集合查询已核对。
+- `lina-review`结论（`FB-64`）：审查范围从主仓及插件子仓的`git status --short`、`git ls-files --others --exclude-standard`展开，区分了此前`FB-62/63`的 Seed 与 Mock 改动；重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`documentation.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`cache-consistency.md`、`api-contract.md`、`backend-go.md`、`database.md`、`frontend-ui.md`、`testing.md`、`i18n.md`和`dev-tooling.md`，插件根目录无`AGENTS.md`。本任务未发现实现层阻断或`N+1`：沿用铁牛写权限及原有数据可见性边界、一次集合查询；数据库实时读取开关，无缓存和新增运行期依赖；开发工具和跨平台入口不变；单语言插件无新增多语言资源。因编辑表单、状态列和跨端加成行为变化，已触发 E2E 质量审查，新增用例覆盖成功、失败及独立清理，但当前无法执行。**严重验证门禁**：`hack/tests/fixtures/auth-state.ts:3`的既有`exports is not defined`使`TC002 --list`在加载时失败，无运行中的管理应用可进行截图验收；`make i18n.check`又因既有`cms`等全库问题失败（单语言插件的新文案也被通用汉字扫描列出）。数据库集成测试、插件`make lint`、SQL 幂等测试、前端编译及定向格式/类型检查、`openspec validate --strict`与双仓`git diff --check`已通过，但不能替代实际页面 E2E 和全库 i18n 门禁；因此`FB-64`保持未勾选，待验证入口修复后复测。线上数据库和运行项目未同步本任务。
+
+- `lina-review`结论（`FB-63`，含本次线上数据同步）：反馈级审查覆盖主仓 OpenSpec 两份文件、插件 Seed 两份、Mock 一份和 SQL 回归两份，含未跟踪文件；重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`documentation.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`database.md`、`testing.md`、`i18n.md`及`cache-consistency.md`，插件根目录无`AGENTS.md`。未发现阻塞问题；SQL 版本与 Seed/Mock 分类、幂等、主键和软删除、定位数据来源均满足门禁，既有编号唯一索引与 IOT 批量刷新无需新增索引或`N+1`查询。未修改 API/前端/Go/开发工具，数据权限、`i18n`、缓存与跨平台均无影响。E2E 质量审查因牛只可见性和铁牛目录属于用户可观察数据而触发：本地 SQL 成功/重复/补齐测试、已有地图可见性与 IOT 定位服务测试，以及线上库提交前后精确名单/上线时间/可见窗口核对构成等价自动化证据；未调用真实小程序玩家接口，现场规划点与新定位器的实际 IOT 首次上报仍需运营核验。
+- `FB-63`验证：本地`iron-registry-seed.sql`事务内验证首次`21`条、准确集合、无虚构位置、重复执行保留运营变更及缺项补齐；真实插件表结构隔离 Schema 重跑`014`为`21/0`条。线上备份经`pg_restore -l`校验可读取；事务内检查执行前仅`10`只牛、`2`个有效铁牛，执行`013/014`分别新增`2/20`条、软删除`1`条，提交前检查有效牛`12`只均已上线且在成都校区规划区域、有效铁牛编号恰为指定`21`个。提交后独立复查：牛`12`只均已到上线时间；有效铁牛`21`个，其中`20`个新登记未伪造定位，名单外旧编号已软删除，已有目标编号的定位仍保留。Seed 与 Mock 分离，两个 Seed 均依赖真实部分唯一索引`ON CONFLICT DO NOTHING`，不显式写自增`id`、不更改软删除语义；当前运营名单通过业务键集合校验，不触及权限接口或高频装配。
 - 已执行并通过：`make db.init confirm=init`。
 - 已执行并通过：`psql postgresql://postgres:postgres@127.0.0.1:5432/linapro?sslmode=disable -v ON_ERROR_STOP=1 -f manifest/sql/007-sicau-niu-rule-config.sql`。
 - 已执行并通过：`make dao`（在`apps/lina-plugins/sicau-niu`内生成`rule_config`相关`DAO/DO/Entity`）。
@@ -511,3 +527,7 @@
 - 已执行并通过（`FB-60`~`FB-61`）：以 Go`1.26.4`、`GOWORK=off`和低并发对真实 PostgreSQL 运行 ranking 服务包全部测试，新增用例覆盖牛只累计效果聚合、同分竞赛排名`1/1/3`、稳定牛只 ID 顺序与批量名称/编号装配；玩家 Controller 和 API 包编译通过。目标插件`make lint dir=apps/lina-plugins/sicau-niu/backend/internal/service/ranking plugins=1`执行`golangci-lint`与`staticcheck`均为`0 issues`。`cow-mini/miniapp`的 TypeScript 检查通过，Vitest`18`个文件`137`个用例通过，微信与 H5 生产构建均成功，仅保留既有 bundle 和`cow.glb`体积警告。OpenAPI JSON 通过`jq`解析与目标`niuList/NiuRankItem`断言，三仓`git diff --check`和 OpenSpec 严格校验通过。
 - E2E 与视觉判断（`FB-60`~`FB-61`）：`cow-mini`是独立微信小程序，不新增插件工作台`TC`编号；使用生产 H5 产物并在 Playwright 层拦截玩家 API 做等价页面验证。`390x844`视口下确认“个人贡献/牛只排行”可点击切换，牛名、编号、名次和累计点数无重叠或溢出；地图牛只标记无`3D`角标，详情弹层只保留“知道了”，校史卡片与统计完整。截图位于`cow-mini/temp/20260818/120230-profile-cattle-rank.png`和`120330-home-cow-detail-no-3d.png`并已视觉检查。微信原生组件的最终交互仍以真机为验收边界。
 - `lina-review`结论（`FB-60`~`FB-61`）：反馈级审查已展开主仓、插件子仓和`cow-mini`的已跟踪与未跟踪增量，并重新读取`AGENTS.md`、OpenSpec、文档、架构、数据权限、插件、API 契约、后端 Go、前端 UI、测试和`i18n`规则；`sicau-niu`与`cow-mini`均不存在本地`AGENTS.md`。未发现阻塞问题或警告；后端聚合、前端映射、机器契约和可观察页面验证相互一致。根仓既有`go.work`、`cow-mini/.DS_Store`及此前`.playwright-cli`工具产物不属于本反馈，未修改或纳入结论。
+- `FB-62`根因与修复：插件安装 SQL 原本不含牛只，独立 Mock SQL 只有`10`条演示牛；线上只读核对也为`10`条。按本轮“先放`12`只”的范围，新增插件安装 Seed SQL，生成`NIU-001`至`NIU-012`，将互不重合的`GCJ-02`规划锚点布在已有成都校区标定范围内，立即上线且默认未激活；基于牛只编号的既有未删除唯一索引使用`ON CONFLICT DO NOTHING`，不覆盖已有的`10`条演示或运营记录，也不重置已激活状态。坐标仍为近似规划点，现场勘定后须由运营更新；其余`108`只不在本轮预先放出。仅写入业务运行必需的 Seed DML，不写演示身份信息、自增`id`或历史流水，不改变软删除语义。
+- `FB-62`影响分析：仅修改`sicau-niu`插件安装 SQL、新增插件本地 SQL 回归测试并更新当前 OpenSpec 规范和任务；未修改宿主、前端、HTTP 契约、DAO、查询装配、权限或运行期依赖，`DI`、数据权限、缓存一致性、开发工具跨平台均无影响。首批牛只沿用已有`common`类型且名称为空，不新增用户可见文案；插件本身未启用`i18n`，无翻译资源影响。地图有界列表上限`200`大于首批`12`，沿用`online_at`索引与现有批量装配，无`N+1`或额外查询。仅做初始化数据准备，未执行线上 SQL 或部署；本轮不新增页面 E2E，使用 SQL 自动化回归和已有玩家地图服务测试验证行为。
+- 已执行并通过（`FB-62`）：`psql -d postgres -v ON_ERROR_STOP=1 -f apps/lina-plugins/sicau-niu/hack/tests/sql/chengdu-cattle-seed.sql`覆盖首次插入`12`条、编号与坐标去重、成都校区坐标范围、已上线未激活、重复执行不覆盖运营变更、现存`10`条时仅补齐`2`条，整个测试在事务中回滚；隔离 Schema 上运行真实`002`建表 SQL 后执行`013`两次，结果分别插入`12`和`0`条且最终仍为`12`；插件`VisibleNiu`与成都校区标定回归测试、`openspec validate complete-sicau-niu-feedback-gaps --strict`及双仓`git diff --check`均通过。未运行会重置现有数据库的`make db.init`，以隔离 Schema 初始化和事务内测试替代；SQL 幂等性、Seed/Mock 分类、自增主键和软删除约束均已核对。
+- `lina-review`结论（`FB-62`）：审查主仓两份 OpenSpec 文档及插件子仓两份新增 SQL，插件根目录无本地`AGENTS.md`；重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`documentation.md`、`plugin.md`、`database.md`、`testing.md`和`i18n.md`。未发现本轮阻塞问题；SQL 不覆盖已有运营记录，保持现有数据权限与缓存路径，未新增前端、API、工具或运行期依赖。E2E 质量审查以事务内 SQL 回归和已有`VisibleNiu`服务测试为数据准备阶段的等价验证，页面与真机验证留待部署阶段。额外运行的全库`make i18n.check`被既有`cms`等未改动源码的大量问题阻断；本轮未改动运行时文案或语言包，单语言插件的 SQL 默认名称为空。可选`db.mock`演示流程仍会把十头演示牛的激活事实叠加到初始化数据上，演示状态如需与新初始状态一致，应在后续单独整理；本轮未修改旧版演示 SQL，亦未改动线上数据。
