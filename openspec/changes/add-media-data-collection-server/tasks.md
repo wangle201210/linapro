@@ -12,6 +12,9 @@
 
 ## Feedback
 
+- [x] FB-39 补齐节点总览的原始链路延迟、丢包率、抖动和探测状态，复用实例资源并统一 CPU 核数单位，完成持久化、接口和验证，不计算质量评分或分级。
+- [x] FB-40 修复真实上报中实例标识与业务节点号不一致导致直属资源为零的问题，以唯一最新链路归属批量关联实例，覆盖上报顺序、迁移和冲突。
+
 - [x] FB-1 补齐`net-flux` discovery server 端能力，支持按配置接入 Nacos 注册、注销和查询。
 - [x] FB-2 依赖来源检查：collection server 由`media`插件后端持有，在`system.started` hook 中通过宿主`payload.Services().Plugins().Config()`读取插件配置；Nacos discovery client 仅在`collectionServer.discovery.enabled=true`且收到 discovery 命令时由`collection`服务懒加载创建，并随插件上下文结束或注销动作关闭。
 - [x] FB-3 使用本地 Docker Nacos 验证真实 discovery 注册、查询和注销流程，并修正发现的 Nacos group 前缀兼容问题。
@@ -519,3 +522,40 @@
 - 审查：已执行`lina-review`反馈级审查，范围为`collection_discovery.go`、新增`disco_cli_factory.go`、handler、相关测试、`go.mod/go.sum`和 OpenSpec 记录；确认 client owner、连接生命周期、列表 Lookup、错误处理和测试覆盖符合规则，未发现严重或警告问题。
 - 规则加载：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`.agents/rules/architecture.md`、`.agents/rules/plugin.md`、`.agents/rules/backend-go.md`、`.agents/rules/testing.md`、`.agents/rules/documentation.md`、`.agents/instructions/markdown-format.instructions.md`，并使用`lina-feedback`、`lina-review`、`goframe-v2`和`karpathy-guidelines`技能；API contract、数据权限、数据库、i18n、前端 UI 和开发工具长期入口确认无文件变更影响。
 - 验证：`go list -m -versions github.com/dellinger2023/net-flux`和上游 tags确认最新正式版本为`v0.0.19`；`LINAPRO_TEST_NACOS=1`配合`http://10.157.225.139/`、`qiniu`、`nacos/nacos`的真实 Nacos 集成测试通过，并断言 Lookup 实例`healthy=true`；`GOROOT=/Users/wanna/sdk/go1.25.8 GOTOOLCHAIN=local GOWORK=off go test ./... -count=1 -parallel 1`通过；常规和`GOFLAGS='-tags=manual_nacos'`的`make lint dir=apps/lina-plugins/media plugins=1`均通过且为`0 issues`；`openspec validate add-media-data-collection-server --strict`、主仓和插件子仓`git diff --check`通过。
+
+
+### FB-39 反馈修复记录
+
+- 分诊：`openspec-existing`。反馈补全本活跃变更的采集读模型和节点总览契约，属于规范级功能遗漏；虽然此前任务全部完成，该变更尚未归档。本次先更新增量规范和设计，再实施。
+- 根因：`NetworkMetric`中的抖动、丢包率和探测状态仅写日志，节点投影只保留目的地址到延迟的摘要；已有资源字段为包含子节点的汇总，不适合直接作为每个途经节点的直属实例资源；采集端将`CPU`百分比直接保存到声明为核数的`cpu_load`。
+- 实现：扩展`GET /api/v1/media/dashboard/nodes/overview`，新增`network_links`、响应根节点的`network_links_limited`和每节点`instance_resources`。链路项保留来源实例、源地址、目的地址、原始延迟、抖动、丢包比例、状态码、可空可达状态和毫秒采样时间。直属资源复用已有实例聚合，不包含子树；采集端将`CPU`使用率转换为已用核数。不新增质量评分、质量分级、候选路径排序或综合负载百分比。
+- 数据库与并发：当前活跃迭代的`003-add-media-data-collection-server.sql`追加`plugin_media_report_network_link`最新投影表，复合主键为节点、来源实例、源地址和目的地址。仅新增幂等`DDL`，无种子或演示数据，无自增主键和软删除。链路采用固定两次写入及采样时间条件更新，拒绝更旧样本；空目的地址不创建链路。可空布尔字段通过独立生成配置得到`*bool`，缺省状态显式更新为`SQL NULL`。
+- 性能：链路按当前返回子树节点在数据库侧集合过滤，只新增一次投影查询，最多读取`10001`条以检测`10000`条截断；不逐节点、逐实例或逐链路回查。复合主键以前导`node_id`支撑过滤及稳定排序，资源继续使用既有分组查询，无新增`N+1`。
+- 权限：沿用既有认证链、`media:management:query`和平台基础设施监控边界；监控样本无人员或部门归属，按组织数据权限隔离的业务实体规则不适用于该投影，例外及拒绝边界已在设计中记录。接口权限元数据测试和现有路由认证测试通过；新增 SQL 只查询响应子树节点，测试覆盖子树外样本不返回且不占用截断额度。
+- 缓存与依赖：新增最新投影直接写共享数据库，不新增业务缓存、失效机制、运行期服务依赖或构造参数；既有共享生命周期计数缓存与启动服务图不变，无新增`DI`来源问题。
+- 插件与跨平台：所有生产修改限定在`media`插件内部；`media/AGENTS.md`不存在。生成配置和`make dao`、`make ctrl`沿用仓库跨平台入口，无新增脚本；本轮在`macOS`和本地`PostgreSQL`验证，未额外执行其他操作系统测试。主框架插件能力无变化，宿主插件`README`无需更新。独立`media`仓库未开发或同步。
+- 文档与`i18n`：同步更新中英文`README`，保留用户预存白名单说明改动。`media/plugin.yaml`未启用`i18n`，按`.agents/rules/i18n.md`的单语言插件例外使用中文接口源文案，无需插件翻译资源。`make i18n.check`已执行但全仓失败，报告既有`1620`项硬编码文案及消息和前端翻译缺失，涉及`cms`等本轮未修改范围；本轮不宣称全仓国际化门禁通过，也不扩展修复无关模块。
+- 测试：新增`6`个测试函数并扩展既有断言，覆盖原始失败值、零丢包和零抖动、`true/false/null`、`true`更新为`NULL`、秒转毫秒、四维业务键、空目的端、迟到报告、`12`个并发写入、子树过滤、直属资源与子树资源区分、恰好和超过`10000`条边界，以及接口权限和序列化。后台接口行为通过真实`PostgreSQL`持久化、`SQLite`查询和控制器/路由自动化联合验证；本次没有前端页面或调用方变化，未运行页面`E2E`或截图。
+- 生成与验证：本地新表`DDL`连续执行两次通过；`make dao dir=apps/lina-plugins/media/backend`和`make ctrl dir=apps/lina-plugins/media/backend`通过；`LINAPRO_TEST_POSTGRES=1 go test ./backend/internal/service/collection -count=1`通过；插件目录`go test ./... -count=1`全部通过；`make lint dir=apps/lina-plugins/media`通过，`0 issues`；`openspec validate add-media-data-collection-server --strict`及主仓、插件子仓`git diff --check`通过。初次误用`make dao p=media`产生的宿主生成差异已全部恢复，不包含在交付中。
+- 审查：按`lina-review`完成反馈级主审及独立子代理审查，涵盖已跟踪改动和新增文件、生成层、SQL、数据权限和测试有效性；文档影响描述警告已修正，本轮代码未发现阻塞问题。全仓国际化检查失败作为范围外风险记录，不将其报告为通过。已读取`AGENTS.md`及`openspec`、`documentation`、`architecture`、`plugin`、`backend-go`、`api-contract`、`database`、`data-permission`、`cache-consistency`、`testing`、`i18n`、`dev-tooling`规则和`markdown-format.instructions.md`；使用`lina-feedback`、`lina-review`、`goframe-v2`、`karpathy-guidelines`和`use-modern-go`技能。
+- 交付限制：部署环境需执行新增建表`DDL`，本地已执行且验证；新链路详情需等待后续网络上报，既有延迟摘要无法反推丢包率或抖动。既有`CPU`样本由后续机器上报刷新。保留旧`node_latency_map`接收顺序更新语义，新增`network_links`按采样时间防止旧值覆盖。未部署、提交或推送。
+
+
+### FB-39 推送前复核
+
+- 范围：只提交节点原始链路指标、直属实例资源、生成模型、迁移及双语说明，主仓提交本变更的规范记录和子模块指针；预存白名单响应修复、`go.work/go.work.sum`、其他 OpenSpec 变更和`lina-10-12.log`保留在工作区。
+- 验证：`GOWORK=off go test ./... -count=1`通过，确认交付不依赖本地`go.work`调整；本地`PostgreSQL`定向执行`TestReportRuntimePersistsMetrics`、`TestReportRuntimePreservesLatestRawNetworkLinks`和`TestReportRuntimeRejectsConcurrentStaleNetworkLinks`通过；`make lint dir=apps/lina-plugins/media`通过，`0 issues`。
+- 复核：重新读取本轮命中规则，检查暂存内容和新增文件；确认可空状态、原始失败值、子树过滤、截断、直属资源、CPU单位、并发陈旧保护和部署迁移均符合契约。既有全仓`i18n.check`失败仍按前述单语言插件边界记录，无新增翻译资源要求。复用本轮后端行为自动化覆盖，未新增前端或页面验证范围。
+- Git 范围：根据用户本次“review后push”授权，在两仓库当前的`origin/feat/wanna`提交和普通推送，不执行公共仓库合并或部署。
+
+
+### FB-40 推送复核修复记录
+
+- 根因：独立复核追踪到`net-flux v0.0.19`真实发送实现，`MachineMetric.node_id`使用`nodeInfo.ID`实例标识，而`NetworkMetric.node_id`使用业务节点号；直接按两个`node_id`关联会使链路节点资源为零，旧测试人为使用相同节点标识而未覆盖该场景。
+- 修复：仅调整`media`看板读适配层。在既有实例聚合 SQL 中联结每个来源机器的唯一最新业务节点；明确实例节点优先，空节点或实例标识占位时通过`machine_id = instance_id`推断。归属在全局节点范围选最新时间，再展示子树；同刻跨节点冲突、缺少关联或仍为实例标识的归属保持未知。多源和多目的端在联结前合并，不重复累加资源；资源不依赖已截断的链路详情。
+- 性能和数据库：保持原资源聚合的一次集合 SQL，无逐实例查询；新增`idx_plugin_media_network_link_machine_report`索引覆盖机器、采样时间、节点查询。本地只执行新增索引 DDL，连续执行两次通过，未重置数据库。索引追加到同一活跃迭代 SQL，无新数据字段或生成层变化。
+- 测试：新增真实协议的`SQLite`回归，覆盖先网络后机器、先机器后网络、多目的端、明确节点优先、迁出当前子树、同刻冲突及随后恢复唯一归属；新增真实`PostgreSQL`回归，校验实例数量、CPU、内存、磁盘和网络总量。测试发现 GoFrame 的`g.DB`默认驱动缓存不随`gdb.SetConfig`恢复，现将该 PG 用例放入标准`os/exec`启动的独立测试子进程，父进程不切换数据库驱动，确保可与已有 SQLite 测试一起执行；所有测试数据按随机唯一标识清理，验证残留为零。
+- 影响：无新增运行期依赖、缓存、跨插件契约、权限入口或可见范围；沿用平台监控边界和认证。无前端或页面变化，采用后端接口等价自动化验证；插件未启用`i18n`，双语说明同步更新，无新增翻译资源。测试子进程使用标准 Go API，无 shell 或平台专属工具，无跨平台生产入口变化。
+- 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1`全量通过，包括 collection 写入并发与 NULL 验证、media 真实 PG 关联及全部 SQLite 回归；`make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec 严格校验和两仓差异检查通过。全仓既有 i18n 问题继续按 FB-39 范围说明保留，不宣称全仓门禁全绿。
+- 审查：按`lina-review`完成主审与独立复核，此前真实数据关联阻塞已解除，未发现新的本轮代码阻塞问题；本轮重新读取的规则域与 FB-39 相同。保持部署前执行 DDL 的要求，同版本替换二进制不会自动完成插件迁移。
+- 提交策略：首个子模块实现提交后发现上述问题，通过后续修复提交补齐，不重写已推送历史；主仓最终指针仅指向修复并验证后的子模块提交。预存白名单、工作区配置和其他变更继续保留。

@@ -54,7 +54,7 @@
 | 上报包 | 写入表 | 映射策略 |
 | ------ | ------ | -------- |
 | `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、内存、磁盘、网络、版本和启动时间写入实例最新投影；内存字段统一归一化为`MB`，磁盘和网络速率字段统一归一化为`KB/S`；`live_streams`和`sessions`不由客户端直接上报。 |
-| `NetworkMetric` | `media_report_node` | `machine_id`作为节点业务键；`throughput`按`KB/S`归一化后写入`network_out`，`destination_ip -> rtt`在事务内按节点行级锁合并进`node_latency_map`，避免同节点并发上报覆盖其他目的端延迟。 |
+| `NetworkMetric` | `media_report_node`、`plugin_media_report_network_link` | 优先使用`node_id`作为节点业务键，缺省时回退`machine_id`和`source_ip`；吞吐量按`KB/S`归一化，`destination_ip -> rtt`在节点行级锁下合并进`node_latency_map`。另按节点、来源实例、源和目的地址保存完整原始链路指标。 |
 | `StreamMetric` | `media_report_stream`、`media_report_instance` | `stream_id`作为流业务键；`tenant_id`、`device_id`、`node_id`、`instance_id`写入租户、设备、节点和实例维度，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；协议、状态、码率、分辨率、帧率、丢包率、延迟、会话摘要和流路径写入最新流投影；`STREAM_ADD`和`STREAM_DELETE`按`stream_id`幂等维护实例实时直播流数量。 |
 | `SessionMetric` | `media_report_session`、`media_report_instance` | `session_id`作为会话业务键；流、租户、设备、客户端、播放协议、播放质量、`node_id`、实例和链路跳点写入会话最新投影，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；`SESSION_ADD`和`SESSION_DELETE`按`session_id`幂等维护实例实时会话数量。 |
 
@@ -68,8 +68,20 @@
 
 ## 影响评估
 
-- `i18n`影响：不新增运行时 UI 文案、菜单、语言包或 API 文档源文本。
+### FB-39 节点原始链路指标
+
+节点总览沿用现有`GET /api/v1/media/dashboard/nodes/overview`，新增每节点`network_links`和响应根节点的`network_links_limited`。新增`plugin_media_report_network_link`最新投影表，使用`node_id + machine_id + source_ip + destination_ip`复合业务键，不使用软删除；该表为采样最新状态，不是业务操作历史。按当前返回子树的节点集合一次性查询，固定`10000`条返回上限并显式报告截断，使用以前导`node_id`组成的业务键索引支撑读取。网络指标不进入业务缓存，写入与查询使用共享数据库；不新增运行期依赖、跨模块契约或宿主修改。
+
+保存上报原始`rtt`、`jitter`、`packet_loss`、`status_code`，以及`extra.reachable`明确提供的布尔状态，缺省状态为`null`。新字段`report_time`在采集边界统一为`Unix`毫秒时间戳。空目的地址不创建链路记录；没有链路上报时返回空数组。已有`node_latency_map`继续提供按目的地址组织的延迟摘要，完整链路列表保留来源实例维度。当前上游通过`HTTP`探测失败比例生成`packet_loss`，接口说明必须写明该口径，不能将失败固定值当作正常测量值或自动评分。
+
+节点资源继续使用实例表批量聚合。`instance_resources`返回当前节点直属实例的资源汇总和实例数量，不包含子节点；既有顶层资源字段仍表示子树汇总，避免调用方在途经节点之间重复计算资源。上报的`cpu_usage`为百分比，入库转换为`cpu_count * cpu_usage / 100`已用核数，与既有接口单位一致；已有样本由后续实例上报刷新。此处仅统一指标单位，不增加质量评分、质量等级、路径推荐或综合负载计算。
+
+`FB-40`补齐当前`net-flux v0.0.19`的真实标识差异：机器上报的`node_id`可能等于实例标识，而网络上报的`node_id`为业务节点号。读适配层保留明确实例节点；仅对空节点或实例标识占位的记录，按`machine_id = instance_id`联结全部节点范围的最新网络采样。最新采样同刻指向多个节点时不推断归属；多源和多目的记录属于同一节点时合并成一个实例归属。该联结作为原实例聚合的一部分在数据库内完成，先确定全局最新归属再展示所选子树，独立于链路明细的`10000`条上限。增加`machine_id + report_time + node_id`索引支撑查询，不修改上报原值或新增写入、缓存和运行期依赖。
+
+数据权限沿用平台基础设施监控边界：`media`为`platform_only`插件，管理接口仍受既有认证链和`media:management:query`保护；指标无人员、部门归属，不新增按组织权限隔离的业务实体。新增链路查询在数据库侧按响应节点集合过滤，不扩大到子树外数据，不提供公开查询入口。测试覆盖子树过滤、多个实例与目的端、空结果、截断和原始失败值；路由测试验证现有权限声明。`media`未启用`i18n`，接口源文案使用中文，不新增翻译资源；生成配置使用既有跨平台`make dao`入口，无新增脚本。数据库变更追加在本活跃迭代的`003-add-media-data-collection-server.sql`，使用幂等建表，仅包含`DDL`。
+
+- `i18n`影响：新增节点总览的中文 API 文档源文本；插件未启用`i18n`，无需翻译资源，不修改运行时 UI 文案、菜单或语言包。
 - 缓存影响：新增 collection server 生命周期事件共享 cache，用于维护实例实时流数和会话数；权威运行时来源为客户端增删事件，写回表为`media_report_instance`；跨实例同步由宿主`cachecap.Service`背后的运行时 KV 后端负责，`cluster.enabled=true`时必须使用宿主 Redis/coordination KV 等共享后端，不允许退化为当前 Pod 内存；最大陈旧窗口为最后一次成功处理的生命周期事件到下一次事件重试之间；`collectionServer.discovery.cacheDir`仅透传给 Nacos SDK 作为其本地客户端缓存目录。
-- 数据权限影响：不新增 HTTP API 或数据读取接口；新增写入路径为采集 server 接收设备上报并写入插件自有读模型，后续查询接口必须在数据库查询阶段使用冗余的`tenant_id`、`node_id`、`instance_id`等维度过滤。
+- 数据权限影响：扩展既有受保护节点总览接口，不新增公开读取入口。采集 server 写入插件自有基础设施投影；链路查询在数据库阶段按返回节点集合过滤，平台监控边界及例外依据见`FB-39`。
 - 开发工具跨平台影响：不新增或修改 LinaPro 脚本、Makefile、CI 或`linactl`入口；外部`net-flux`协议代码按其现有`go generate ./...`入口生成，该入口依赖`protoc`。
-- 数据库影响：新增`media_report_node`、`media_report_node_snapshot`、`media_report_instance`、`media_report_stream`和`media_report_session`插件表，并更新`media`插件 DAO 生成配置。
+- 数据库影响：本变更维护`media_report_node`、`media_report_node_snapshot`、`media_report_instance`、`media_report_stream`和`media_report_session`读模型；`FB-39`新增符合完整插件前缀的`plugin_media_report_network_link`表，并使用独立 DAO 生成配置维护可空布尔字段。

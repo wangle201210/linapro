@@ -151,7 +151,7 @@ AND 不应为 TCP 采集 server 伪造 HTTP 路径。
 
 `media`插件 MUST 提供受`media:management:query`权限保护的数据看板查询接口，读取`media_report_*`最新投影表并返回`数据看板.md`中节点总览、实例列表、流列表和会话列表所需字段。
 
-接口响应的`data`对象 MUST 与`apps/lina-plugins/media/数据看板.md`示例中的`data`对象结构保持一致；响应`data`不得额外返回文档未定义的列表包装、`total`、`pageNum`或`pageSize`字段。不返回`total`的看板列表接口 MUST 不暴露分页查询参数，服务端在数据库查询阶段使用固定`10000`条上限保护数据库。
+接口响应的`data`对象 MUST 保持`apps/lina-plugins/media/数据看板.md`示例中的直接对象结构，并支持本规范明确新增的原始链路和直属实例资源字段；响应`data`不得额外返回列表包装、`total`、`pageNum`或`pageSize`字段。不返回`total`的看板列表接口 MUST 不暴露分页查询参数，服务端在数据库查询阶段使用固定`10000`条上限保护数据库。
 
 #### Scenario: 查询节点总览树
 
@@ -159,7 +159,31 @@ WHEN 管理端请求节点总览接口
 THEN 服务端应从`media_report_node`一次性读取有界节点集合
 AND 按`parent_node_id`在内存中组装`child_nodes`
 AND 响应`data`应直接为当前节点对象，不得额外包裹`nodes`数组字段
-AND 响应字段应覆盖`node_id`、`node_name`、`region`、`status`、`parent_node_id`、资源指标、实时计数、`avg_delay`、`last_heartbeat`、`report_time`、`node_latency_map`和`child_nodes`。
+AND 响应字段应覆盖`node_id`、`node_name`、`region`、`status`、`parent_node_id`、资源指标、实时计数、`avg_delay`、`last_heartbeat`、`report_time`、`node_latency_map`、`network_links`、`network_links_limited`和`child_nodes`。
+
+#### Scenario: 查询节点间原始网络指标及资源
+
+WHEN 采集端上报`NetworkMetric`后管理端请求`GET /api/v1/media/dashboard/nodes/overview`
+THEN 服务端 MUST 按`node_id + machine_id + source_ip + destination_ip`保存最新网络指标，避免同节点不同实例或目的端相互覆盖
+AND 每个节点的`network_links` MUST 返回来源实例、源地址、目的地址、`rtt`、`jitter`、`packet_loss`、`status_code`、可选`reachable`和毫秒时间戳`report_time`
+AND 延迟和抖动单位为毫秒，丢包率使用`0～1`原始比例；当前上游探测器的丢包率口径为`HTTP`探测失败比例
+AND `reachable`缺省或无法解析时 MUST 返回`null`，不得把未上报状态推断为成功；探测失败时的原始延迟、抖动和丢包率必须保留
+AND 链路查询 MUST 在数据库侧限定到当前返回子树的节点，按稳定顺序一次性最多返回`10000`条，截断时在响应根节点设置`network_links_limited=true`
+AND 每个节点现有`cpu_allocated`、`cpu_load`、内存、磁盘和网络资源字段 MUST 继续通过实例投影批量聚合，供调用方按途经节点读取资源，不得逐节点查询实例
+AND `instance_resources` MUST 单独返回当前节点直属实例的资源汇总和实例数量，不包含子节点，防止路径读取时重复计算子树资源
+AND `MachineMetric.cpu_usage`百分比 MUST 按分配核数转换为`cpu_load`已用核数，确保实例与节点资源口径一致
+AND 本次 MUST NOT 计算质量评分、质量分级、候选路径排序或综合资源负载百分比。
+
+#### Scenario: 关联上报节点标识不同的实例资源
+
+WHEN 机器上报的`node_id`为空或等于`instance_id`，而网络上报使用业务节点号
+THEN 服务端 MUST 根据`NetworkMetric.machine_id = MachineMetric.instance_id`关联已有实例资源
+AND 明确且不同于实例标识的`MachineMetric.node_id` MUST 优先保留
+AND 归属 MUST 按该机器全部节点范围的最新采样时间确定，之后再展示当前子树，不能使用已截断的链路明细推断
+AND 同一最新时间的多目的端或多源地址指向同一节点时 MUST 仅计算一次实例资源
+AND 同一最新时间指向不同节点或没有关联记录时 MUST 视为归属未知，不将实例标识伪装成业务节点
+AND 机器指标和网络指标先后到达 MUST 得到相同关联结果，迁出子树的实例 MUST 不再计入旧节点
+AND 关联及资源聚合 MUST 使用固定次数的集合查询，不得逐实例回查链路。
 
 #### Scenario: 查询实例列表
 
