@@ -1,5 +1,25 @@
 ## ADDED Requirements
 
+### Requirement: 白名单 token 接口使用统一响应包装
+
+`GET /api/v1/tenant-whites/ips` SHALL 与其他媒体业务接口一致，通过宿主响应中间件返回`code`、`message`和`data`，控制器不得直接输出未包装的业务 JSON。
+
+#### Scenario: 返回租户白名单
+
+- **WHEN** 有效 token 查询租户白名单
+- **THEN** 响应的`code`为`0`，`data.tenantId`为用户的客户编码，`data.ips`为启用的白名单数组
+- **AND** 顶层不得直接包含`tenantId`或`ips`
+
+#### Scenario: 租户未设置白名单
+
+- **WHEN** 已鉴权租户没有启用的白名单记录
+- **THEN** 响应仍成功返回非空`data.tenantId`和空数组`data.ips`
+
+#### Scenario: 请求校验或鉴权失败
+
+- **WHEN** 请求缺少 token、token 无效或内部 API Key 校验失败
+- **THEN** 系统沿用宿主错误包装，返回非零`code`和错误说明，不返回成功租户数据
+
 ### Requirement: 以铁塔客户编码作为媒体租户标识
 
 `media` SHALL 将铁塔用户信息中的`customerCode`作为内部`TenantId`和业务数据`tenant_id`的取值，保留既有表结构、接口字段名和字符串类型，不回退到`customerId`。

@@ -23,6 +23,7 @@
 - [x] **FB-9**: 移除未上线项目不需要的用户缓存`v2`兼容假设，保持既有`token:`缓存键。
 - [x] **FB-10**: 在精简的`UserDeviceStrategyByTokenRes.userInfo`中保留铁塔用户 ID 字段`id`。
 - [x] **FB-11**: 将铁塔`customerCode`统一作为`media`内部租户标识，覆盖缓存命中、策略、白名单、节点限流和缺失或不匹配拒绝场景，保持表结构不变。
+- [x] **FB-12**: 白名单 token 接口统一使用宿主`code/message/data`响应包装，覆盖非空、空白名单及拒绝请求的 HTTP 响应。
 
 ### FB-2 反馈修复记录
 
@@ -200,3 +201,25 @@
 - 跨平台：命令仅在 Linux 构建容器内执行，Windows、macOS 和 Linux 宿主继续通过 Docker 运行；无新增宿主脚本。未改变应用运行期依赖、DI、数据权限、业务缓存或 i18n。
 - 验证：Dockerfile 构建检查无警告；干净 Alpine 3.22 容器成功安装 Node/npm、Corepack 并激活`pnpm@10.30.3`，版本断言通过；未完整构建应用镜像。
 - 同步范围：本轮只修改`linapro`，独立`media`仓库未被修改；本轮未执行提交、推送或发布。
+
+
+### FB-12 反馈修复记录
+
+- 分诊：`openspec-existing`，归入当前活跃的媒体接口变更。用户明确要求白名单接口响应与策略等业务接口一致。
+- 根因：白名单 controller 手动调用`Response.WriteJson`，宿主响应中间件检测到已有输出后跳过包装；成功响应为顶层业务字段，错误响应却使用宿主统一包装。原路由测试替身直接输出 DTO，无法发现该差异。
+- 修复：删除 controller 的直接输出分支，只返回既有响应 DTO，由现有宿主中间件包装为`code/message/data`。客户端改为读取`data.tenantId`与`data.ips`，客户编码来源不变。同步中英文 README 和本变更规范。
+- 边界：仅修改`linapro`源码插件及 OpenSpec 文档，独立`media`仓库未修改。插件根无`AGENTS.md`；未修改核心宿主、接口路由、DTO 字段、构造函数、生成工件或依赖，不需要代码生成。
+- 数据权限与性能：仍执行内部 API Key 与铁塔 token 校验，并按鉴权租户查询白名单；仅调整 JSON 外层结构，不扩大可见性，不改变数据库、HTTP 或缓存调用次数，无`N+1`。
+- 缓存、数据库、DI、i18n 与跨平台：没有缓存键、TTL、SQL、DAO、运行期依赖、错误文案、API 文案、语言包、前端页面或开发脚本变更；均无影响。
+- 测试：白名单 HTTP 集成测试改用 GoFrame 标准响应包装中间件，验证顶层仅有`code/message/data`、非空白名单正确、无白名单时仍返回租户编码及空数组、缺 token 返回非零业务码且`data=null`。该中间件覆盖与宿主一致的基本包装和提前输出跳过行为，宿主扩展错误元数据未改动；本次不新增测试宿主本地化元数据。功能行为质量审查以真实 HTTP 请求和等价包装自动化覆盖，无前端页面，不适用截图验证。
+- 已读取规范：`AGENTS.md`、`.agents/rules/api-contract.md`、`backend-go.md`、`plugin.md`、`data-permission.md`、`testing.md`、`openspec.md`、`documentation.md`及 Markdown 格式细则；使用`lina-feedback`、`lina-review`、`goframe-v2`、`use-modern-go`和`karpathy-guidelines`。
+- 验证：`GOWORK=off go test ./backend -run 'TestMediaOpenRoutesTenantWhiteIPsByToken' -count=1`及`GOWORK=off go test ./... -count=1`在 media 插件通过；`make lint dir=apps/lina-plugins/media plugins=1`通过，`0 issues`，dead-code 检查通过。`openspec validate add-media-strategy-tenant-lookup --strict`和主仓、插件仓`git diff --check`均通过。
+- 审查：范围包含 controller、路由测试、中英文 README 和两份 OpenSpec 文档，共 6 个文件；按主仓及插件仓状态与 diff 检查，用户已有`go.work`、`go.work.sum`和日志文件不属于本次修改。未发现阻塞问题，未进行线上联调、提交或推送。
+
+
+### FB-12 提交前复核
+
+- 用户明确要求补交白名单接口修改，本次仅纳入 controller、对应 HTTP 测试、双语说明、本规范记录及子模块指针；工作区配置和日志保留。
+- 已重新读取`AGENTS.md`及接口、后端、插件、数据权限、测试、OpenSpec、文档和`i18n`规则；`media/AGENTS.md`不存在。确认仅移除手动 JSON 输出，由原宿主中间件统一包装；token 校验、租户过滤、缓存、SQL、依赖、调用次数和跨平台工具均无改变，无新增`i18n`资源或前端页面影响。
+- 当前工作区`GOWORK=off go test ./backend ./backend/internal/controller/mediaopen -count=1`、`make lint dir=apps/lina-plugins/media`及 OpenSpec 严格校验通过；按`lina-review`复核非空、空数组和缺 token HTTP 行为，未发现本次阻塞问题。
+- 同步核对：独立`media`仓库已有`f64d0307ccb22708c757a7def4feb15fc2a00e79`白名单修复，四个文件与本工作区逐字节一致，无需重复提交或发布；本次补交两侧`origin/feat/wanna`。
