@@ -12,6 +12,16 @@
 
 ## Feedback
 
+- [x] FB-49 在summary返回全平台存活节点数alive_node_count，按服务端updated_at最近3分钟判断且与status无关，保持单语句聚合并补齐文档和回归。
+
+- [x] FB-48 在实例列表外层返回原始机器采集时间report_time及数据库updated_at，统一Unix毫秒和空值语义，补齐OpenAPI与验证。
+
+- [x] FB-47 将节点总览及实例列表的网络速率展示字段统一转换为Kbps，覆盖子节点和直属资源，保留存储及原始报文单位并补齐验证。
+
+- [x] FB-46 按用户要求将summary收窄为running且未关闭的流及其未关闭会话，保持单条聚合语句，更新文档与状态切换回归。
+
+- [x] FB-45 补齐流、会话、汇总及拓扑流状态的OpenAPI说明，修正状态与协议示例，明确筛选默认值、活跃口径和数量边界，并验证实际生成文档。
+
 - [x] FB-44 增加全局活跃流与活跃会话总数查询，使用同一条聚合语句，补齐权限、OpenAPI、边界测试和双语说明。
 
 - [x] FB-39 补齐节点总览的原始链路延迟、丢包率、抖动和探测状态，复用实例资源并统一 CPU 核数单位，完成持久化、接口和验证，不计算质量评分或分级。
@@ -635,3 +645,65 @@
 - `i18n`：`media`未启用多语言，新接口中文文档符合单语言插件规则，无新增翻译资源要求。全仓`make i18n.check`仍失败，`1629`项，其中本轮增加的`3`项为允许的中文元数据；日志为`temp/20261026/135102-media-summary-i18n.log`。不将既有全仓失败误报为通过。
 - 其他影响：无宿主、前端、缓存一致性、运行期依赖、依赖注入或跨平台工具入口变化；测试隔离使用标准`os/exec`。独立`media`仓库未修改，预存`go.work`、`go.work.sum`和日志保留。本轮不自动提交、推送或同步。
 - 审查：按`lina-review`完成主审与独立复核，审查包含`10`个插件变更文件、`4`个规范记录文件及无差异的生成入口；新测试清理警告已关闭，未发现剩余阻塞项。已读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引，插件根目录无本地`AGENTS.md`；使用`lina-feedback`、`lina-review`、`goframe-v2`、`karpathy-guidelines`与现代`Go`指引。
+
+
+### FB-45 看板 OpenAPI 完整性
+
+- 分诊：`openspec-existing`。用户指出流状态文档不准确并要求补全，属于当前第三方查询契约的文档遗漏。根因是`DTO`沿用展示示例`playing/paused`和协议`FLV/DASH`，没有跟随采集映射，也没有明确列表范围与计数边界。
+- 修复：流筛选、流响应及拓扑流状态列明实际`8`种状态并使用`running`示例；会话协议筛选及响应列明`9`种标准协议。补齐可选参数默认值、精确匹配、来源参数组合和请求值回显、列表排序、共享`10000`条上限、完整分组计数与明细长度区别、累计／当前计数和派生字段来源。文档说明统一`code/message/data`包装位置，未增加参数枚举校验或修改流／会话列表过滤行为。
+- 同步：更新双语说明和增量规范；执行`make ctrl dir=apps/lina-plugins/media/backend`，生成接口入口无额外差异。使用实际`Build`生成文档的回归，验证状态／协议值、示例、必填`streamId`和计数说明进入最终文档。
+
+### FB-46 汇总限定运行中数据
+
+- 用户追加明确要求`summary`只看`running`，覆盖此前`FB-44`按所有未关闭记录计数的口径。流数现在要求`status=running AND close_time IS NULL`；会话本身无状态字段，要求自身未关闭，且通过`stream_id`关联上述流。非运行中流、关闭流和孤立会话不计入。
+- 实现：保留一条`SELECT`，流计数增加参数化状态过滤，会话计数使用`EXISTS`过滤对应流，避免联结放大和逐行补查。响应字段、平台全局范围、无分页和管理鉴权保持原约定；仅收窄数据范围，既有平台监控数据权限例外和双鉴权拒绝边界继续适用。
+- 性能：复用活跃记录部分索引、关闭时间索引、流主键和会话流索引。对本地`PostgreSQL`执行`EXPLAIN`确认语法有效；小数据优化器选择顺序扫描，在事务内临时关闭顺序扫描后确认活跃索引及流主键可用，随后回滚会话设置。没有修改数据库结构或新增索引，不引入缓存。
+- 测试：服务层覆盖所有非运行状态、已关闭但状态为`running`、关闭会话、孤立会话、空结果、超过`10000`条和缺表错误；实际`HTTP`覆盖`error`恢复`running`后总数变化及关闭流后关联会话退出统计。新口径与文档同步，不根据心跳超时推断状态。
+
+### FB-45／FB-46 验证与审查
+
+- 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`通过；最后文案补正后再次运行`GOWORK=off go test ./backend/internal/apidoc ./backend/api/media/v1 -count=1 -timeout=60s`通过。`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；`OpenSpec`严格校验与两仓差异检查通过。
+- `i18n`：插件未启用多语言，沿用其源文案语言，无需补翻译。已运行全仓`make i18n.check`，仍因既有治理问题报`1629`项，与修改前相同；日志`temp/20261026/142242-media-running-summary-i18n.log`，不宣称全仓治理通过。
+- 影响与规则：本轮读取`AGENTS.md`和`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引。插件根目录无本地`AGENTS.md`。无新增迁移、数据写入、运行期依赖、依赖注入、缓存一致性、宿主、前端或跨平台工具变化，生产实现先在`linapro`闭环。执行后端等价自动化质量审查，保留测试独立进程和清理；无页面截图需求。
+- 交付：本轮未提交、推送或同步独立`media`仓库；预存工作区配置及日志保留。
+- 审查结论：已按`lina-review`完成主审及独立只读复核，覆盖全部当前插件与规范改动、测试及无差异的生成入口；确认文档与最终统计口径一致，未发现剩余阻塞问题。
+
+
+### FB-47 网络速率以 Kbps 输出
+
+- 分诊：`openspec-existing`。用户要求两个展示接口输出`Kbps`，对应节点总览和实例列表。根因是原展示字段直接返回存储的`KiB/s`数值，文档标为`KB/S`；这与客户端协议`bps`及用户要求的千比特单位不同。
+- 实现：在插件控制器`DTO`映射层统一执行`KiB/s × 1024 × 8 ÷ 1000`，覆盖根节点、全部子节点、各级`instance_resources`以及实例列表的六处字段赋值。保留浮点数、不取整、不原地修改服务输出，聚合完成后每个展示字段只换算一次。
+- 契约：`network_in/network_out`输出单位为`Kbps`，明确`1000 bps = 1 Kbps`。六个字段的`dc/eg`及双语说明已同步；例如投影`1000 KiB/s`返回`8192 Kbps`。原始`report_payload`仍保留`bps`，已有`NUMERIC(14,2)`存储舍入保持不变，不声称输出能够恢复丢失的精度。磁盘速率没有改变。
+- 边界：没有修改采集、存储、`DAO/DO/Entity`、查询、索引、缓存、运行期依赖、依赖注入、权限、宿主或前端。沿用现有平台监控和双鉴权边界，纯输出换算不改变数据库访问次数，无`N+1`或迁移要求。实例采集时间／更新时间仅按用户询问说明现状，本轮未添加时间字段。
+- 验证：控制器回归覆盖零、小数、固定物理量、已有两位小数存储、根／子节点和两级直属资源，并断言原始报文、磁盘数值和服务对象不被改变；实际`OpenAPI Build`验证三个资源类型的六个字段具有`Kbps`及`1000`进制说明。两个实际控制器入口均使用这些映射，作为本轮接口行为的等价自动化验证，无页面截图需求。
+- 门禁：`make ctrl dir=apps/lina-plugins/media/backend`完成，两个生成接口入口无额外差异；`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`全量通过，覆盖既有真实`PostgreSQL`回归。`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；`openspec validate add-media-data-collection-server --strict`与两仓差异检查通过。
+- `i18n`：插件未启用多语言，中文接口元数据按单语言规则维护。全仓`make i18n.check`仍失败，`1629`项，与本轮修改前相同；日志`temp/20261026/155134-media-kbps-i18n.log`。未新增翻译资源，保留既有全仓治理失败记录。
+- 审查：使用`lina-feedback`、`lina-review`、`goframe-v2`、`karpathy-guidelines`和现代`Go`指引，主审与独立只读复核未发现阻断问题。本轮重新读取`AGENTS.md`及`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`、`documentation.md`与 Markdown 格式指引；插件根目录无本地`AGENTS.md`。审查范围为本轮`7`个插件文件与`3`个规范文件，并检查无差异生成入口。无新增数据库、跨平台工具或缓存一致性规则影响。
+- 交付：保留此前`FB-45/46`源仓未提交改动和用户工作区配置、日志。本轮未提交、推送或同步独立`media`仓库。
+
+
+### FB-48 实例采集时间与更新时间
+
+- 分诊：`openspec-existing`。用户要求把原始`report_payload.timestamp`以`report_time`返回到实例列表项外层，并增加`updated_at`，补全当前第三方展示契约。此前采集时间只在原始报文内，记录更新时间虽已落库但没有映射到响应。
+- 实现：实例`DTO`和服务输出增加`*int64`字段`report_time/updated_at`，控制器直传，均返回`Unix`毫秒数字或显式`null`。采集时间从同批已解码原始报文提取，支持字符串整数及`json.Number`，正数小于`1000000000000`按秒乘`1000`，其余正整数按毫秒；缺失、非正或无法解析返回`null`。`updated_at`复用现有`formatTime`转换数据库更新时间。
+- 数据来源：不以数据库实例`report_time`兜底采集时间，该列可能被流／会话计数事件更新。原始`report_payload.timestamp`保持类型与单位，不删除、不修改；既有列表排序继续使用原投影时间，不改为按新增外层采集时间排序。
+- 契约与生成：新字段显式声明`nullable:true`与`format:int64`，修正生成器对`*int64`自动产生非标准格式的问题。同步双语说明；执行`make ctrl dir=apps/lina-plugins/media/backend`，两生成接口入口无额外差异。
+- 测试：覆盖秒／毫秒、字符串／JSON整数、超过浮点安全范围的整数、缺失、零、负数、非法、溢出及可空更新时间。SQL联动刻意设置晚于机器采样的投影时间，确认不误用；比对实际数据库更新时间。控制器序列化及真实生成OpenAPI验证数字、空值、完整原始报文、可空`integer/int64`和毫秒说明。
+- 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`全量通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`。`OpenSpec`严格校验及两仓差异检查通过。后端可观察接口行为采用上述等价自动化覆盖，无页面或截图需求。
+- `i18n`：插件未启用多语言，新增中文字段说明符合单语言规则。全仓`make i18n.check`仍失败，`1631`项，比此前增加的`2`项均为允许的中文字段说明；日志`temp/20261026/160338-media-instance-times-i18n.log`，不宣称全仓治理通过。
+- 无影响判断：从已读取实体和原始报文装配，无额外数据库查询或`N+1`，无新增存储、迁移、索引、数据写入、缓存、运行期依赖或依赖注入变动；查询范围、权限、宿主、前端和跨平台工具入口均无修改。
+- 审查：按`lina-review`完成主审与独立复核，未发现阻断问题；范围包含本轮`9`个插件文件、`3`个规范记录文件及无差异生成入口。已读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引；插件根目录无本地`AGENTS.md`。使用`lina-feedback`、`lina-review`、`goframe-v2`及现代`Go`指引。
+- 交付：本轮未提交、推送或同步独立仓库；此前未提交功能改动和用户工作区配置、日志均保留。
+
+
+### FB-49 存活节点计数与接收时间索引
+
+- 分诊：`openspec-existing`。用户要求`summary`新增存活节点数，并进一步明确最近`3min`上报即存活、不看`status`；随后希望使用`updated_at`改善语义和查询。最终新增`alive_node_count int64`，使用服务端节点记录更新时间的`[now-3min, now]`闭区间。
+- 实现：保留同一条`SELECT`返回三个标量计数，节点不关联流、不求和`alive_nodes`，无`10000`条上限；参数化`updated_at >= ? AND updated_at <= ?`，一次捕获当前时间。移除本轮早期状态归一和秒／毫秒分支，不依赖客户端采样时间。空数据为`0`，过期、未来和缺失更新时间不计入；近期的`offline`或空状态节点正常计入。
+- 上报时间修复：真实代码核对发现无目的地址网络上报的`Save/OnConflict`显式更新列遗漏`updated_at`，重复上报不会刷新接收时钟。本轮仅将该列加入`OnDuplicate`，值继续由`GoFrame`自动维护。有目的地址路径原有`Update`保持自动时间处理。
+- 数据边界：当前只有网络上报更新节点投影，机器指标仅更新实例表，不能单独延长节点窗口；直接修改节点记录也会影响更新时间。接口、双语说明及设计已经注明服务端更新时间口径。节点总览既有`alive_nodes`状态算法不在本次变更范围，不能把两个接口的判定混为一谈。
+- SQL与性能：当前活跃迭代`003-add-media-data-collection-server.sql`追加`CREATE INDEX IF NOT EXISTS idx_media_report_node_updated_at ON media_report_node(updated_at DESC)`，仅索引DDL，无新字段、种子、演示数据或生成模型变更。已对本地PostgreSQL连续执行两次确认幂等；诊断性关闭顺序扫描后`EXPLAIN`确认该谓词可使用`Index Only Scan`。这是索引可用性验证，没有宣称线上延迟或完成负载压测。部署时需执行新增索引，生产数据库未代执行。
+- 测试：固定时钟服务用例覆盖三分钟前及当前时刻、边界外`1`微秒、状态独立、旧／未来客户端采样时间、真实`0`节点、干扰累计值和超过`10000`节点；测试构造明确通过SQL设置历史更新时间，生产不手工维护时间字段。实际HTTP及OpenAPI验证三字段数值、空值、拒绝访问与文档口径。新增真实PostgreSQL回归先复现无目的地址重复上报时间不刷新，再确认两条网络写入路径均刷新服务端时间，客户端旧采样值保持不变；测试记录全部清理。
+- 验证：最终`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec严格校验和两仓差异检查通过。全仓`make i18n.check`仍失败，`1632`项，其中本轮增加的一项为单语言插件允许的中文字段说明；日志`temp/20261026/163911-media-receive-time-i18n.log`，不宣称全仓门禁通过。
+- 审查：使用`lina-feedback`和`lina-review`，主审及独立复核确认当前聚合、时间刷新、索引与测试无阻塞问题。已重新读取`AGENTS.md`和`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引，使用`goframe-v2`与现代Go指引；插件无本地`AGENTS.md`。
+- 其他影响：沿用媒体平台监控和双鉴权边界，无新增公开入口、租户范围或组织数据权限变化；无缓存、运行期依赖、依赖注入、宿主、前端或跨平台工具修改。后端接口变化有等价自动化覆盖，无页面截图需求。本轮未提交、推送或同步独立仓库，保留此前源仓改动及用户工作区配置和日志。

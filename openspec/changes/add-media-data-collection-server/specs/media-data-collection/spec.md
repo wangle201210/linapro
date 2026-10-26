@@ -334,15 +334,16 @@ AND 后端查询次数不得随返回行数线性增长。
 
 ### Requirement: 提供全局活跃流和会话汇总
 
-`media` MUST 提供受保护的`GET /api/v1/media/dashboard/summary`，无需查询参数，返回`active_stream_count`和`active_session_count`两个整数，供第三方展示全局总量。
+`media` MUST 提供受保护的`GET /api/v1/media/dashboard/summary`，无需查询参数，返回`active_stream_count`、`active_session_count`及`alive_node_count`三个整数，供第三方展示全局总量。
 
 #### Scenario: 精确统计当前未关闭记录
 
 WHEN 已认证调用方读取全局汇总
-THEN 系统 MUST 分别统计流表和会话表中`close_time IS NULL`的记录数
-AND 已关闭记录 MUST 被排除，空表 MUST 返回两个`0`
+THEN 系统 MUST 统计流表中`status=running`且`close_time IS NULL`的流记录数
+AND 会话总数 MUST 仅统计这些运行中流通过`stream_id`关联的未关闭会话；非运行中流、已关闭流和不存在流的会话不得计入
+AND 已关闭记录 MUST 被排除，空表 MUST 返回三个`0`
 AND 总量 MUST 不受列表`10000`条上限、协议分组、实例上报累计计数或节点汇总重复值影响
-AND 两个统计 MUST 在同一条数据库语句中完成，不加载明细或原始报文。
+AND 三个统计 MUST 在同一条数据库语句中完成，不加载明细或原始报文。
 
 #### Scenario: 保持媒体平台监控授权边界
 
@@ -350,3 +351,72 @@ WHEN 调用方请求汇总
 THEN 接口 MUST 声明`media:management:query`并沿用媒体管理接口的既有宿主／铁塔鉴权链
 AND 认证均失败时 MUST 拒绝，不能仅凭`X-Inner-Api-Key`访问
 AND 返回值表示平台监控总量，不按租户筛选，也不作为租户自助接口。
+
+
+### Requirement: 看板查询文档应反映实际筛选与生命周期语义
+
+`media` MUST 在`OpenAPI`中准确说明流列表、会话列表和总量统计的不同范围，保持既有运行时行为。
+
+#### Scenario: 状态和协议与采集映射一致
+
+WHEN 调用方查看流状态筛选及返回字段
+THEN 文档 MUST 列明`universal`、`running`、`inactive`、`error`、`closed`、`timeout`、`cancelled`、`failed`及其含义，并采用`running`示例
+AND 拓扑中的流状态说明 MUST 与同一映射一致
+AND 协议筛选 MUST 列出采集端的标准协议字符串，说明按存储值匹配，不以文档修正新增枚举校验。
+
+#### Scenario: 明确范围和统计口径
+
+WHEN 调用方查看三个接口说明
+THEN 流列表 MUST 说明默认包含未关闭和已关闭记录，状态不传时不筛选
+AND 会话列表 MUST 说明必填`streamId`、只返回`close_time IS NULL`记录，以及明细共享`10000`条上限而分组计数不受该上限影响
+AND 汇总 MUST 明确仅统计`running`且未关闭的流及其未关闭会话，不根据心跳超时判断是否播放
+AND 文档 MUST 说明可选参数默认行为、既有排序和统一响应的`data`位置。
+
+
+### Requirement: 节点和实例网络速率以 Kbps 输出
+
+节点总览和实例列表的展示字段`network_in`、`network_out` MUST 使用`Kbps`，定义为每秒千比特，`1000 bps = 1 Kbps`。
+
+#### Scenario: 输出层统一换算
+
+WHEN 调用方查询`/media/dashboard/nodes/overview`或`/media/dashboard/instances`
+THEN 节点、所有子节点、各节点`instance_resources`及`instance_list`的网络速率 MUST 从已有`KiB/s`投影转换为`Kbps`，换算系数为`1024 × 8 ÷ 1000`
+AND 零值和小数 MUST 保留，不得取整或重复转换
+AND 原始`report_payload`中的同名字段 MUST 保留客户端上报的`bps`值
+AND 磁盘速率、数据库存储和采集写入单位 MUST 保持原有语义，不增加查询或迁移。
+
+
+### Requirement: 实例列表独立返回采集与更新时间
+
+实例列表`instance_list[]` MUST 返回可空的`report_time`和`updated_at`，数值均为`Unix`毫秒时间戳。
+
+#### Scenario: 提取原始采集时间
+
+WHEN 实例具有完整机器上报且`report_payload.timestamp`为有效正整数
+THEN `report_time` MUST 取该原始时间并转换为毫秒，支持`protobuf`字符串整数及`JSON`整数，秒值乘以`1000`，毫秒值保持不变
+AND `report_payload` MUST 保持原始字段及时间值不变
+AND 机器采集时间 MUST 不回退到可能被生命周期计数更新的数据库`report_time`或当前时间。
+
+#### Scenario: 返回更新时间并明确未知值
+
+WHEN 实例列表装配数据
+THEN `updated_at` MUST 使用现有记录的数据库更新时间并转换为毫秒
+AND 缺失、非正或无法解析的原始采集时间 MUST 返回`report_time: null`
+AND 缺失数据库更新时间 MUST 返回`updated_at: null`
+AND 两个字段 MUST 与原始报文及实体同批读取，不增加查询或数据库迁移。
+
+
+### Requirement: 汇总返回存活节点数
+
+`GET /api/v1/media/dashboard/summary` MUST 返回`alive_node_count`，表示全平台上报节点中的存活数量。
+
+#### Scenario: 最近三分钟上报即存活
+
+WHEN 计算存活节点数
+THEN 系统 MUST 按服务端维护的`media_report_node.updated_at`是否位于当前时间前`3`分钟至当前时间的闭区间计数，不依赖客户端采样时间
+AND 节点`status` MUST 不参与判断，近期上报的离线或空状态节点也计入，旧的`healthy`节点不计入
+AND 缺失、超时和未来更新时间 MUST 不计入
+AND 有目的地址和无目的地址的节点网络上报 MUST 都刷新服务端更新时间，迟到采样时间不影响存活判断
+AND 每个节点记录 MUST 只计一次，不得求和各行的`alive_nodes`，不要求节点承载`running`流
+AND 空数据 MUST 返回`0`，总量不受节点树`10000`条上限影响
+AND 三个总量 MUST 在同一条聚合语句中读取，不装配节点树或原始报文。
