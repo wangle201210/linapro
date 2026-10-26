@@ -88,8 +88,31 @@ AND 关闭流和会话仍按现有`30`天清理规则处理，不提供永久历
 WHEN 收到缺少业务键的机器、流或会话报文，或缺少来源和目的地址业务键的网络报文
 THEN 继续遵守无效投影不写入的边界，原始报文存储不作为无效报文归档
 AND 网络链路的原始内容 MUST 与现有采样时间条件更新保持一致，较旧采样不得覆盖较新原始内容
-AND 原始内容 MUST 不进入 HTTP DTO，既有看板批量读取不得无必要地传输完整原始 JSON
+AND 原始内容 MUST 仅通过明确声明返回该数据的受保护 HTTP DTO 暴露，其他聚合及摘要查询不得无必要地传输完整原始 JSON
 AND 写入次数 MUST 保持固定且有界，不按字段或链路跳点逐项写库。
+
+### Requirement: 四类展示查询应返回完整最新上报
+
+`media` MUST 在既有实例、节点网络链路、流和会话查询响应中返回`report_payload`，满足第三方展示完整上报字段的需求，不开发第三方页面或增加重复查询入口。
+
+#### Scenario: 返回完整 JSON 及命令
+
+WHEN 第三方通过既有认证调用四类数据查询
+THEN `/media/dashboard/instances`的`instance_list[]`、`/media/dashboard/nodes/overview`各节点的`network_links[]`、`/media/dashboard/streams`的`stream_list[]`及`/media/dashboard/sessions`的`protocol_list[].active_session_list[]` MUST 返回`report_payload`
+AND `report_payload` MUST 为完整 JSON 对象，保留已有原始字段、完整`extra`、嵌套跳点、零值、枚举数值、大整数及转义空字符，不得返回二次编码的 JSON 字符串
+AND 流和会话对象 MUST 同时返回`report_subcommand`，沿用保存的命令数值，未记录时为`0`
+AND SQL NULL对应的旧记录 MUST 返回`report_payload: null`，不得使用归一化展示字段伪造原始报文
+AND 原始内容中的时间和64位整数 MUST 保留外部 protobuf JSON 原始类型及单位；既有展示时间字段仍保持现有规范化契约。
+
+#### Scenario: 保持查询范围与装配边界
+
+WHEN 四类接口装配返回数据
+THEN 原始内容 MUST 与原记录同批查询，不得逐行额外查询或调用外部服务
+AND 原有查询过滤、权限声明、认证链、会话活跃状态及`10000`条上限 MUST 保持原语义
+AND 节点树中每条原始网络报文 MUST 仍归属于对应来源节点，截断行为不变
+AND 与本次四类列表无关的摘要和拓扑查询 MUST 继续排除不需要的原始 JSON
+AND 流缺少协议摘要时，会话统计和会话明细中的相同协议 MUST 合并为一个分组，不得重复返回会话
+AND 非法或非对象原始内容 MUST 返回明确查询错误，不得静默丢弃字段或伪装成无原始报文。
 
 ### Requirement: 生命周期事件应维护实时计数
 

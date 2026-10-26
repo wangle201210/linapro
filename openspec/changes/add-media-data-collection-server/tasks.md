@@ -15,6 +15,8 @@
 - [x] FB-39 补齐节点总览的原始链路延迟、丢包率、抖动和探测状态，复用实例资源并统一 CPU 核数单位，完成持久化、接口和验证，不计算质量评分或分级。
 - [x] FB-40 修复真实上报中实例标识与业务节点号不一致导致直属资源为零的问题，以唯一最新链路归属批量关联实例，覆盖上报顺序、迁移和冲突。
 - [x] FB-41 核对四类上报全部字段，在既有投影保存完整原始报文和流/会话命令，补齐删除路径与往返一致性验证，记录不能回填的历史边界。
+- [x] FB-42 在现有四类第三方展示查询中返回完整`report_payload`及流/会话上报命令，同步`OpenAPI`并验证空值、精度、嵌套内容和原查询边界。
+- [x] FB-43 修正四类`report_payload`的`OpenAPI`示例类型，使生成示例为真实对象，并补充类型及内容回归验证。
 
 - [x] FB-1 补齐`net-flux` discovery server 端能力，支持按配置接入 Nacos 注册、注销和查询。
 - [x] FB-2 依赖来源检查：collection server 由`media`插件后端持有，在`system.started` hook 中通过宿主`payload.Services().Plugins().Config()`读取插件配置；Nacos discovery client 仅在`collectionServer.discovery.enabled=true`且收到 discovery 命令时由`collection`服务懒加载创建，并随插件上下文结束或注销动作关闭。
@@ -589,3 +591,30 @@
 - 验证：四类型完整fixture的`extra`均增加`before\x00after`，保持 descriptor 全字段检查和`proto.Equal`数据库往返；修改前真实 PostgreSQL 测试失败，类型修复后`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1`全部通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，0 issues；OpenSpec严格校验和两仓差异检查通过。
 - 复核结论：当前`v0.0.21`的89个顶层字段及6个跳点字段均由原始JSON保留，没有再发现本轮保证范围内成功处理却遗漏已定义字段的路径。原始字段不是全部拆成独立 SQL 列，已有看板投影仍保留其显示口径；未知 wire字段、被业务约束拒绝的报文、历史版本和旧数据回填不在保证范围。
 - 治理与范围：再次读取 AGENTS 及后端、数据库、插件、架构、权限、缓存、测试、文档、OpenSpec、i18n和开发工具规则；无新缓存、DI、权限入口或前端变化。独立审查同样确认类型边界修复后限定范围完整。未提交、推送、同步或部署；线上应用前需使用最终JSON类型的迁移。
+
+
+### FB-42 第三方查询返回完整上报
+
+- 分诊：`openspec-existing`。用户明确要求“刚才加的数据都在接口里面返回下”，在本活跃变更中补齐既有四类展示查询，不新增页面或另一套查询入口。
+- 根因：`FB-41`仅补齐原始报文存储；实例、流和会话查询主动排除了原始列，网络链路投影及四类响应`DTO`也未声明原始字段，因此第三方无法读取新增存储内容。
+- 实现：实例列表、节点总览的各级`network_links`、流列表和会话的`active_session_list`统一返回`report_payload`对象；流和会话同时返回`report_subcommand`。未记录原始报文的记录返回`null`，未记录命令返回`0`。完整保留原字段名、嵌套跳点、`extra`、零值、转义字符、枚举值、原始时间单位和`protobuf`64位整数字符串；解码使用`json.Number`避免数字精度损失，非法或非对象内容返回既有查询错误。
+- 契约与文档：更新四个`DTO`、控制器映射、插件自有`OpenAPI`及双语说明。实际生成器将`map[string]any`的属性错误限制为对象，本轮在插件文档构建中修正为允许任意属性值且可空的对象，测试直接验证生成文档。已执行`make ctrl dir=apps/lina-plugins/media/backend`，生成入口与路由定义无额外差异。
+- 关联修复：查询回归发现流没有协议摘要时，同一会话协议会从计数和会话行重复加入分组。补齐计数阶段的已见集合，回归断言每个协议仅返回一组。
+- 性能和权限：原始字段随对应记录同批读取，不增加数据库访问次数或逐项查询；保留既有节点、租户、设备等筛选、`10000`条上限、链路截断标志及鉴权、管理权限声明。会话查询仍必填`streamId`且仅返回活跃会话，不扩大为关闭事件或历史查询。完整报文增加单条响应大小，第三方应使用现有筛选限制返回范围。
+- 边界与无影响判断：所有实现位于`media`插件，插件根目录没有`AGENTS.md`；没有修改宿主、前端、权限入口、采集存储逻辑或独立`media`仓库。没有新增`SQL`、迁移、索引、缓存、运行期依赖或依赖注入变更，也没有开发工具和跨平台入口变化。部署仍需先前完整上报存储迁移，本次返回层不需要额外更新数据库。
+- 测试与质量审查：本轮为后端接口行为变化，执行等价自动化质量审查；数据库查询、控制器映射、响应序列化和实际`OpenAPI`生成覆盖四类成功路径、空值、嵌套字段、命令、数字精度、非法载荷及原查询范围。没有页面变化，不新增浏览器截图或前端`E2E`资产。新增测试各自构造并清理数据，不依赖其他用例。
+- 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`全量通过，覆盖真实`PostgreSQL`存储与关联、查询及接口回归；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`。首次未设置短超时的全量运行在既有`backend`路由测试中等待，终止取栈后，单独`backend`测试及上述有界全量复跑均通过，未确认可复现根因，不将首次运行记为通过。
+- `i18n`：`media`未启用多语言，新增中文`dc`符合单语言插件规则，无需新增翻译资源。已运行全仓`make i18n.check`，因既有治理问题及扫描器仍收集单语言插件中文而失败，共`1626`项，其中本轮新增的`6`项均为上述允许的中文字段说明；不宣称全仓检查通过。日志为`temp/20261026/112700-media-payload-i18n-check.log`。
+- 规则加载：本轮已读取`AGENTS.md`、`.agents/rules/openspec.md`、`documentation.md`、`architecture.md`、`plugin.md`、`data-permission.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`及`.agents/instructions/markdown-format.instructions.md`，使用`lina-feedback`、`lina-review`、`goframe-v2`、`karpathy-guidelines`和`modern-go-guidelines`技能。
+- 审查：按`lina-review`完成主审与独立只读复核，范围包含未跟踪的文档构建测试及代码生成入口；未发现本轮阻塞问题。`openspec validate add-media-data-collection-server --strict`和两仓`git diff --check`通过。保留全仓`i18n`检查失败及首次测试等待的如实记录；本轮未提交、推送或同步独立仓库。
+
+
+### FB-43 OpenAPI 原始报文示例修正
+
+- 分诊：`openspec-existing`。本轮闭环`FB-42`复核发现的文档生成遗漏，补充既有验收，不改变四类接口业务契约。
+- 根因：`GoFrame`对映射字段保留`eg`字符串，此前仅修正`type`、`nullable`和`additionalProperties`，四类`report_payload`示例仍被二次编码为字符串。
+- 修复：在插件自有`applyReportPayloadSchemas`中，将字符串示例转换为`json.RawMessage`后嵌入生成文档，保留原始值与数字表达。示例来自固定`DTO`标签，序列化与类型由回归测试验证，不引入重复解码、额外错误接口或宿主修改。
+- 验证：先补四类实际生成示例的对象类型和源`eg`内容断言，修复前四个子场景全部复现失败；修复后`GOWORK=off go test ./backend/internal/apidoc ./backend -count=1 -timeout=60s`通过，覆盖文档构建及路由。`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；两仓`git diff --check`通过。
+- 影响：本轮只修改插件文档构建和对应测试，无数据库、数据权限、查询装配、缓存、运行期依赖、依赖注入、前端或跨平台工具变化。只修正`eg`的输出编码，不修改文案；`media`仍未启用多语言，且`eg`不参与翻译治理，无新增翻译资源影响。此前全仓`i18n`检查失败仍按`FB-42`记录，不宣称全仓门禁通过。本轮采用实际文档生成的等价自动化验证，无页面截图需求。
+- 规则与审查：本轮重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引；插件根目录无`AGENTS.md`。执行`lina-feedback`与`lina-review`，使用`goframe-v2`和现代`Go`指引；主审与独立复核确认原警告已解决，未发现新增阻塞项。
+- 交付：`openspec validate add-media-data-collection-server --strict`通过；保留既有未提交工作区，本轮未提交、推送或同步独立仓库。
