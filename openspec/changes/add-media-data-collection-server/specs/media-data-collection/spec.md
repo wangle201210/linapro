@@ -330,3 +330,23 @@ AND 不额外引入租户安装态隔离。
 WHEN 任一看板列表接口返回动态结果集
 THEN 接口 MUST 提供数量上限
 AND 后端查询次数不得随返回行数线性增长。
+
+
+### Requirement: 提供全局活跃流和会话汇总
+
+`media` MUST 提供受保护的`GET /api/v1/media/dashboard/summary`，无需查询参数，返回`active_stream_count`和`active_session_count`两个整数，供第三方展示全局总量。
+
+#### Scenario: 精确统计当前未关闭记录
+
+WHEN 已认证调用方读取全局汇总
+THEN 系统 MUST 分别统计流表和会话表中`close_time IS NULL`的记录数
+AND 已关闭记录 MUST 被排除，空表 MUST 返回两个`0`
+AND 总量 MUST 不受列表`10000`条上限、协议分组、实例上报累计计数或节点汇总重复值影响
+AND 两个统计 MUST 在同一条数据库语句中完成，不加载明细或原始报文。
+
+#### Scenario: 保持媒体平台监控授权边界
+
+WHEN 调用方请求汇总
+THEN 接口 MUST 声明`media:management:query`并沿用媒体管理接口的既有宿主／铁塔鉴权链
+AND 认证均失败时 MUST 拒绝，不能仅凭`X-Inner-Api-Key`访问
+AND 返回值表示平台监控总量，不按租户筛选，也不作为租户自助接口。

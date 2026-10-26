@@ -12,6 +12,8 @@
 
 ## Feedback
 
+- [x] FB-44 增加全局活跃流与活跃会话总数查询，使用同一条聚合语句，补齐权限、OpenAPI、边界测试和双语说明。
+
 - [x] FB-39 补齐节点总览的原始链路延迟、丢包率、抖动和探测状态，复用实例资源并统一 CPU 核数单位，完成持久化、接口和验证，不计算质量评分或分级。
 - [x] FB-40 修复真实上报中实例标识与业务节点号不一致导致直属资源为零的问题，以唯一最新链路归属批量关联实例，覆盖上报顺序、迁移和冲突。
 - [x] FB-41 核对四类上报全部字段，在既有投影保存完整原始报文和流/会话命令，补齐删除路径与往返一致性验证，记录不能回填的历史边界。
@@ -618,3 +620,18 @@
 - 影响：本轮只修改插件文档构建和对应测试，无数据库、数据权限、查询装配、缓存、运行期依赖、依赖注入、前端或跨平台工具变化。只修正`eg`的输出编码，不修改文案；`media`仍未启用多语言，且`eg`不参与翻译治理，无新增翻译资源影响。此前全仓`i18n`检查失败仍按`FB-42`记录，不宣称全仓门禁通过。本轮采用实际文档生成的等价自动化验证，无页面截图需求。
 - 规则与审查：本轮重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引；插件根目录无`AGENTS.md`。执行`lina-feedback`与`lina-review`，使用`goframe-v2`和现代`Go`指引；主审与独立复核确认原警告已解决，未发现新增阻塞项。
 - 交付：`openspec validate add-media-data-collection-server --strict`通过；保留既有未提交工作区，本轮未提交、推送或同步独立仓库。
+
+
+### FB-44 全局活跃数量汇总
+
+- 分诊：`openspec-existing`。用户要求增加活跃流总量和活跃会话总量接口，补全本活跃采集变更的第三方查询能力；先更新增量规范、设计和任务，再完成实现。
+- 实现：新增`GET /api/v1/media/dashboard/summary`，无参数，返回`data.active_stream_count`和`data.active_session_count`，均为`int64`。活跃沿用`close_time IS NULL`，空表返回`0`，不根据展示状态或心跳年龄额外过滤。
+- 性能与存储：使用同一条`SELECT`中的两个独立`COUNT(*)`子查询，固定一次数据查询，避免联结放大和两条语句的快照偏移；不加载实体列表、原始报文或实例累计计数，不受`10000`条限制。复用两表的关闭时间索引及活跃部分索引，精确计数扫描成本随匹配记录增长，不宣称常数时间。无新增迁移、索引、生成模型或写入；数据库幂等性和数据分类无新增影响。
+- 权限：接口声明`media:management:query`，沿用`platform_only`媒体管理双鉴权。宿主路径执行现有权限中间件；铁塔路径仍按既有认证回退处理，不声称铁塔调用经过宿主角色授权。用户要求的是全平台监控总量，指标无人员／部门归属，不按租户或组织筛选；拒绝策略由现有双鉴权提供，不新增匿名或内部密钥入口。该边界已同步设计、规范及接口说明。
+- 生成：执行`make ctrl dir=apps/lina-plugins/media/backend`生成接口签名及控制器骨架；生成器附加的重复空构造已移除，既有`media_new.go`恢复无差异，控制器复用原有注入服务。
+- 测试：服务层验证空表、关闭排除、状态不替代关闭标志、多节点／租户、孤立会话、错误不伪装为零及每类超过`10000`条；实际`HTTP`测试验证无参调用、整数形状、关闭后计数变化和双鉴权拒绝。`OpenAPI`测试验证新路径、两个`integer/int64`字段和权限声明。属于后端可观察接口行为，执行等价自动化质量审查，无页面或截图变更。
+- 测试隔离修复：首次全量运行暴露新路由测试的临时`SQLite`默认驱动缓存污染后续测试，已将新测试放入独立测试子进程，未修改旧测试排序或共享 helper；两个新服务测试各自注册`Cleanup`，恢复缺表并清空批量数据。所有本轮副作用由当前测试闭环清理。
+- 验证：最终`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`通过，包含既有真实`PostgreSQL`回归和本轮`SQLite`／`HTTP`／`OpenAPI`用例；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`。`openspec validate add-media-data-collection-server --strict`及两仓差异检查通过。
+- `i18n`：`media`未启用多语言，新接口中文文档符合单语言插件规则，无新增翻译资源要求。全仓`make i18n.check`仍失败，`1629`项，其中本轮增加的`3`项为允许的中文元数据；日志为`temp/20261026/135102-media-summary-i18n.log`。不将既有全仓失败误报为通过。
+- 其他影响：无宿主、前端、缓存一致性、运行期依赖、依赖注入或跨平台工具入口变化；测试隔离使用标准`os/exec`。独立`media`仓库未修改，预存`go.work`、`go.work.sum`和日志保留。本轮不自动提交、推送或同步。
+- 审查：按`lina-review`完成主审与独立复核，审查包含`10`个插件变更文件、`4`个规范记录文件及无差异的生成入口；新测试清理警告已关闭，未发现剩余阻塞项。已读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引，插件根目录无本地`AGENTS.md`；使用`lina-feedback`、`lina-review`、`goframe-v2`、`karpathy-guidelines`与现代`Go`指引。
