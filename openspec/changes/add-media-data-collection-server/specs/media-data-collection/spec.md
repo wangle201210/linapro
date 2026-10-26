@@ -63,6 +63,38 @@ WHEN 上报的`SessionMetric.link_hops`包含链路跳点
 THEN server 端应写入与看板响应一致的`hop_index`、`node_id`和`latency_ms`结构
 AND `total_link_latency`缺省时应由链路跳点延迟求和得到。
 
+### Requirement: 四类上报应完整保留最新有效报文
+
+`media` MUST 在既有实例、网络链路、流和会话投影表中保存未经业务归一化的完整`report_payload`，保证`net-flux v0.0.21`中四类消息的全部已定义字段和嵌套字段可还原。该字段保存最新有效报文，不提供逐次历史归档；既有投影字段仍用于看板查询。
+
+#### Scenario: 保留原始字段和扩展内容
+
+WHEN 收到业务键有效的`MachineMetric`、`NetworkMetric`、`StreamMetric`或`SessionMetric`
+THEN 服务端 MUST 使用`protobuf JSON`保存原始字段名、全部默认值、原始枚举数值、完整`extra`和完整`LinkHop`
+AND `int64`字段 MUST 按 protobuf JSON 规则使用字符串保存，避免大整数精度损失
+AND 原始 ID、单位、宽高、客户端类型和时间值 MUST 在归一化之前保留，不得由看板派生字段反向构造原始报文
+AND 完整内容 MUST 使用 PostgreSQL `JSON`保存，以支持合法原始字符串中的转义`U+0000`，不得因使用`JSONB`而拒绝完整扩展内容
+AND 现有无原始报文的行 MUST 标记为`NULL`，不得伪造历史数据或声称已回填。
+
+#### Scenario: 保存删除事件的完整内容
+
+WHEN 收到有效`STREAM_DELETE`或`SESSION_DELETE`
+THEN 原始报文及`report_subcommand` MUST 保存，包括首次只收到删除事件的资源
+AND 已存在的看板字段 MUST 不因稀疏删除报文而被清空，原有关闭与计数行为继续执行
+AND 关闭流和会话仍按现有`30`天清理规则处理，不提供永久历史保留。
+
+#### Scenario: 写入边界与查询成本
+
+WHEN 收到缺少业务键的机器、流或会话报文，或缺少来源和目的地址业务键的网络报文
+THEN 继续遵守无效投影不写入的边界，原始报文存储不作为无效报文归档
+AND 网络链路的原始内容 MUST 与现有采样时间条件更新保持一致，较旧采样不得覆盖较新原始内容
+AND 原始内容 MUST 不进入 HTTP DTO，既有看板批量读取不得无必要地传输完整原始 JSON
+AND 写入次数 MUST 保持固定且有界，不按字段或链路跳点逐项写库。
+
+### Requirement: 生命周期事件应维护实时计数
+
+`media` MUST 使用共享缓存和既有投影行维护幂等的流、会话实时计数及关闭状态。
+
 #### Scenario: 根据生命周期事件维护实时计数
 
 WHEN server 端收到同一实例的`STREAM_ADD`

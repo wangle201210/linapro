@@ -14,6 +14,7 @@
 
 - [x] FB-39 补齐节点总览的原始链路延迟、丢包率、抖动和探测状态，复用实例资源并统一 CPU 核数单位，完成持久化、接口和验证，不计算质量评分或分级。
 - [x] FB-40 修复真实上报中实例标识与业务节点号不一致导致直属资源为零的问题，以唯一最新链路归属批量关联实例，覆盖上报顺序、迁移和冲突。
+- [x] FB-41 核对四类上报全部字段，在既有投影保存完整原始报文和流/会话命令，补齐删除路径与往返一致性验证，记录不能回填的历史边界。
 
 - [x] FB-1 补齐`net-flux` discovery server 端能力，支持按配置接入 Nacos 注册、注销和查询。
 - [x] FB-2 依赖来源检查：collection server 由`media`插件后端持有，在`system.started` hook 中通过宿主`payload.Services().Plugins().Config()`读取插件配置；Nacos discovery client 仅在`collectionServer.discovery.enabled=true`且收到 discovery 命令时由`collection`服务懒加载创建，并随插件上下文结束或注销动作关闭。
@@ -559,3 +560,32 @@
 - 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1`全量通过，包括 collection 写入并发与 NULL 验证、media 真实 PG 关联及全部 SQLite 回归；`make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec 严格校验和两仓差异检查通过。全仓既有 i18n 问题继续按 FB-39 范围说明保留，不宣称全仓门禁全绿。
 - 审查：按`lina-review`完成主审与独立复核，此前真实数据关联阻塞已解除，未发现新的本轮代码阻塞问题；本轮重新读取的规则域与 FB-39 相同。保持部署前执行 DDL 的要求，同版本替换二进制不会自动完成插件迁移。
 - 提交策略：首个子模块实现提交后发现上述问题，通过后续修复提交补齐，不重写已推送历史；主仓最终指针仅指向修复并验证后的子模块提交。预存白名单、工作区配置和其他变更继续保留。
+
+
+### FB-41 完整最新上报存储
+
+- 分诊：`openspec-existing`。本轮针对既有采集实现的字段遗漏，用户明确选择“保留每个对象的完整最新上报”，不要求逐次历史。逐字段审计见同目录`report-storage-audit.md`，覆盖`26 + 10 + 28 + 25`个顶层字段及`LinkHop`全部`6`个字段。
+- 根因：已有代码只保存看板投影，磁盘容量/耗时/次数、服务器类型、音视频编码、完整`extra`与跳点元数据遗漏；归一化改变部分原始 ID、枚举、宽高、时间、数值精度和默认值。删除事件跳过 upsert，首次只收到删除时没有资源行。
+- 实现：四张既有表增加可空`report_payload JSON`；流/会话增加`report_subcommand INTEGER`。从原始`metric`通过官方`protojson`序列化，使用原字段名、全部默认值和数值枚举；64位整数用字符串保存精度，完整保留`extra`和嵌套跳点。普通上报将 JSON 与原有投影同次写入；网络仍使用同一时间条件拒绝旧报文。
+- 删除路径：先保存完整报文和子命令，再继续原有计数和关闭处理；已有记录只更新原始元数据，稀疏删除不会清空展示字段；首次删除插入时即为关闭状态。计数失败时返回错误但保留完整删除报文，恢复重试仍可完成；未将整个生命周期操作改造成原子事务，也不作该承诺。
+- 查询与性能：实例、流、会话列表及流摘要显式排除原始 JSON，其他拓扑与聚合保留既有明确投影，HTTP DTO不新增原始内容。正常上报没有新增数据库调用，DELETE增加一次固定写入，不随字段或跳点数量增加查询，无新增`N+1`；新列不参与过滤或排序，不额外加索引。
+- 数据库：当前活跃迭代`003-add-media-data-collection-server.sql`追加幂等增列和注释，仅 DDL，无种子或演示数据，不改变主键、软删除或清理语义。新增 DDL 在本地`127.0.0.1`的`PostgreSQL`执行两遍，通过幂等验证；`make dao dir=apps/lina-plugins/media/backend`生成4表对应的12个 DAO/DO/Entity文件，未手改生成代码，无无关生成差异。旧行保持 NULL，原始数据无法从有损投影回填。
+- 运行边界：保留现有业务键和无效报文跳过策略；空目的网络报文不创建完整链路记录，网络较旧采样不覆盖payload。机器/流/会话按到达顺序替换，链路共享相同现有主键时共用一份最新内容。关闭流/会话仍按30天策略清理。JSON保存当前协议已定义字段，不保存未知 wire 字段或逐字节 TCP 帧。
+- 权限与安全边界：原始内容只进入插件自有表，不新增公开原始查询入口或改变租户、平台数据权限；看板DTO不暴露任意`extra`，不会将潜在敏感扩展直接返回前端。
+- 缓存、DI、宿主与跨平台：复用原有宿主共享计数缓存，不改缓存键、TTL、失效或跨实例机制，不新增运行期依赖与构造参数。修改全部限定media插件和OpenSpec，插件根无AGENTS.md，不修改独立media仓库或宿主。未新增开发脚本，DAO沿用既有跨平台生成入口；本轮运行环境为macOS，本地PostgreSQL验证。
+- 文档与i18n：同步双语README和审计记录；不修改API文案、运行时文案、语言包或插件清单，media未启用i18n，无新增翻译资源要求。前端页面和交互不变，后端行为通过真实数据库与协议往返的等价自动化验证，不新增页面E2E或截图。
+- 测试：新增3个测试函数，使用每字段有值的独立fixture、protobuf descriptor字段覆盖检查和`proto.Equal`验证四类型及嵌套JSON往返；覆盖大整数、默认零值、未知枚举、完整extra、非法UTF-8序列化拒绝、正常更新、旧网络报文保护、已有与首次DELETE、计数失败及重试、机器payload不被计数覆盖、未提供payload时保持SQL NULL。PostgreSQL数据使用随机唯一标识并清理。
+- 验证：`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1`全部通过；补充异常断言后再次运行`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./backend/internal/service/collection -count=1`通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，0 issues；OpenSpec严格校验和两仓diff检查通过。
+- 审查：按`lina-review`完成主审与独立审查，覆盖25个本轮文件及未跟踪源码/审计文件，未发现本轮代码阻塞问题。已读取AGENTS及openspec、backend-go、architecture、plugin、database、data-permission、cache-consistency、testing、documentation、i18n、dev-tooling和Markdown格式规则，并应用goframe-v2、Modern Go及最小改动原则。原有go.work/go.work.sum和日志不属于本轮。
+- 独立发现：上游磁盘读写字节为累计计数，既有看板换算后误标速率。本轮完整payload保留原始计数及耗时、次数，显示口径另行处理，审计报告已明确，不据此宣称展示指标完全正确。
+- 交付：本地代码和DDL已验证，尚未提交、推送、同步独立media仓库或修改部署数据库。线上需先执行新增列DDL，再部署后等待新报文。
+
+
+### FB-41 二次完整性复核
+
+- 用户要求再次确认全部字段是否补齐。重新审查四类入口、原始序列化、全部 upsert 更新列、DELETE、计数更新及失败返回，限定保证范围为每个符合既有业务投影约束的对象的完整最新有效报文，不承诺无效键归档或任意协议值绕过数据库字段约束。
+- 新发现并修复：合法`extra`字符串可包含`U+0000`，`protojson`输出合法的转义形式，但 PostgreSQL `JSONB`拒绝，导致已有测试未覆盖的有效原始内容无法入库。已通过只读类型转换 SQL 和真实写入回归复现`unsupported Unicode escape sequence`，不能只依赖普通字段 fixture 判定完整性。
+- 修复：四表`report_payload`改用`JSON`，在同一迭代 SQL 中增加已有原始列转`JSON`的幂等迁移；仅本地执行原始内容增列及类型转换片段两次，确认四列均为`json`、可空。重新运行`make dao dir=apps/lina-plugins/media/backend`，生成层类型仍为字符串，未产生其他表的差异。双语 README、设计、规范和审计报告同步更新。
+- 验证：四类型完整fixture的`extra`均增加`before\x00after`，保持 descriptor 全字段检查和`proto.Equal`数据库往返；修改前真实 PostgreSQL 测试失败，类型修复后`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1`全部通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，0 issues；OpenSpec严格校验和两仓差异检查通过。
+- 复核结论：当前`v0.0.21`的89个顶层字段及6个跳点字段均由原始JSON保留，没有再发现本轮保证范围内成功处理却遗漏已定义字段的路径。原始字段不是全部拆成独立 SQL 列，已有看板投影仍保留其显示口径；未知 wire字段、被业务约束拒绝的报文、历史版本和旧数据回填不在保证范围。
+- 治理与范围：再次读取 AGENTS 及后端、数据库、插件、架构、权限、缓存、测试、文档、OpenSpec、i18n和开发工具规则；无新缓存、DI、权限入口或前端变化。独立审查同样确认类型边界修复后限定范围完整。未提交、推送、同步或部署；线上应用前需使用最终JSON类型的迁移。

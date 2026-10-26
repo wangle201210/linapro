@@ -68,6 +68,16 @@
 
 ## 影响评估
 
+### FB-41 四类上报完整性
+
+逐字段审查发现当前投影仅覆盖看板所需内容，机器磁盘容量和 I/O 耗时/次数、流编码和服务器类型、全部原始`extra`、跳点名称/类型等存在遗漏；单位转换、精度舍入、默认值回退和 ID 合并也无法还原原始值。删除事件跳过 upsert，携带字段和首次 DELETE 数据被丢弃。
+
+本轮按现有最新状态语义补齐，在`media_report_instance`、`plugin_media_report_network_link`、`media_report_stream`和`media_report_session`增加可空`report_payload JSON`，流和会话另存`report_subcommand`。使用`protojson`的`UseProtoNames`、`EmitUnpopulated`和`UseEnumNumbers`保存未归一化的全部已定义字段；64位整数按官方 JSON 规范保留字符串，嵌套跳点和`extra`完整保存。未接收新报文的旧行保持`NULL`，不回填伪造内容；JSON不承诺保留protobuf unknown wire字段，不新增逐条历史或新的采集协议。
+
+正常上报把原始 JSON 与原查询投影一起写入；删除事件先以资源主键保存报文和命令元数据，已有投影不被稀疏删除内容覆盖，再执行既有计数和关闭逻辑，首次删除也保留完整报文。网络记录继续使用已有复合键和时间条件拒绝旧采样；空目的等无效业务键仍按原边界跳过。本轮不改变既有按到达顺序更新的机器、流、会话语义和关闭数据30天清理策略。
+
+归属仍为`media`插件，沿用平台采集服务和受保护看板的数据权限，不新增公开原始报文接口；原始`extra`可能包含业务敏感内容，不透传到看板 DTO。新增列无查询索引需求，常用列表显式排除原始 JSON，不增加每行查询或远程调用。SQL追加在当前活跃迭代`003`中，仅幂等 DDL；使用`make dao`生成模型。不新增服务实例、缓存、宿主能力、前端、业务枚举或运行时文案，`i18n`、DI与跨平台生产工具无新增影响。
+
 ### FB-39 节点原始链路指标
 
 节点总览沿用现有`GET /api/v1/media/dashboard/nodes/overview`，新增每节点`network_links`和响应根节点的`network_links_limited`。新增`plugin_media_report_network_link`最新投影表，使用`node_id + machine_id + source_ip + destination_ip`复合业务键，不使用软删除；该表为采样最新状态，不是业务操作历史。按当前返回子树的节点集合一次性查询，固定`10000`条返回上限并显式报告截断，使用以前导`node_id`组成的业务键索引支撑读取。网络指标不进入业务缓存，写入与查询使用共享数据库；不新增运行期依赖、跨模块契约或宿主修改。
