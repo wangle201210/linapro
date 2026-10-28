@@ -420,3 +420,27 @@ AND 有目的地址和无目的地址的节点网络上报 MUST 都刷新服务�
 AND 每个节点记录 MUST 只计一次，不得求和各行的`alive_nodes`，不要求节点承载`running`流
 AND 空数据 MUST 返回`0`，总量不受节点树`10000`条上限影响
 AND 三个总量 MUST 在同一条聚合语句中读取，不装配节点树或原始报文。
+
+
+### Requirement: 内部接口提供全量节点配置
+
+`media` MUST 仅通过内部接口提供节点管理配置的全量查询，复用节点管理的配置数据源。
+
+#### Scenario: 内部接口查询全量配置
+
+WHEN 调用方访问`GET /api/v1/nodes/all`
+THEN 接口 MUST 在`内部接口`文档分组中提供无分页、无筛选参数的全量节点配置，并按现有内部`API Key`规则验证访问
+AND 响应 MUST 在`data.list`返回节点管理全部字段，按`nodeNum`升序，空数据为`[]`，不返回分页总数
+AND 读取 MUST 复用现有`ListAllNodes`，不能使用采集上报节点树替代配置表。
+
+#### Scenario: 移除看板全量配置入口
+
+WHEN 调用方访问`GET /api/v1/media/dashboard/nodes/all`
+THEN 系统 MUST 返回路由不存在，且`OpenAPI` MUST 不再发布该路径
+AND 原分页管理列表`/api/v1/media/nodes`及采集节点总览`/api/v1/media/dashboard/nodes/overview` MUST 保持原行为。
+
+#### Scenario: 全量返回与数据边界
+
+WHEN 查询已配置节点
+THEN 系统 MUST 完整返回节点编号`0..255`唯一约束范围内的全部配置，不套用分页默认值
+AND 内部入口 MUST 保留平台共享节点配置的授权边界，无逐行关联查询或外部调用。

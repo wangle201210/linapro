@@ -12,6 +12,10 @@
 
 ## Feedback
 
+- [x] FB-51 按最新要求移除看板全量节点配置接口，仅保留内部接口，更新文档并验证路由移除、完整数据和鉴权。
+
+- [x] FB-50 在媒体数据看板新增全量节点配置入口，将既有全量内部查询归入内部接口分组，复用查询并验证完整性和鉴权。
+
 - [x] FB-49 在summary返回全平台存活节点数alive_node_count，按服务端updated_at最近3分钟判断且与status无关，保持单语句聚合并补齐文档和回归。
 
 - [x] FB-48 在实例列表外层返回原始机器采集时间report_time及数据库updated_at，统一Unix毫秒和空值语义，补齐OpenAPI与验证。
@@ -707,3 +711,28 @@
 - 验证：最终`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test ./... -count=1 -timeout=60s`通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec严格校验和两仓差异检查通过。全仓`make i18n.check`仍失败，`1632`项，其中本轮增加的一项为单语言插件允许的中文字段说明；日志`temp/20261026/163911-media-receive-time-i18n.log`，不宣称全仓门禁通过。
 - 审查：使用`lina-feedback`和`lina-review`，主审及独立复核确认当前聚合、时间刷新、索引与测试无阻塞问题。已重新读取`AGENTS.md`和`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及 Markdown 格式指引，使用`goframe-v2`与现代Go指引；插件无本地`AGENTS.md`。
 - 其他影响：沿用媒体平台监控和双鉴权边界，无新增公开入口、租户范围或组织数据权限变化；无缓存、运行期依赖、依赖注入、宿主、前端或跨平台工具修改。后端接口变化有等价自动化覆盖，无页面截图需求。本轮未提交、推送或同步独立仓库，保留此前源仓改动及用户工作区配置和日志。
+
+
+### FB-50 全量节点配置双入口
+
+- 分诊：`openspec-existing`。用户要求节点管理全量数据查询出现在`媒体数据看板`及`内部接口`。原内部全量接口已经存在，但归属`媒体配置`，看板缺少配置查询入口；本轮补齐当前第三方看板查询范围和文档入口。
+- 实现：新增`GET /api/v1/media/dashboard/nodes/all`，归入`媒体数据看板`，复用现有`ListAllNodes`服务与`nodeOutputToItem`；已有`GET /api/v1/nodes/all`归入`内部接口`。两处均返回节点配置表全部`10`字段的`data.list`，按`nodeNum`升序，空数据为`[]`，无需分页或筛选参数。原分页`/media/nodes`保留原行为。
+- 边界：配置节点编号由数据库唯一及`0..255`约束保证至多`256`条，无需人为截断。既有服务有固定多表元数据检查及一次节点数据查询，没有逐行SQL或外部调用。创建／修改人员只作审计，平台共享基础设施配置没有租户或部门归属；新增入口沿用宿主／铁塔双鉴权及`media:management:query`声明，内部入口继续原API Key规则，无新匿名能力。
+- 文档补正：复核发现两个节点DTO的可空时间字段默认生成非标准`*int64`格式，已显式补`nullable:true`与`format:int64`，并说明缺失时为`null`。不修改实际时间值、JSON字段名或序列化行为。双语README及规范同步区分配置数据与采集节点总览。
+- 生成：已执行`make ctrl dir=apps/lina-plugins/media/backend`，生成新接口签名与控制器骨架；清除本次生成器附加的重复空构造，原构造函数无差异。新控制器复用现有依赖注入，无新运行期依赖。
+- 测试：独立测试子进程复用既有SQLite路由fixture，避免GoFrame默认驱动缓存污染；实际HTTP验证两入口空数组、逆序插入`256`节点后完整升序返回、全部字段及毫秒时间一致、可空修改时间、旧分页`10`条／总数`256`、四类缺失或串用凭据拒绝。实际OpenAPI构建验证两个文档分组、管理权限、两种security、无query参数、等价十字段及可空整数时间。属于后端接口可观察行为，执行等价自动化质量审查，无前端页面或截图需求。
+- 验证：`GOWORK=off go test ./... -count=1 -timeout=60s`常规全量通过；最后时间标签修正后`GOWORK=off go test ./backend/internal/apidoc ./backend/api/media/v1 ./backend/api/mediaopen/v1 -count=1 -timeout=60s`通过；最终`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec严格校验及两仓差异检查通过。本轮不涉及SQL写入或迁移，未额外运行真实PostgreSQL可选测试。
+- `i18n`：`media`未启用多语言，新中文元数据符合单语言规则。全仓`make i18n.check`仍失败，`1634`项，其中本轮新增两项为允许的中文接口与列表说明；日志`temp/20261028/091853-media-full-nodes-i18n.log`，不宣称全仓治理通过。
+- 审查：主审及独立`lina-review`复核已覆盖`9`个插件变更文件、未跟踪控制器／DTO／路由测试、`3`个规范文件和无差异生成入口。可空时间schema问题已修正并验证，未发现剩余阻塞。已读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及Markdown格式指引，插件根目录无本地`AGENTS.md`；使用`lina-feedback`、`lina-review`、`goframe-v2`与现代Go指引。
+- 无影响判断：没有新增数据表、索引、写入、缓存、依赖注入、宿主能力、前端或跨平台工具改动；未修改独立media仓库。本轮未提交、推送或同步，预存go.work及日志保留。
+
+### FB-51 仅保留内部全量节点配置入口
+
+- 分诊：`openspec-existing`。用户收窄`FB-50`接口范围，取消`媒体数据看板`中的全量节点配置查询，仅保留`内部接口`。现有实现同时发布两个路径，本轮按新契约删除看板路径，先更新设计与增量规范，再修改实现。
+- 实现：移除`/api/v1/media/dashboard/nodes/all`的请求／响应`DTO`和控制器方法，并执行`make ctrl dir=apps/lina-plugins/media/backend`更新生成接口。生成后的两个接口文件及原控制器构造与本轮前的提交版本一致，无残留路由方法。内部`/api/v1/nodes/all`继续返回完整配置，保留`内部接口`分组、内部密钥鉴权、十字段和可空毫秒时间说明；中英文`README`更新为单入口。
+- 数据权限与性能：沿用平台共享基础设施配置例外、`X-Inner-Api-Key`及显式空密钥配置语义，收窄接口暴露面。没有新增查询或数据装配，内部服务仍以一次业务查询按编号排序，无逐行查询；`0..255`唯一约束限定正常最多`256`条，无需新索引或数据库迁移。
+- 其他影响：无缓存、运行期依赖、依赖注入、宿主能力、前端、开发工具或跨平台脚本改动。移除中文接口文档源文本，`media`未启用`i18n`，无插件多语言资源需要维护。后端接口行为使用真实`HTTP`路由和`OpenAPI`构建自动化验证，无页面截图需求。
+- 测试：保留隔离子进程，更新真实`HTTP`用例验证内部空数组、逆序写入后全部`256`条有序返回、十字段、毫秒及可空时间、与原分页前十项字段值一致；缺失密钥、错误密钥、仅管理凭证均返回`401`，被删除路径在无凭证和两种有效凭证下均返回`404`。实际`OpenAPI`构建验证路径不存在、内部文档分组与密钥头、认证声明、管理分页参数及两个节点模型的可空`int64`时间契约。后端等价自动化覆盖成功与失败路径，质量审查通过；无前端页面或截图验证需求。
+- 验证：`GOWORK=off go test ./... -count=1 -timeout=60s`在插件模块内全量常规测试通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；`openspec validate add-media-data-collection-server --strict`和两仓`git diff --check`通过。无数据库逻辑或迁移变动，未额外运行真实`PostgreSQL`可选测试。
+- `i18n`：运行全仓`make i18n.check`仍因既有治理项失败，源码扫描`1632`项／`186`文件、消息覆盖`15`项、前端键覆盖`1469`项；日志为`temp/20261028/094200-media-internal-nodes-i18n.log`。本轮删除的中文元数据使源码扫描较`FB-50`减少两项，单语言插件无新增翻译要求，不宣称全仓治理通过。
+- 审查：使用`lina-feedback`、`lina-review`、`goframe-v2`和现代`Go`指引；主审及独立复核未发现阻塞问题。已重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及`Markdown`格式指引；插件根目录无本地`AGENTS.md`。审查包括未跟踪测试、删除的入口以及生成后无差异的接口文件和控制器构造。本轮仅修改`linapro`工作区，未提交、推送或同步独立`media`仓库，预存工作区配置和日志保留。
