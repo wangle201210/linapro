@@ -38,12 +38,13 @@ WHEN server 端收到包含有效业务键的`MachineMetric`
 THEN 应将其按实例/容器指标处理并更新`media_report_instance`最新实例投影
 AND `instance_id`为空时应回退使用`machine_id`作为实例/容器业务键
 AND `memory_allocated`和`memory_used`应按`MB`写入
-AND `disk_io_read`、`disk_io_write`、`network_in`和`network_out`应按`KB/S`写入
+AND `net-flux v0.0.25`已计算的`mem_total`、`mem_used`、`disk_read_bytes`、`disk_write_bytes`、`network_in`和`network_out` MUST 按上报原值分别写入`memory_allocated`、`memory_used`、`disk_io_read`、`disk_io_write`、`network_in`和`network_out`，不得再次除以`1024`、`1000`或`8`
+AND 六项资源上报字段为`double`，内存单位为`MB`，磁盘和网络速率单位为`KB/s`；上游字节换算采用`1024`进制，写入既有数值列时仅允许数据库既有精度约束造成的舍入
 AND 不应从`MachineMetric`直接读取或覆盖实例直播流数和会话数。
 
 WHEN server 端收到包含有效业务键的`NetworkMetric`
 THEN 应更新对应节点的网络速率和延迟矩阵字段。
-AND `throughput`写入`network_out`前应按`KB/S`归一化。
+AND `throughput_bps`、`throughput`、`network_out`或`networkOut`中的有效`bps`扩展吞吐量 MUST 除以`8 × 1024`后写入`network_out`，与实例网络存储单位一致；此扩展字段换算不适用于已按`KB/s`上报的六项机器资源字段。
 
 WHEN server 端收到包含有效业务键的`StreamMetric`
 THEN 应更新`media_report_stream`最新流投影。
@@ -65,7 +66,7 @@ AND `total_link_latency`缺省时应由链路跳点延迟求和得到。
 
 ### Requirement: 四类上报应完整保留最新有效报文
 
-`media` MUST 在既有实例、网络链路、流和会话投影表中保存未经业务归一化的完整`report_payload`，保证`net-flux v0.0.21`中四类消息的全部已定义字段和嵌套字段可还原。该字段保存最新有效报文，不提供逐次历史归档；既有投影字段仍用于看板查询。
+`media` MUST 在既有实例、网络链路、流和会话投影表中保存未经业务归一化的完整`report_payload`，保证`net-flux v0.0.25`中四类消息的全部已定义字段和嵌套字段可还原。该字段保存最新有效报文，不提供逐次历史归档；既有投影字段仍用于看板查询。
 
 #### Scenario: 保留原始字段和扩展内容
 
@@ -380,10 +381,10 @@ AND 文档 MUST 说明可选参数默认行为、既有排序和统一响应的`
 #### Scenario: 输出层统一换算
 
 WHEN 调用方查询`/media/dashboard/nodes/overview`或`/media/dashboard/instances`
-THEN 节点、所有子节点、各节点`instance_resources`及`instance_list`的网络速率 MUST 从已有`KiB/s`投影转换为`Kbps`，换算系数为`1024 × 8 ÷ 1000`
+THEN 节点、所有子节点、各节点`instance_resources`及`instance_list`的网络速率 MUST 从原始`KB/s`投影转换为`Kbps`，按上游`1024`字节进制使用换算系数`1024 × 8 ÷ 1000`
 AND 零值和小数 MUST 保留，不得取整或重复转换
-AND 原始`report_payload`中的同名字段 MUST 保留客户端上报的`bps`值
-AND 磁盘速率、数据库存储和采集写入单位 MUST 保持原有语义，不增加查询或迁移。
+AND 原始`report_payload`中的同名字段 MUST 保留客户端上报的`KB/s`值
+AND 内存`MB`和磁盘速率`KB/s` MUST 按已存储的上报值直接输出，不增加查询或迁移。
 
 
 ### Requirement: 实例列表独立返回采集与更新时间

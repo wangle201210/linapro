@@ -53,8 +53,8 @@
 
 | 上报包 | 写入表 | 映射策略 |
 | ------ | ------ | -------- |
-| `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、内存、磁盘、网络、版本和启动时间写入实例最新投影；内存字段统一归一化为`MB`，磁盘和网络速率字段统一归一化为`KB/S`；`live_streams`和`sessions`不由客户端直接上报。 |
-| `NetworkMetric` | `media_report_node`、`plugin_media_report_network_link` | 优先使用`node_id`作为节点业务键，缺省时回退`machine_id`和`source_ip`；吞吐量按`KB/S`归一化，`destination_ip -> rtt`在节点行级锁下合并进`node_latency_map`。另按节点、来源实例、源和目的地址保存完整原始链路指标。 |
+| `MachineMetric` | `media_report_instance` | `instance_id`作为实例业务键，缺省时回退使用`machine_id`承载的容器/实例标识；节点、状态、CPU、版本和启动时间写入实例最新投影；内存`MB`、磁盘和网络`KB/s`六项指标按上报原值保存，不重复单位转换；`live_streams`和`sessions`不由客户端直接上报。 |
+| `NetworkMetric` | `media_report_node`、`plugin_media_report_network_link` | 优先使用`node_id`作为节点业务键，缺省时回退`machine_id`和`source_ip`；可选扩展吞吐量从`bps`换算到`KiB/s`，与实例网络聚合单位一致，`destination_ip -> rtt`在节点行级锁下合并进`node_latency_map`。另按节点、来源实例、源和目的地址保存完整原始链路指标。 |
 | `StreamMetric` | `media_report_stream`、`media_report_instance` | `stream_id`作为流业务键；`tenant_id`、`device_id`、`node_id`、`instance_id`写入租户、设备、节点和实例维度，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；协议、状态、码率、分辨率、帧率、丢包率、延迟、会话摘要和流路径写入最新流投影；`STREAM_ADD`和`STREAM_DELETE`按`stream_id`幂等维护实例实时直播流数量。 |
 | `SessionMetric` | `media_report_session`、`media_report_instance` | `session_id`作为会话业务键；流、租户、设备、客户端、播放协议、播放质量、`node_id`、实例和链路跳点写入会话最新投影，`instance_id`为空时回退使用`machine_id`承载的容器/实例标识；`SESSION_ADD`和`SESSION_DELETE`按`session_id`幂等维护实例实时会话数量。 |
 
@@ -67,6 +67,16 @@
 实例实时流数和会话数的权威运行时来源是宿主共享 cache 中维护的生命周期事件状态：`stream_id -> instance_id`、`session_id -> instance_id`、`instance_id -> live_streams`和`instance_id -> sessions`。源码插件只能通过`cachecap.Service`访问该状态，不能直接依赖宿主私有 Redis、`kvcache`或 coordination 实现；在`cluster.enabled=true`时，该服务由宿主统一切换到 Redis/coordination KV 等共享后端，在单机模式下可继续使用宿主 SQL KV 后端。采集 server 在处理生命周期事件时使用对应流或会话投影行的数据库行级锁串行化同一资源的事件，再更新共享 cache 和实例投影，保证多 Pod 下重复`ADD`、重复`DELETE`和跨实例迁移不会重复增减。cache 是实时计数权威状态，`media_report_instance`中的`live_streams`和`sessions`是供数据看板读取的最新投影；若共享 cache 写入失败，当前上报处理返回错误并保留下一次生命周期事件重试恢复的路径。
 
 ## 影响评估
+
+### FB-52 新版采集协议与原值存储
+
+`media`依赖按用户最终要求升级到`net-flux v0.0.25`，保留`github.com/dellinger2023/net-flux`模块和导入路径，通过`replace`从`github.com/dellinger2026/net-flux v0.0.25`获取源码。相较原`v0.0.21`，新版机器协议将内存、磁盘速率、磁盘耗时及网络速率共八个字段改为`double`；客户端已将内存计算为`MB`、磁盘和网络差分计算为`KB/s`、磁盘耗时从毫秒转为秒。按用户最新要求，实例投影的两项内存、两项磁盘速率及两项网络吞吐量均使用上报数字直接赋值，不进行再次除以`1024`、`1000`或`8`等处理。
+
+`v0.0.25`机器网络速率已是按`1024`字节进制计算的`KB/s`，不再采用`v0.0.24`的`bps`单位。公开看板既定`Kbps`契约保留，仅在控制器输出边界乘以`1024 × 8 ÷ 1000`；内存和磁盘字段直接输出。节点`NetworkMetric.extra`中的可选扩展吞吐量仍按其`bps`约定除以`8 × 1024`，保证节点兜底、实例直属资源和子树聚合单位一致；此独立元数据换算不改变六项机器指标原值存储。旧换算函数和孤立常量移除，示例采集工具改用新版上报单位，机器指标日志适配浮点类型，原始`report_payload`继续由新版协议完整序列化。
+
+字段编号未变但机器协议的八个字段从`varint`变为`fixed64`，采集客户端和服务端必须按新版协议配套升级，不增加旧版解析或单位猜测。既有数据库数值列及其两位小数约束保留，不改写历史记录；旧投影在后续新上报时刷新。无新增数据库查询、迁移、缓存、跨模块契约、运行期服务实例或依赖注入路径。权限边界沿用原平台采集和看板授权，不新增数据可见范围。插件未启用多语言，本轮不新增用户界面、接口文案或翻译资源。工具仅调整Go结构体示例数字和单位，不新增操作系统依赖；通过插件测试及Windows、Linux交叉编译验证。
+
+验证覆盖新版浮点字段的协议往返、六项原值入库、计数事件不覆盖资源、节点吞吐量单位归一化兜底、节点／子节点／直属资源和实例接口的十进制网络展示、完整原始报文。采用后端写入与实际DTO映射的等价自动化验证，无页面交互或截图变更。
 
 ### FB-50／FB-51 全量节点配置内部入口
 
@@ -94,9 +104,9 @@
 
 ### FB-47 网络速率输出单位
 
-用户要求节点总览和实例列表的`network_in/network_out`按`Kbps`返回，采用十进制`1000 bps = 1 Kbps`。现有采集将`bps`除以`8 × 1024`保存为`KiB/s`投影，因此在插件控制器的`DTO`映射层乘以`8.192`，覆盖根节点／子节点汇总、直属`instance_resources`和实例行。换算在聚合完成后执行一次，不原地修改服务输出，不引入额外数据库查询。
+用户要求节点总览和实例列表的`network_in/network_out`按`Kbps`返回，采用十进制`1000 bps = 1 Kbps`。按后续`FB-52`原值存储要求，采集将网络上报的`KB/s`直接保存，因此在插件控制器的`DTO`映射层乘以`1024 × 8 ÷ 1000`，覆盖根节点／子节点汇总、直属`instance_resources`和实例行。换算在聚合完成后执行一次，不原地修改服务输出，不引入额外数据库查询。
 
-保持采集、数据库、原始报文、磁盘速率和查询范围不变，无迁移、索引、缓存或权限变动；`report_payload`中的原始网络字段仍为`bps`。`OpenAPI`明确`Kbps`及`1000`进制，双语文档同步更新。通过固定物理量、零值、小数、子节点和原始报文保真断言验证输出，防止仅修改单位文字或误用`×8`。
+数据库结构、原始报文、磁盘展示单位和查询范围不变，无迁移、索引、缓存或权限变动；`report_payload`中的原始机器网络字段为`KB/s`。`OpenAPI`明确`Kbps`及`1000`进制，双语文档同步更新。通过固定物理量、零值、小数、子节点和原始报文保真断言验证输出，防止重复单位换算。
 
 ### FB-44 全局活跃数量汇总
 

@@ -12,6 +12,8 @@
 
 ## Feedback
 
+- [x] FB-52 升级`net-flux v0.0.25`并替换迁移后的仓库来源，六项内存、磁盘和网络指标原值入库，适配浮点协议及网络展示换算并补齐回归。
+
 - [x] FB-51 按最新要求移除看板全量节点配置接口，仅保留内部接口，更新文档并验证路由移除、完整数据和鉴权。
 
 - [x] FB-50 在媒体数据看板新增全量节点配置入口，将既有全量内部查询归入内部接口分组，复用查询并验证完整性和鉴权。
@@ -736,3 +738,18 @@
 - 验证：`GOWORK=off go test ./... -count=1 -timeout=60s`在插件模块内全量常规测试通过；`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；`openspec validate add-media-data-collection-server --strict`和两仓`git diff --check`通过。无数据库逻辑或迁移变动，未额外运行真实`PostgreSQL`可选测试。
 - `i18n`：运行全仓`make i18n.check`仍因既有治理项失败，源码扫描`1632`项／`186`文件、消息覆盖`15`项、前端键覆盖`1469`项；日志为`temp/20261028/094200-media-internal-nodes-i18n.log`。本轮删除的中文元数据使源码扫描较`FB-50`减少两项，单语言插件无新增翻译要求，不宣称全仓治理通过。
 - 审查：使用`lina-feedback`、`lina-review`、`goframe-v2`和现代`Go`指引；主审及独立复核未发现阻塞问题。已重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`database.md`、`testing.md`、`i18n.md`、`documentation.md`及`Markdown`格式指引；插件根目录无本地`AGENTS.md`。审查包括未跟踪测试、删除的入口以及生成后无差异的接口文件和控制器构造。本轮仅修改`linapro`工作区，未提交、推送或同步独立`media`仓库，预存工作区配置和日志保留。
+
+
+### FB-52 新版采集协议与六项原值存储
+
+- 分诊：`openspec-existing`。本轮修正现有采集读模型的单位契约，继续使用`add-media-data-collection-server`。按用户最终要求将目标版本从`v0.0.24`调整为`v0.0.25`，继续完成已经授权的提交推送。
+- 根因：原服务依赖`net-flux v0.0.21`，按字节和`bps`再次换算内存、磁盘与网络。`v0.0.25`已将两项内存、两项磁盘速率、两项磁盘耗时及两项网络速率共八个协议字段改为`double`，客户端直接输出内存`MB`、磁盘和网络`KB/s`、耗时秒。旧处理存在重复换算和类型不匹配；用户明确六项资源指标都必须原值入库。
+- 实现：升级`require github.com/dellinger2023/net-flux v0.0.25`，保留模块导入名并以`replace`指向`github.com/dellinger2026/net-flux v0.0.25`，同步校验和。六个实例投影直接使用上报数字，删除孤立的机器单位换算函数及常量。`v0.0.25`网络字段从上一版`bps`改为`KB/s`，公开网络`Kbps`输出在控制器边界使用`1024 × 8 ÷ 1000`，覆盖根、子节点、直属资源和实例。独立节点吞吐量扩展字段仍从其`bps`元数据换算为`KiB/s`，保证兜底与聚合单位一致，不适用于六项机器资源字段。同步浮点日志、示例工具和双语说明。
+- 协议与数据：上述八个机器字段相较`v0.0.21`从整数`varint`变为`double/fixed64`，要求采集端与服务端配套升级，不引入旧协议猜测。`report_payload`完整保留新版小数，未变更类型的计数和时间继续验证大整数精度。既有数值列两位小数约束不变，无DDL、DAO生成、历史数据改写或迁移；旧投影在下一次上报时刷新。
+- 测试：`TestNormalizeMachineMetricBuildsInstanceReport`和`TestReportRuntimePersistsMetrics`覆盖六项带小数原值、真实PostgreSQL回读、计数事件不覆盖资源及节点扩展吞吐量单位归一化。`TestReportPayloadPersistencePostgres`验证新版网络浮点字段及完整原始报文落库；`TestDashboardNetworkRatesUseDecimalKilobits`验证零、小数、固定物理量、根／子节点、直属资源、实例输出和原始KB/s报文保留。采用后端写入与DTO映射的等价自动化验证，无页面交互或截图需求。
+- 验证：最终`v0.0.25`在插件模块内运行`GOWORK=off go test -p 1 ./... -count=1`全量通过；显式启用`LINAPRO_TEST_POSTGRES=1`后，上述两项真实PostgreSQL落库测试通过。`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；示例工具在`GOOS=windows`和`GOOS=linux`、`GOARCH=amd64`下交叉编译通过，macOS由全量测试编译验证。初次并发验证因本机磁盘空间不足在链接阶段失败，清理本轮旧临时构建产物后串行重跑通过；不宣称已在Windows或Linux实际运行。OpenSpec严格校验及两仓差异检查通过。
+- 影响与边界：只修改`media`插件及所属OpenSpec记录，无框架宿主、插件能力契约、路由、鉴权、数据权限范围、查询次数或索引变化，无`N+1`新增路径。沿用平台采集和受保护看板边界。依赖来源迁移和协议升级不创建新的运行期服务、缓存或DI路径，计数仍复用启动期共享缓存。插件未启用多语言，无运行时文案、API文案、语言包或翻译缓存变更，无`i18n`影响。工具只改Go示例数值，无平台专属调用或脚本变化。
+- 规则：已读取`AGENTS.md`、`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`cache-consistency.md`、`dev-tooling.md`、`documentation.md`、`i18n.md`及Markdown格式指引；插件根目录无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`和现代Go指引，独立代理核对新版协议并更新原值测试。
+- 附加依赖检查：`go list -m -json`已确认最终旧模块路径`v0.0.25`替换为`dellinger2026/net-flux v0.0.25`及正确校验和。此前额外执行的`GOWORK=off go mod verify`因本地替换模块`lina-core v0.0.0`缺少缓存`ziphash`失败，不宣称模块级完整校验通过，不修改宿主或模块缓存绕过检查。
+- 审查：最终`v0.0.25`已完成`lina-review`主审及独立复核，覆盖十二个插件文件、三个规范文件和展开后的未跟踪状态。六项原值、节点扩展吞吐量、网络输出单位、浮点协议、示例与双语文档一致，最新验证覆盖充分，未发现阻塞问题，严重零项、警告零项。
+- 交付范围：按用户要求仅提交本轮采集适配、测试、说明和规范，以及主仓库的子模块指针。根目录预存`go.work`、`go.work.sum`和日志保留在本地；独立`media`仓库不在本轮推送范围。
