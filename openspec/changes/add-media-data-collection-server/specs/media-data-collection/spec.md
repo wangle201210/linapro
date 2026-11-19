@@ -273,7 +273,8 @@ AND 仅返回`close_time`为空的活跃会话明细
 AND 按`protocol_type`聚合当前查询范围内未关闭会话数并组装`protocol_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
-AND `active_session_list[].play_duration` MUST 直接返回已保存的客户端时长，包括零值，拓扑中的播放时长使用相同原值
+AND `active_session_list[].play_duration` MUST 在返回时按服务端当前时间减去`start_time`计算整秒，设备拓扑中的播放时长使用同一规则
+AND 组装会话返回值时 MUST 就地读取当前时间，不通过查询和分组调用链逐层传递时间参数；开始时间缺失、非正或在未来时返回`0`，不回退到上报时长、不使用关闭时间，并且不回写数据库
 AND `link_hops`应直接由`media_report_session.link_hops`解析得到
 AND `total_link_latency` MUST 直接返回读模型中的客户端上报值，包括零值，不使用`link_hops[].latency_ms`求和覆盖。
 
@@ -377,7 +378,7 @@ AND 文档 MUST 说明可选参数默认行为、既有排序和统一响应的`
 
 ### Requirement: 客户端度量指标原值输出
 
-采集入库与看板输出 MUST 保留客户端已计算的度量数值及单位。标准`net-flux v0.0.25`的内存使用`MB`，磁盘和网络速率使用`KB/s`，CPU使用率保留百分比数字。
+采集入库与看板输出 MUST 保留客户端已计算的度量数值及单位。会话`play_duration`按后续专门规则在查询返回时计算；标准`net-flux v0.0.25`的内存使用`MB`，磁盘和网络速率使用`KB/s`，CPU使用率保留百分比数字。
 
 #### Scenario: 输出层原值传递
 

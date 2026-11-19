@@ -12,6 +12,8 @@
 
 ## Feedback
 
+- [x] FB-54 会话列表和设备拓扑返回时按当前时间减StartTime计算play_duration，统一整秒和无效时间边界，保持上报存储与其他指标不变。
+
 - [x] FB-53 清理采集和看板输出中的度量换算及重算，CPU、网络、时长和链路总延迟保留客户端原值，同步接口单位、说明和回归。
 
 - [x] FB-52 升级`net-flux v0.0.25`并替换迁移后的仓库来源，六项内存、磁盘和网络指标原值入库，适配浮点协议及网络展示换算并补齐回归。
@@ -770,3 +772,17 @@
 - `i18n`：插件未启用多语言，无宿主UI、语言包或翻译键变化，中文API元数据按单语言规则维护。已执行全仓`GOWORK=off make i18n.check`，仍失败于既有源码、消息和前端键治理项，源码扫描`1632`项／`186`文件，并包含未修改CMS前端的`zh-TW`缺失键；日志为`temp/20261119/100150-media-raw-metrics-od7zxwv2/i18n-check.log`。不宣称全仓治理通过，不将本轮扩大为无关翻译修复。
 - 规则与审查：已重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`backend-go.md`、`api-contract.md`、`architecture.md`、`plugin.md`、`testing.md`、`frontend-ui.md`、`i18n.md`、`documentation.md`、`data-permission.md`、`cache-consistency.md`、`dev-tooling.md`、`database.md`及Markdown指引；插件无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`，主审及独立复核覆盖十七个插件文件与三个规范文件，未发现本轮阻塞问题或警告。全仓i18n基线失败按插件单语言边界单独记录，不作为本轮翻译资源缺口。
 - 交付范围：按用户要求提交并推送本轮十七个插件文件、三个规范文件及主仓库子模块指针。预存`go.work`、`go.work.sum`和日志保留在本地，两个工作区文件哈希与任务开始时一致；独立`media`仓库不在本轮推送范围。
+
+
+### FB-54 接口返回时计算会话播放时长
+
+- 分诊：`openspec-existing`。用户在原值存取后明确指定`play_duration`为查询输出例外，返回时使用当前时间减`StartTime`；本轮继续追加到现有采集变更，先更新规范和设计。
+- 根因：此前会话列表和设备拓扑均直接返回数据库保存的客户端播放时长，缺少新上报时该展示值不增长。按新要求改为输出映射时计算经过的整秒。
+- 实现：两处会话映射直接调用`dashboardPlaybackDuration(StartTime, time.Now())`；按用户追加意见，不沿查询、分组和树形装配层层传递当前时间，原有调用链签名不变。包内纯函数只处理差值与整秒截断，开始时间缺失、非正、等于当前时间或在未来时返回零；不回退到上报播放时长，不使用关闭时间冻结计算。
+- 数据边界：仅调整查询响应，不新增或修改写入、表结构、SQL、DAO、实体或缓存。上报`play_duration`及原始报文继续按客户端值保存，流`duration`、总延迟、其他资源指标、生命周期计数及聚合逻辑保持本轮前行为。会话列表和设备拓扑仍按既有条件查询未关闭会话，权限、过滤、上限和数据库访问次数不变，不产生`N+1`。
+- 文档：双语说明同步记录查询计算规则和存储边界。公开API字段和`dc`不修改，仍只说明会话播放时长及秒单位，不加入实现过程；无API结构或前端页面变化，无多语言资源或用户文案变动。无新增运行期依赖、DI、框架宿主、开发工具或跨平台脚本影响。
+- 测试：`TestDashboardPlaybackDuration`以固定时间覆盖`185.9`秒截断为`185`、不同时区的同一时刻、空开始时间、Go零时间、零时间戳、相等及未来时间，以及查询时间推进。实际两处映射使用调用前后时间范围验证即时计算，确认忽略库内`17`或`0`及关闭时间，且不改变其他上报指标。实际列表和拓扑服务回归验证每条会话时长，列表查询前后读取数据库实体完全一致，包含原播放时长、更新时间和payload。使用后端查询与响应映射的等价自动化验证，无页面截图需求。
+- 验证：最终四项定向测试通过；简化时间传递后的`GOWORK=off go test -p 1 ./... -count=1`插件全量通过，包含后端、API、OpenAPI、控制器和采集包。最终`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；OpenSpec严格校验及两仓`git diff --check`通过。本轮不改持久化或查询条件，已有SQLite回读已验证查询不写库，不重复执行真实PostgreSQL写入测试。
+- 规则：本轮读取`AGENTS.md`、`.agents/rules/openspec.md`、`backend-go.md`、`testing.md`、`api-contract.md`、`plugin.md`、`architecture.md`、`data-permission.md`、`documentation.md`、`i18n.md`及Markdown指引；插件根无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`。没有新增查询、缓存、权限、租户边界、运行期依赖、DI或工具变化，确认相应无影响。插件未启用多语言，本轮也不改API文案或语言包，不重新运行全仓既有失败的i18n治理。
+- 审查：最终使用处读取当前时间的简化版本已通过`lina-review`主审和独立复核，覆盖五个插件文件、三个规范文件及未跟踪状态。没有逐层传递时间参数，公式、无效时间边界、只读行为和文档一致，未发现阻塞问题，严重零项、警告零项。
+- 交付范围：按用户要求提交并推送本轮五个插件文件、三个规范文件及主仓库子模块指针。预存`go.work`、`go.work.sum`和日志保留在本地，工作区文件哈希与任务开始时一致；独立`media`仓库不在本轮推送范围。
