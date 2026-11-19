@@ -40,11 +40,12 @@ AND `instance_id`为空时应回退使用`machine_id`作为实例/容器业务�
 AND `memory_allocated`和`memory_used`应按`MB`写入
 AND `net-flux v0.0.25`已计算的`mem_total`、`mem_used`、`disk_read_bytes`、`disk_write_bytes`、`network_in`和`network_out` MUST 按上报原值分别写入`memory_allocated`、`memory_used`、`disk_io_read`、`disk_io_write`、`network_in`和`network_out`，不得再次除以`1024`、`1000`或`8`
 AND 六项资源上报字段为`double`，内存单位为`MB`，磁盘和网络速率单位为`KB/s`；上游字节换算采用`1024`进制，写入既有数值列时仅允许数据库既有精度约束造成的舍入
+AND `cpu_load` MUST 直接保存`cpu_usage`上报的百分比数字，不按`cpu_count`换算已用核数
 AND 不应从`MachineMetric`直接读取或覆盖实例直播流数和会话数。
 
 WHEN server 端收到包含有效业务键的`NetworkMetric`
 THEN 应更新对应节点的网络速率和延迟矩阵字段。
-AND `throughput_bps`、`throughput`、`network_out`或`networkOut`中的有效`bps`扩展吞吐量 MUST 除以`8 × 1024`后写入`network_out`，与实例网络存储单位一致；此扩展字段换算不适用于已按`KB/s`上报的六项机器资源字段。
+AND `throughput_bps`、`throughput`、`network_out`或`networkOut`中的有效扩展吞吐量 MUST 仅解析数值后原值写入`network_out`，不得依据键名进行单位换算；上报端负责与标准机器网络指标使用一致单位。
 
 WHEN server 端收到包含有效业务键的`StreamMetric`
 THEN 应更新`media_report_stream`最新流投影。
@@ -57,12 +58,12 @@ THEN 应更新`media_report_session`最新会话投影。
 AND `client_type`应按`1-mobile`、`2-pc`、`0-未知`枚举值存储
 AND 应写入`device_id`作为会话所属设备业务标识，支持后续按设备维度统计。
 
-WHEN 上报的`StreamMetric`或`SessionMetric`缺少可由服务端推导的时长字段
-THEN server 端应根据`start_time`和`timestamp`计算`duration`或`play_duration`。
+WHEN 上报`StreamMetric`或`SessionMetric`的时长指标
+THEN server 端 MUST 原值保存`duration`或`play_duration`，包括零值，不得根据`start_time`或`timestamp`重新计算。
 
 WHEN 上报的`SessionMetric.link_hops`包含链路跳点
 THEN server 端应写入与看板响应一致的`hop_index`、`node_id`和`latency_ms`结构
-AND `total_link_latency`缺省时应由链路跳点延迟求和得到。
+AND `total_link_latency` MUST 原值保存，包括零值，不根据链路跳点求和补算。
 
 ### Requirement: 四类上报应完整保留最新有效报文
 
@@ -227,7 +228,7 @@ AND `reachable`缺省或无法解析时 MUST 返回`null`，不得把未上报�
 AND 链路查询 MUST 在数据库侧限定到当前返回子树的节点，按稳定顺序一次性最多返回`10000`条，截断时在响应根节点设置`network_links_limited=true`
 AND 每个节点现有`cpu_allocated`、`cpu_load`、内存、磁盘和网络资源字段 MUST 继续通过实例投影批量聚合，供调用方按途经节点读取资源，不得逐节点查询实例
 AND `instance_resources` MUST 单独返回当前节点直属实例的资源汇总和实例数量，不包含子节点，防止路径读取时重复计算子树资源
-AND `MachineMetric.cpu_usage`百分比 MUST 按分配核数转换为`cpu_load`已用核数，确保实例与节点资源口径一致
+AND `MachineMetric.cpu_usage`百分比 MUST 原值保存为`cpu_load`；直属实例和子树汇总仅累加原始指标，不换算已用核数或计算加权利用率
 AND 本次 MUST NOT 计算质量评分、质量分级、候选路径排序或综合资源负载百分比。
 
 #### Scenario: 关联上报节点标识不同的实例资源
@@ -258,7 +259,7 @@ AND 返回`source_type`、`source_id`和`stream_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
 AND `source_type + source_id`筛选应映射到`node_id`或`instance_id`数据库字段，不依赖已删除的`media_report_stream.source_id`
-AND `stream_list[].duration`应通过`start_time`计算；若`close_time`不为空则计算`close_time - start_time`，否则计算当前时间与`start_time`的差值
+AND `stream_list[].duration` MUST 直接返回已保存的客户端时长，包括零值，不根据开始、关闭或当前时间重新计算
 AND `protocol_summary`应直接由`media_report_stream.protocol_summary`解析得到
 AND `protocol_count`和`total_sessions_lifetime`应优先由`protocol_summary`聚合计算，缺少协议摘要时才回退使用读模型字段
 AND `current_active_sessions`和`protocol_summary[].current_sessions`应由`close_time`为空的`media_report_session`活跃会话投影聚合计算。
@@ -272,9 +273,9 @@ AND 仅返回`close_time`为空的活跃会话明细
 AND 按`protocol_type`聚合当前查询范围内未关闭会话数并组装`protocol_list`
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
-AND `active_session_list[].play_duration`应通过`start_time`计算；若`close_time`不为空则计算`close_time - start_time`，否则计算当前时间与`start_time`的差值
+AND `active_session_list[].play_duration` MUST 直接返回已保存的客户端时长，包括零值，拓扑中的播放时长使用相同原值
 AND `link_hops`应直接由`media_report_session.link_hops`解析得到
-AND `total_link_latency`应优先由`link_hops[].latency_ms`求和，缺少链路跳点时才回退使用读模型字段。
+AND `total_link_latency` MUST 直接返回读模型中的客户端上报值，包括零值，不使用`link_hops[].latency_ms`求和覆盖。
 
 #### Scenario: 查询视频网关服务监测拓扑
 
@@ -374,17 +375,19 @@ AND 汇总 MUST 明确仅统计`running`且未关闭的流及其未关闭会话�
 AND 文档 MUST 说明可选参数默认行为、既有排序和统一响应的`data`位置。
 
 
-### Requirement: 节点和实例网络速率以 Kbps 输出
+### Requirement: 客户端度量指标原值输出
 
-节点总览和实例列表的展示字段`network_in`、`network_out` MUST 使用`Kbps`，定义为每秒千比特，`1000 bps = 1 Kbps`。
+采集入库与看板输出 MUST 保留客户端已计算的度量数值及单位。标准`net-flux v0.0.25`的内存使用`MB`，磁盘和网络速率使用`KB/s`，CPU使用率保留百分比数字。
 
-#### Scenario: 输出层统一换算
+#### Scenario: 输出层原值传递
 
 WHEN 调用方查询`/media/dashboard/nodes/overview`或`/media/dashboard/instances`
-THEN 节点、所有子节点、各节点`instance_resources`及`instance_list`的网络速率 MUST 从原始`KB/s`投影转换为`Kbps`，按上游`1024`字节进制使用换算系数`1024 × 8 ÷ 1000`
+THEN 节点、所有子节点、各节点`instance_resources`及`instance_list`的资源指标 MUST 直接返回已保存的原值或既有业务汇总值，不执行百分比、核数、字节或比特单位换算
 AND 零值和小数 MUST 保留，不得取整或重复转换
 AND 原始`report_payload`中的同名字段 MUST 保留客户端上报的`KB/s`值
-AND 内存`MB`和磁盘速率`KB/s` MUST 按已存储的上报值直接输出，不增加查询或迁移。
+AND 内存`MB`、磁盘和网络速率`KB/s` MUST 按已存储的上报值直接输出，不增加查询或迁移
+AND 时间戳的序列化、生命周期计数及节点、协议聚合 MUST 保持原有业务职责，不属于客户端单项度量值换算。
+AND 公开API的`dc` MUST 只描述业务含义和单位，不描述原值传递、换算或内部汇总实现；处理细节保留在源码注释和技术说明中。
 
 
 ### Requirement: 实例列表独立返回采集与更新时间

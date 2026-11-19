@@ -12,6 +12,8 @@
 
 ## Feedback
 
+- [x] FB-53 清理采集和看板输出中的度量换算及重算，CPU、网络、时长和链路总延迟保留客户端原值，同步接口单位、说明和回归。
+
 - [x] FB-52 升级`net-flux v0.0.25`并替换迁移后的仓库来源，六项内存、磁盘和网络指标原值入库，适配浮点协议及网络展示换算并补齐回归。
 
 - [x] FB-51 按最新要求移除看板全量节点配置接口，仅保留内部接口，更新文档并验证路由移除、完整数据和鉴权。
@@ -753,3 +755,18 @@
 - 附加依赖检查：`go list -m -json`已确认最终旧模块路径`v0.0.25`替换为`dellinger2026/net-flux v0.0.25`及正确校验和。此前额外执行的`GOWORK=off go mod verify`因本地替换模块`lina-core v0.0.0`缺少缓存`ziphash`失败，不宣称模块级完整校验通过，不修改宿主或模块缓存绕过检查。
 - 审查：最终`v0.0.25`已完成`lina-review`主审及独立复核，覆盖十二个插件文件、三个规范文件和展开后的未跟踪状态。六项原值、节点扩展吞吐量、网络输出单位、浮点协议、示例与双语文档一致，最新验证覆盖充分，未发现阻塞问题，严重零项、警告零项。
 - 交付范围：按用户要求仅提交本轮采集适配、测试、说明和规范，以及主仓库的子模块指针。根目录预存`go.work`、`go.work.sum`和日志保留在本地；独立`media`仓库不在本轮推送范围。
+
+
+### FB-53 客户端度量指标原值存取
+
+- 分诊：`openspec-existing`。用户明确客户端已完成指标计算，要求采集存储和接口输出都使用其结果，并清理已有换算逻辑；本轮更新现有采集规范和设计，不保留被覆盖的`Kbps`输出契约。
+- 根因：六项机器资源虽已原值存储，仍残留CPU百分比转已用核数、可选网络扩展吞吐量缩放和控制器网络单位换算。采集端还会补算缺省时长及总延迟，查询端会按当前时间和跳点覆盖已有客户端指标。
+- 实现：`cpu_load`直接使用`cpu_usage`，扩展吞吐量只解析数字后保存，不按键名推断单位。删除`dashboardNetworkKbps`及六处调用，资源映射直接赋值；标准机器资源保持内存`MB`、磁盘和网络`KB/s`。删除时长差分和跳点总延迟补算函数，流时长、会话播放时长及总延迟直接存取，包括零值；拓扑播放时长同步直接读取。示例工具显式上报时长并使用一致单位的扩展吞吐量。
+- 公开文档：按用户追加要求，资源及相关时长`dc`只描述业务含义和单位，不写原值传递、换算移除或内部汇总过程；这些细节记录在源码注释、双语技术说明和本规范中。CPU字段说明为使用率百分比，节点和直属资源说明为合计；网络字段说明为`KB/s`。API字段、类型、路由和权限不变，仅元数据更新，通过实际OpenAPI构建验证，无控制器方法或接口签名生成差异。
+- 边界：保留时间戳秒／毫秒序列化、业务标识和枚举适配、分辨率结构映射、生命周期计数、协议分组和节点聚合。既有协议计数缺省逻辑不属于本轮度量换算清理，不宣称所有业务统计字段都逐条来自客户端。CPU合计累加客户端利用率数字，不表示加权总体利用率。扩展吞吐量的单位一致性由上报端负责；即使已有键名带单位后缀也不进行单位转换。
+- 数据与性能：无表结构、SQL、DAO生成、数据权限范围、索引或历史回填变动；数据库既有两位小数精度约束保留，旧投影随下一次有效上报刷新。读取保持批量装配和既有查询次数，不新增`N+1`、远程调用、缓存或DI路径；沿用平台采集和受保护看板边界，不修改框架宿主或独立`media`仓库。
+- 测试：更新`TestNormalizeMachineMetricBuildsInstanceReport`、`TestNormalizeStreamMetricPreservesReportedDuration`、`TestNormalizeSessionMetricPreservesReportedDurationAndLatency`及`TestDashboardPreservesClientMeasurements`，覆盖CPU、网络零值和小数、客户端时长与时间差不一致、客户端总延迟与跳点之和不一致及零值保留。`TestDashboardNetworkRatesPreserveReportedValues`覆盖根／子节点／直属资源及实例输出；`TestReportRuntimePersistsMetrics`验证实际PostgreSQL中的CPU、资源、时长和零延迟，计数事件不覆盖资源。`TestBuildDashboardReportedMetricUnits`验证最终公开CPU百分比、网络`KB/s`及数值类型；API文档不依赖处理过程措辞断言。无看板前端消费或页面交互变化，采用后端写入、DTO和实际文档生成的等价自动化验证，无截图需求。
+- 验证：插件内`GOWORK=off go test -p 1 ./... -count=1`通过；最终公开`dc`精简后，API和OpenAPI包再次通过。显式启用`LINAPRO_TEST_POSTGRES=1`运行两项真实落库测试通过。最终`GOWORK=off make lint dir=apps/lina-plugins/media`通过，`0 issues`；示例工具Windows和Linux的`amd64`交叉编译通过，本机macOS由全量测试编译覆盖，不宣称跨平台实际运行。OpenSpec严格校验及两仓差异检查通过。
+- `i18n`：插件未启用多语言，无宿主UI、语言包或翻译键变化，中文API元数据按单语言规则维护。已执行全仓`GOWORK=off make i18n.check`，仍失败于既有源码、消息和前端键治理项，源码扫描`1632`项／`186`文件，并包含未修改CMS前端的`zh-TW`缺失键；日志为`temp/20261119/100150-media-raw-metrics-od7zxwv2/i18n-check.log`。不宣称全仓治理通过，不将本轮扩大为无关翻译修复。
+- 规则与审查：已重新读取`AGENTS.md`、`.agents/rules/openspec.md`、`backend-go.md`、`api-contract.md`、`architecture.md`、`plugin.md`、`testing.md`、`frontend-ui.md`、`i18n.md`、`documentation.md`、`data-permission.md`、`cache-consistency.md`、`dev-tooling.md`、`database.md`及Markdown指引；插件无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`，主审及独立复核覆盖十七个插件文件与三个规范文件，未发现本轮阻塞问题或警告。全仓i18n基线失败按插件单语言边界单独记录，不作为本轮翻译资源缺口。
+- 交付范围：按用户要求提交并推送本轮十七个插件文件、三个规范文件及主仓库子模块指针。预存`go.work`、`go.work.sum`和日志保留在本地，两个工作区文件哈希与任务开始时一致；独立`media`仓库不在本轮推送范围。
