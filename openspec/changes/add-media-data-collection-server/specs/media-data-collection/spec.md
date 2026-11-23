@@ -256,6 +256,7 @@ AND 不应通过逐实例回查节点配置表装配展示字段。
 WHEN 管理端按`source_type + source_id`、`tenant_id`、`device_id`、`node_id`、`instance_id`、状态或关键词查询流列表
 THEN 服务端应在数据库查询阶段过滤、排序并最多读取`10000`条`media_report_stream`
 AND 返回`source_type`、`source_id`和`stream_list`
+AND 每个`stream_list[]` MUST 返回字符串`node_id`，取对应`media_report_stream.node_id`；未记录节点时返回空字符串，保留`"0"`等已保存标识，不从请求`source_id`或原始报文推断
 AND 响应`data`不得返回`total`
 AND 请求参数不得包含`pageNum`或`pageSize`
 AND `source_type + source_id`筛选应映射到`node_id`或`instance_id`数据库字段，不依赖已删除的`media_report_stream.source_id`

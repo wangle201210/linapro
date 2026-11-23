@@ -39,6 +39,7 @@
 - [x] FB-41 核对四类上报全部字段，在既有投影保存完整原始报文和流/会话命令，补齐删除路径与往返一致性验证，记录不能回填的历史边界。
 - [x] FB-42 在现有四类第三方展示查询中返回完整`report_payload`及流/会话上报命令，同步`OpenAPI`并验证空值、精度、嵌套内容和原查询边界。
 - [x] FB-43 修正四类`report_payload`的`OpenAPI`示例类型，使生成示例为真实对象，并补充类型及内容回归验证。
+- [x] FB-55 流列表逐条返回已保存的字符串`node_id`，补齐服务、响应映射、接口文档和节点标识回归验证。
 
 - [x] FB-1 补齐`net-flux` discovery server 端能力，支持按配置接入 Nacos 注册、注销和查询。
 - [x] FB-2 依赖来源检查：collection server 由`media`插件后端持有，在`system.started` hook 中通过宿主`payload.Services().Plugins().Config()`读取插件配置；Nacos discovery client 仅在`collectionServer.discovery.enabled=true`且收到 discovery 命令时由`collection`服务懒加载创建，并随插件上下文结束或注销动作关闭。
@@ -786,3 +787,18 @@
 - 规则：本轮读取`AGENTS.md`、`.agents/rules/openspec.md`、`backend-go.md`、`testing.md`、`api-contract.md`、`plugin.md`、`architecture.md`、`data-permission.md`、`documentation.md`、`i18n.md`及Markdown指引；插件根无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`。没有新增查询、缓存、权限、租户边界、运行期依赖、DI或工具变化，确认相应无影响。插件未启用多语言，本轮也不改API文案或语言包，不重新运行全仓既有失败的i18n治理。
 - 审查：最终使用处读取当前时间的简化版本已通过`lina-review`主审和独立复核，覆盖五个插件文件、三个规范文件及未跟踪状态。没有逐层传递时间参数，公式、无效时间边界、只读行为和文档一致，未发现阻塞问题，严重零项、警告零项。
 - 交付范围：按用户要求提交并推送本轮五个插件文件、三个规范文件及主仓库子模块指针。预存`go.work`、`go.work.sum`和日志保留在本地，工作区文件哈希与任务开始时一致；独立`media`仓库不在本轮推送范围。
+
+
+### FB-55 流列表返回节点标识
+
+- 分诊：`openspec-existing`。流列表需要返回所属节点，既有`media_report_stream.node_id`已持久化；服务输出、响应DTO和控制器映射遗漏该字段。本轮补全既有看板契约，不新增存储能力。
+- 方案：每个`stream_list[]`增加字符串`node_id`，从同批已查询实体逐条传递；空值为`""`，标识`"0"`原样保留，不从请求`source_id`、实例或原始报文推断，不新增查询或`N+1`。公开字段说明仅描述节点业务含义。
+- 边界：沿用现有`platform_only`媒体平台监控、管理双鉴权和`media:management:query`，报表投影无人员／部门归属，沿用既有组织数据权限例外；仅为同一可见记录补节点字段，查询条件、范围、排序和`10000`条上限不变，不新增放行入口。没有数据库迁移、DAO生成、写入、缓存、运行期依赖或DI变更，没有宿主、前端页面或跨平台工具改动。
+- 文档与语言：同步双语README和现有增量规范。`media/plugin.yaml`未启用`i18n`，新增中文API字段说明按单语言插件规则维护，不新增翻译资源。
+- 验证计划：复用数据库列表、控制器序列化及实际OpenAPI自动化验证，覆盖多节点、实例来源、空字符串和`"0"`；第三方响应字段补全无仓库内页面消费者，采用上述接口层等价自动化验证，无页面截图需求。执行`make ctrl`、插件全量测试、`make lint`及OpenSpec严格校验后记录结果。
+- 实现：API的`DashboardStreamItem`、服务输出和`buildDashboardStreamItemWithCounts`、控制器`dashboardStreamToDTO`完成字段传递，新增中文`dc/eg`。`make ctrl dir=apps/lina-plugins/media/backend`成功生成两个接口入口，生成文件与原版无差异；未修改任何DAO、DO、Entity或SQL。
+- 验证：新增`TestDashboardStreamsPreserveStoredNodeIDs`通过SQLite回读普通节点、空字符串和`"0"`，同一实例来源下逐条保留节点，与冲突`report_payload.node_id`独立；扩展既有查询测试验证节点／实例来源区分，控制器JSON测试验证三类字符串与snake_case，实际OpenAPI生成测试验证`node_id`为`string`。定向四项全部通过；最终`GOWORK=off go test -p 1 ./... -count=1`插件全量通过（服务包`5.275s`），`GOWORK=off make lint dir=apps/lina-plugins/media`通过且`0 issues`，两仓差异检查和OpenSpec严格校验通过。没有数据库写入逻辑变化，不重复运行真实PostgreSQL写入测试。
+- 规则域结论：本轮读取`AGENTS.md`及`.agents/rules/openspec.md`、`architecture.md`、`data-permission.md`、`plugin.md`、`api-contract.md`、`backend-go.md`、`testing.md`、`i18n.md`、`documentation.md`和Markdown指引；插件根目录无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`。仅为已有可见流新增节点字段，沿用既有平台监控权限例外及查询范围。无缓存一致性、数据库结构、依赖注入、宿主能力、前端或开发工具跨平台影响；单语言插件无翻译资源影响，未运行全仓既有失败的`i18n`扫描，新增字段由实际OpenAPI自动化校验。
+- E2E质量：本轮为第三方HTTP字段补全，已审查数据库回读、控制器实际响应序列化和OpenAPI生成三层等价自动化断言；覆盖有值、空值、真实零标识、不同来源及冲突原始报文，不新增仓库内页面或端到端工作流，无浏览器截图需求。
+- 交付范围：按用户本轮`push`授权提交并推送八个插件文件、三个OpenSpec文件及主仓库子模块引用；用户追加授权同步独立`media`仓库，按源仓验证后同步的顺序交付。预存`go.work`、`go.work.sum`和日志保持不变。
+- 审查：按`lina-review`完成主审与独立只读复核，覆盖八个插件文件、三个OpenSpec文件及两个无差异生成入口；确认字段来源、字符串序列化、权限边界、单语言文档、无新增查询及等价自动化覆盖，未发现阻塞问题，严重零项、警告零项。

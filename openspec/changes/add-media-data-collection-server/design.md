@@ -170,3 +170,10 @@
 - 数据权限影响：扩展既有受保护节点总览接口，不新增公开读取入口。采集 server 写入插件自有基础设施投影；链路查询在数据库阶段按返回节点集合过滤，平台监控边界及例外依据见`FB-39`。
 - 开发工具跨平台影响：不新增或修改 LinaPro 脚本、Makefile、CI 或`linactl`入口；外部`net-flux`协议代码按其现有`go generate ./...`入口生成，该入口依赖`protoc`。
 - 数据库影响：本变更维护`media_report_node`、`media_report_node_snapshot`、`media_report_instance`、`media_report_stream`和`media_report_session`读模型；`FB-39`新增符合完整插件前缀的`plugin_media_report_network_link`表，并使用独立 DAO 生成配置维护可空布尔字段。
+
+
+### FB-55 流列表节点标识
+
+`GET /api/v1/media/dashboard/streams`在每个`stream_list[]`返回字符串`node_id`，直接由已查询的`media_report_stream.node_id`经服务输出和控制器DTO映射得到。空节点返回`""`，`"0"`保留为字符串；不以请求`source_id`或原始报文替代，所以实例来源和跨节点列表也能逐条识别所属节点。
+
+此能力属于`media`插件的看板响应适配，无新抽象、查询、关联回查、缓存、依赖注入或存储变更，无`N+1`和数据库迁移。保留既有查询范围、排序、`10000`条上限、平台监控数据权限例外与管理双鉴权，不新增组织权限例外或公开入口。插件未启用`i18n`，字段使用中文说明并同步双语README。测试从数据库回读到DTO及OpenAPI覆盖节点字符串、空值和实际零标识；无前端页面或跨平台工具变更。
