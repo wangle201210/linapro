@@ -55,7 +55,7 @@ AND 应写入`device_id`作为流所属设备业务标识，支持后续按设�
 
 WHEN server 端收到包含有效业务键的`SessionMetric`
 THEN 应更新`media_report_session`最新会话投影。
-AND `client_type`应按`1-mobile`、`2-pc`、`0-未知`枚举值存储
+AND `client_type` MUST 按协议字符串原样保存和返回，包括空字符串、数字字符串、大小写、首尾空白和自定义类型，不映射为整数枚举
 AND 应写入`device_id`作为会话所属设备业务标识，支持后续按设备维度统计。
 
 WHEN 上报`StreamMetric`或`SessionMetric`的时长指标

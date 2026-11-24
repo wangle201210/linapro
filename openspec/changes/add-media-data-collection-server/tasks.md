@@ -40,6 +40,7 @@
 - [x] FB-42 在现有四类第三方展示查询中返回完整`report_payload`及流/会话上报命令，同步`OpenAPI`并验证空值、精度、嵌套内容和原查询边界。
 - [x] FB-43 修正四类`report_payload`的`OpenAPI`示例类型，使生成示例为真实对象，并补充类型及内容回归验证。
 - [x] FB-55 流列表逐条返回已保存的字符串`node_id`，补齐服务、响应映射、接口文档和节点标识回归验证。
+- [x] FB-56 将会话`client_type`恢复为协议字符串原样存取，移除整数映射，补齐数据库、生成模型、会话和拓扑响应及验证，不回填老数据。
 
 - [x] FB-1 补齐`net-flux` discovery server 端能力，支持按配置接入 Nacos 注册、注销和查询。
 - [x] FB-2 依赖来源检查：collection server 由`media`插件后端持有，在`system.started` hook 中通过宿主`payload.Services().Plugins().Config()`读取插件配置；Nacos discovery client 仅在`collectionServer.discovery.enabled=true`且收到 discovery 命令时由`collection`服务懒加载创建，并随插件上下文结束或注销动作关闭。
@@ -802,3 +803,19 @@
 - E2E质量：本轮为第三方HTTP字段补全，已审查数据库回读、控制器实际响应序列化和OpenAPI生成三层等价自动化断言；覆盖有值、空值、真实零标识、不同来源及冲突原始报文，不新增仓库内页面或端到端工作流，无浏览器截图需求。
 - 交付范围：按用户本轮`push`授权提交并推送八个插件文件、三个OpenSpec文件及主仓库子模块引用；用户追加授权同步独立`media`仓库，按源仓验证后同步的顺序交付。预存`go.work`、`go.work.sum`和日志保持不变。
 - 审查：按`lina-review`完成主审与独立只读复核，覆盖八个插件文件、三个OpenSpec文件及两个无差异生成入口；确认字段来源、字符串序列化、权限边界、单语言文档、无新增查询及等价自动化覆盖，未发现阻塞问题，严重零项、警告零项。
+
+
+### FB-56 客户端类型字符串原样存取
+
+- 分诊：`openspec-existing`。用户要求上报字段保持协议原值，确认`SessionMetric.client_type`是字符串；既有服务和数据库按旧看板枚举设计归并为整数，丢失自定义类型、大小写与空白。本轮纠正这一存储和接口契约，使用`lina-feedback`，按用户最新要求不回填或恢复老数据。
+- 方案：`media_report_session.client_type`采用`TEXT NOT NULL DEFAULT ''`，移除SQL中的整数CASE转换及Go整数枚举；采集直接保存`GetClientType()`。生成Entity和会话列表、设备拓扑的服务及API字段均为`string`，JSON保留空字符串，原始报文仍完整保留。
+- SQL：更新当前活跃迭代的`003-add-media-data-collection-server.sql`，仅DDL，字段类型必要变更使用直接文本类型转换，不读取原始报文回填、不恢复数字枚举含义、不增加历史兼容分支。默认值、非空约束和注释同步；重复执行须保留已上报的字符串，不能重新映射。没有新表、自增主键、软删除、时间维护或索引需求，现有查询不按客户端类型筛选，不增加查询或`N+1`。
+- 权限和依赖：沿用平台采集及既有`platform_only`媒体监控、管理双鉴权与`media:management:query`；投影无人员／部门归属，沿用既有数据权限例外，同一可见记录的类型修正不扩大查询。无缓存、一致性、运行期依赖、DI、宿主、前端页面或跨平台工具变动。
+- 文档与测试：单语言插件未启用`i18n`，API文案仅描述客户端类型业务含义，不公开内部转换说明；同步双语README、数据看板说明及审计记录。使用采集字符串保真、真实PostgreSQL写入回读、SQLite列表／拓扑、控制器JSON和OpenAPI类型的等价自动化验证，无页面截图需求；不验证历史恢复。
+- 实现与生成：采集直接赋值`metric.GetClientType()`，删除`normalizeSessionClientType`和两处整数枚举；会话／设备拓扑服务、API、生成Entity均为`string`。本地PostgreSQL直接执行本迭代`003`DDL作为定向初始化，避免无关宿主／插件全量初始化；随后`make dao dir=apps/lina-plugins/media/backend`与`make ctrl dir=apps/lina-plugins/media/backend`成功。所有配置表生成文件和两个API入口无差异，只有会话Entity类型及DAO／DO注释变化。
+- 数据库验证：隔离schema事务中执行完整`003`，插入`pc`、`web`、带大小写和空白的自定义类型、数字字符串、空字符串及默认值，再次执行完整SQL后断言列为`text`、所有字符串和默认空值未改变；最终回滚清理。验证仅覆盖新数据及幂等，不做老数据恢复。SQL为纯DDL，无Seed／Mock／回填DML、自增ID或软删除时间操作。既有数据库部署前需执行同文件中`client_type`列类型、默认值与注释变更。
+- 自动化：新增采集归一、服务会话和拓扑、控制器JSON、实际OpenAPI四项回归，覆盖空、数字字符串、`mobile/pc/web`、大小写、空白及自定义值；既有PostgreSQL写入验证`web`不变，完整报文回归断言带空白自定义类型入库及稀疏删除后仍保留。`LINAPRO_TEST_POSTGRES=1 GOWORK=off go test -p 1 ./... -count=1 -timeout=90s`全量通过（采集包`3.337s`、服务包`6.313s`），`GOWORK=off make lint dir=apps/lina-plugins/media`通过且`0 issues`。生成、静态检索、两仓差异检查及OpenSpec严格校验通过。
+- 规则与影响：已读取顶层`AGENTS.md`及`openspec`、`architecture`、`data-permission`、`plugin`、`api-contract`、`backend-go`、`database`、`testing`、`documentation`、`i18n`规则和Markdown指引；插件根无本地`AGENTS.md`。使用`lina-feedback`、`goframe-v2`、现代Go指引和`lina-review`。查询范围和访问次数不变，平台监控权限例外有既有设计依据，无缓存、DI、跨平台工具、宿主或前端UI影响。单语言插件无翻译资源影响，OpenAPI类型由自动化覆盖，不重跑全仓既有失败的i18n扫描。
+- E2E质量：本轮属于HTTP字段类型行为修复，采集／真实数据库／服务列表与拓扑／控制器JSON／生成文档构成等价自动化路径；无仓库内页面消费者或新工作流，不需要浏览器截图。用户预存忽略文件`数据看板字典.md/.xlsx`不是本次交付内容，跟踪的`数据看板.md`、双语README及存储审计修正已更新。
+- 交付范围：按用户本轮`push`及“然后同步到media”授权，先提交并推送源插件与主仓库记录，再将验证后的二十个插件文件同步、验证并推送独立`media`仓库。老数据不回填，生产数据库不代执行DDL；预存`go.work`、`go.work.sum`和日志保持不变。
+- 审查：`lina-review`主审及独立只读复核通过，覆盖二十个插件文件、四个OpenSpec文件和两个无差异生成入口，核对三个会话生成文件为工具产出；字符串全程保真、空值、SQL幂等、权限及测试证据完整，未发现阻塞问题，严重零项、警告零项。
